@@ -2,9 +2,8 @@ import { useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
-import { Pager } from "../components/Pager";
+import { DataTable, type Column } from "../components/DataTable";
 import { cmd, type Argv } from "../lib/cli";
-import { orderBy, usePagination } from "../lib/pagination";
 import type { ComposeService, StackPlanRow } from "../lib/types";
 
 // Camada declarativa (§E): Stacks e Compose. Ambos pedem CONTEXTO por CAMINHO
@@ -86,7 +85,13 @@ function StacksPanel() {
 
   const all = rows ?? [];
   const changes = all.filter((r) => r.changed).length;
-  const page = usePagination(orderBy(all, (r) => `${r.kind}/${r.name}`));
+
+  const columns: Column<StackPlanRow>[] = [
+    { key: "kind", header: "Kind", cellClassName: "muted" },
+    { key: "name", header: "Nome", truncate: true, width: 240, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "action", header: "Ação", render: (r) => <Chip tone={actionTone(r.action)}>{r.action}</Chip> },
+    { key: "diffs", header: "Diffs", cellClassName: "mono muted", render: (r) => r.diffs || "—" },
+  ];
 
   return (
     <div style={{ padding: "14px 24px 0" }}>
@@ -111,28 +116,20 @@ function StacksPanel() {
 
       <div className="split">
         <div className="primary">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Kind</th><th>Nome</th><th>Ação</th><th>Diffs</th></tr></thead>
-              <tbody>
-                {rows === null && (
-                  <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Indica um manifesto e clica <b>Planear</b> para ver o que um <span className="mono">apply</span> faria.</td></tr>
-                )}
-                {rows !== null && page.total === 0 && (
-                  <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Nada a aplicar — a máquina já corresponde ao manifesto.</td></tr>
-                )}
-                {page.items.map((r) => (
-                  <tr key={`${r.kind}/${r.name}`}>
-                    <td className="muted">{r.kind}</td>
-                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{r.name}</td>
-                    <td><Chip tone={actionTone(r.action)}>{r.action}</Chip></td>
-                    <td className="mono muted">{r.diffs || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <DataTable<StackPlanRow>
+            columns={columns}
+            rows={all}
+            getKey={(r) => `${r.kind}/${r.name}`}
+            tieBreak={(r) => `${r.kind}/${r.name}`}
+            searchPlaceholder="Pesquisar recurso, kind ou ação…"
+            searchLabel="Pesquisar plano"
+            searchText={(r) => `${r.kind} ${r.name} ${r.action}`}
+            empty={
+              rows === null
+                ? <>Indica um manifesto e clica <b>Planear</b> para ver o que um <span className="mono">apply</span> faria.</>
+                : <>Nada a aplicar — a máquina já corresponde ao manifesto.</>
+            }
+          />
           {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
         </div>
 
@@ -205,7 +202,13 @@ function ComposePanel() {
   };
 
   const all = rows ?? [];
-  const page = usePagination(orderBy(all, (s) => s.service || s.name));
+
+  const columns: Column<ComposeService>[] = [
+    { key: "service", header: "Serviço", truncate: true, width: 180, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 }, render: (s) => s.service || "—" },
+    { key: "name", header: "Container", truncate: true, width: 200, cellClassName: "mono muted" },
+    { key: "image", header: "Imagem", truncate: true, width: 240, cellClassName: "muted" },
+    { key: "status", header: "Estado", render: (s) => <Chip tone={/run|up/i.test(s.status) ? "ok" : "neu"} dot>{s.status}</Chip> },
+  ];
 
   return (
     <div style={{ padding: "14px 24px 0" }}>
@@ -228,28 +231,20 @@ function ComposePanel() {
 
       <div className="split">
         <div className="primary">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Serviço</th><th>Container</th><th>Imagem</th><th>Estado</th></tr></thead>
-              <tbody>
-                {rows === null && (
-                  <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Indica um ficheiro compose e clica <b>Ver serviços</b>.</td></tr>
-                )}
-                {rows !== null && page.total === 0 && (
-                  <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Nenhum serviço deste projeto está de pé. Usa <b>Subir</b>.</td></tr>
-                )}
-                {page.items.map((s) => (
-                  <tr key={s.name || s.service}>
-                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{s.service || "—"}</td>
-                    <td className="mono muted">{s.name}</td>
-                    <td className="muted">{s.image}</td>
-                    <td><Chip tone={/run|up/i.test(s.status) ? "ok" : "neu"} dot>{s.status}</Chip></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <DataTable<ComposeService>
+            columns={columns}
+            rows={all}
+            getKey={(s) => s.name || s.service}
+            tieBreak={(s) => s.service || s.name}
+            searchPlaceholder="Pesquisar serviço, container ou imagem…"
+            searchLabel="Pesquisar serviços"
+            searchText={(s) => `${s.service} ${s.name} ${s.image} ${s.status}`}
+            empty={
+              rows === null
+                ? <>Indica um ficheiro compose e clica <b>Ver serviços</b>.</>
+                : <>Nenhum serviço deste projeto está de pé. Usa <b>Subir</b>.</>
+            }
+          />
           {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
         </div>
 

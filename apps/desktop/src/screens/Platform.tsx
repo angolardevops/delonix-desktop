@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
-import { Pager } from "../components/Pager";
+import { DataTable, type Column } from "../components/DataTable";
 import { Chip, CliHint, ErrorNote, PageHead, Planned } from "../components/ui";
 import { cmd, type Argv } from "../lib/cli";
 import { useResource } from "../lib/hooks";
-import { orderBy, usePagination } from "../lib/pagination";
+import type { ClusterRow } from "../lib/types";
 
 export function Workspaces() {
   const { client } = useApp();
@@ -155,7 +155,16 @@ export function Kubernetes() {
   };
 
   const rows = data ?? [];
-  const page = usePagination(orderBy(rows, (c) => c.name));
+
+  const columns: Column<ClusterRow>[] = [
+    { key: "name", header: "Nome", truncate: true, width: 200, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "mode", header: "Modo", render: (c) => <Chip tone={c.mode === "vm" ? "inf" : "neu"}>{c.mode || "—"}</Chip> },
+    { key: "state", header: "Estado", render: (c) => <Chip tone={c.state === "up" ? "ok" : "warn"} dot>{c.state || "—"}</Chip> },
+    { key: "controlPlanes", header: "CP", cellClassName: "mono muted", render: (c) => c.controlPlanes || "—" },
+    { key: "workers", header: "Workers", cellClassName: "mono muted", render: (c) => c.workers || "—" },
+    { key: "apiPort", header: "API", cellClassName: "mono muted", render: (c) => c.apiPort || "—" },
+    { key: "k8sVersion", header: "K8s", cellClassName: "mono muted", render: (c) => c.k8sVersion || "—" },
+  ];
 
   return (
     <>
@@ -168,34 +177,21 @@ export function Kubernetes() {
       {error && <ErrorNote error={error} />}
       <div className="split">
         <div className="primary">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Nome</th><th>Modo</th><th>Estado</th><th>CP</th><th>Workers</th><th>API</th><th>K8s</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
-              <tbody>
-                {page.total === 0 && (
-                  <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem clusters — cria um com <span className="mono">delonix cluster create</span>.</td></tr>
-                )}
-                {page.items.map((c) => (
-                  <tr key={c.name}>
-                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{c.name}</td>
-                    <td><Chip tone={c.mode === "vm" ? "inf" : "neu"}>{c.mode || "—"}</Chip></td>
-                    <td><Chip tone={c.state === "up" ? "ok" : "warn"} dot>{c.state || "—"}</Chip></td>
-                    <td className="mono muted">{c.controlPlanes || "—"}</td>
-                    <td className="mono muted">{c.workers || "—"}</td>
-                    <td className="mono muted">{c.apiPort || "—"}</td>
-                    <td className="mono muted">{c.k8sVersion || "—"}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <div style={{ display: "inline-flex", gap: 4 }}>
-                        <button className="btn sm" type="button" disabled={busy} onClick={() => void showText(cmd.clusterHealth(c.name), `cluster health ${c.name}`)}>Saúde</button>
-                        <button className="btn sm" type="button" disabled={busy} onClick={() => void showText(cmd.clusterKubeconfig(c.name), `kubeconfig ${c.name}`)}>Kubeconfig</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <DataTable<ClusterRow>
+            columns={columns}
+            rows={rows}
+            getKey={(c) => c.name}
+            searchPlaceholder="Pesquisar cluster, modo ou versão…"
+            searchLabel="Pesquisar clusters"
+            searchText={(c) => `${c.name} ${c.mode} ${c.state} ${c.k8sVersion}`}
+            empty={<>Sem clusters — cria um com <span className="mono">delonix cluster create</span>.</>}
+            actions={(c) => (
+              <>
+                <button className="btn sm" type="button" disabled={busy} onClick={() => void showText(cmd.clusterHealth(c.name), `cluster health ${c.name}`)}>Saúde</button>
+                <button className="btn sm" type="button" disabled={busy} onClick={() => void showText(cmd.clusterKubeconfig(c.name), `kubeconfig ${c.name}`)}>Kubeconfig</button>
+              </>
+            )}
+          />
           {out && (
             <section className="section" style={{ marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

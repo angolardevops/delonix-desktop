@@ -84,6 +84,47 @@ tr:hover td { background: var(--side); }
 tr.sel td { background: var(--sel); }
 .sub { display: block; font: var(--fs-xs) var(--font-mono); color: var(--mut); margin-top: 1px; }
 
+/* DataTable: densidade e truncagem para evitar scroll horizontal prematuro.
+   O scroll horizontal só surge em janelas mesmo estreitas, dentro do
+   .table-wrap (overflow:auto, o container próprio). */
+.dt { display: flex; flex-direction: column; min-width: 0; }
+.dt.fill { flex: 1; min-height: 0; }
+.dt.fill .table-wrap { flex: 1; }
+.dt-toolbar { gap: 8px; }
+.dt-search { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.dt-search .input { width: 280px; max-width: 42vw; }
+.dt-table { table-layout: auto; }
+/* Célula truncável: elipse em vez de forçar largura (nowrap já é o default das td). */
+.dt-trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+th.dt-sort { cursor: pointer; }
+th.dt-sort:hover { color: var(--tx-strong); }
+.dt-sort-ind { margin-left: 4px; font-size: 9px; opacity: .65; }
+th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
+.dt-act-group { display: inline-flex; gap: 2px; align-items: center; justify-content: flex-end; }
+/* Ícones de ação mais compactos dentro da tabela. */
+.dt-act-group .btn.ico { width: 26px; height: 26px; }
+.dt-act-group .btn.sm { height: 24px; padding: 0 7px; }
+
+/* Select (combo-box dark + pesquisável, estilo select2). Correto em tema
+   claro e escuro: só usa tokens, nunca o popup nativo de <option>. */
+.sel { position: relative; display: inline-flex; min-width: 0; }
+.sel-btn { display: inline-flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 6px 0 8px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); font: var(--fs-md) var(--font-ui); cursor: pointer; }
+.sel-btn.mono { font-family: var(--font-mono); }
+.sel-btn.sm { height: 24px; font-size: var(--fs-sm); }
+.sel-btn:hover { background: var(--btn-hover); color: var(--tx-strong); }
+.sel-btn:disabled { opacity: .45; cursor: not-allowed; }
+.sel-btn .sel-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.sel-btn .ic { margin-left: auto; flex: none; opacity: .7; }
+.sel-pop { position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; min-width: 100%; display: flex; flex-direction: column; max-height: 288px; background: var(--side); border: 1px solid var(--dialog-line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+.sel-search { padding: 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.sel-search .input { width: 100%; }
+.sel-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 240px; }
+.sel-opt { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px; color: var(--tx); cursor: pointer; white-space: nowrap; }
+.sel-opt.active, .sel-opt:hover { background: var(--bg); color: var(--tx-strong); }
+.sel-opt.on { background: var(--sel); color: var(--sel-tx); }
+.sel-opt.dis { opacity: .45; cursor: not-allowed; }
+.sel-empty { padding: 10px; color: var(--mut); font-size: var(--fs-sm); }
+
 /* Secções e painéis laterais */
 .split { display: flex; flex: 1; min-height: 0; }
 .split > .primary { flex: 3 1 0; min-width: 0; overflow: auto; }

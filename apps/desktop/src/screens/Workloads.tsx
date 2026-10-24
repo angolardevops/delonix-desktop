@@ -2,10 +2,9 @@ import { useMemo, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { CliHint, ErrorNote, PageHead, StateChip, Tabs, TypeChip } from "../components/ui";
-import { Pager } from "../components/Pager";
+import { DataTable, type Column } from "../components/DataTable";
 import { cmd, type Argv } from "../lib/cli";
 import { runState, useResource, type RunState } from "../lib/hooks";
-import { orderBy, usePagination } from "../lib/pagination";
 import type { WorkloadRow } from "../lib/types";
 
 type TypeFilter = "all" | "container" | "pod" | "vm";
@@ -15,37 +14,41 @@ export function Workloads() {
   const { data, error, refresh } = useResource(() => client.workloads(), 3000);
   const [type, setType] = useState<TypeFilter>("all");
   const [state, setState] = useState<RunState | null>(null);
-  const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const rows = data ?? [];
   const count = (t: TypeFilter) => (t === "all" ? rows.length : rows.filter((r) => r.type === t).length);
-  // Filtro + pesquisa sobre o conjunto COMPLETO; ordenação determinística
-  // (desempate por nome) ANTES de paginar — ver lib/pagination.ts.
-  const shown = useMemo(
-    () => orderBy(
-      rows.filter((r) => (type === "all" || r.type === type) && (!state || runState(r.status) === state) && `${r.name} ${r.info}`.toLowerCase().includes(q.toLowerCase())),
-      (r) => r.name,
-    ),
-    [rows, type, state, q],
+  // Filtros de tipo+estado sobre o conjunto COMPLETO. A pesquisa, a ordenação
+  // determinística e a paginação ficam a cargo do DataTable (ver lib/pagination.ts).
+  const filtered = useMemo(
+    () => rows.filter((r) => (type === "all" || r.type === type) && (!state || runState(r.status) === state)),
+    [rows, type, state],
   );
-  const page = usePagination(shown);
-  const pageRows = page.items;
   const sel = rows.filter((r) => selected.has(r.name));
-  // Seleção em massa: distinguir se abrange só a página atual ou TODOS os
-  // resultados filtrados (o utilizador tem de saber sobre o que a ação incide).
-  const pageAllSelected = pageRows.length > 0 && pageRows.every((r) => selected.has(r.name));
-  const filteredAllSelected = shown.length > 0 && shown.every((r) => selected.has(r.name));
-  const hasMoreThanPage = shown.length > pageRows.length;
 
-  const toggle = (name: string) => setSelected((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const doAct = async (argv: Argv, label: string) => { await act(argv, label); void refresh(); };
   const bulk = async (build: (w: WorkloadRow) => Argv, verb: string) => {
     for (const w of sel) await doAct(build(w), `${verb} ${w.name}`);
     setSelected(new Set());
   };
 
-  const stateLabel = (w: WorkloadRow) => w.status;
+  const columns: Column<WorkloadRow>[] = [
+    {
+      key: "name",
+      header: "Nome · info",
+      truncate: true,
+      width: 280,
+      render: (w) => (
+        <>
+          <button type="button" onClick={() => go({ name: "workload", id: w.name })} style={{ background: "none", border: 0, padding: 0, color: "var(--tx)", fontWeight: 500, cursor: "pointer" }}>{w.name}</button>
+          <span className="sub">{w.info}</span>
+        </>
+      ),
+    },
+    { key: "type", header: "Tipo", render: (w) => <TypeChip type={w.type} /> },
+    { key: "status", header: "Estado", render: (w) => <StateChip state={runState(w.status)} label={w.status} /> },
+    { key: "namespace", header: "Namespace", cellClassName: "mono muted", truncate: true, width: 140 },
+  ];
 
   return (
     <>
@@ -62,83 +65,72 @@ export function Workloads() {
           { id: "vm", label: <>VMs <span className="muted">{count("vm")}</span></> },
         ]}
       />
-      <div className="toolbar">
-        {(["running", "error", "stopped"] as RunState[]).map((s) => (
+      {error && <ErrorNote error={error} />}
+
+      <DataTable<WorkloadRow>
+        fill
+        columns={columns}
+        rows={filtered}
+        getKey={(w) => w.name}
+        onRowDoubleClick={(w) => go({ name: "workload", id: w.name })}
+        searchPlaceholder="Filtrar por nome ou imagem…"
+        searchLabel="Filtrar workloads"
+        searchText={(w) => `${w.name} ${w.info}`}
+        empty="Sem workloads"
+        toolbar={(["running", "error", "stopped"] as RunState[]).map((s) => (
           <button key={s} type="button" className={`chip ${s === "running" ? "ok" : s === "error" ? "bad" : "neu"}`} style={{ border: state === s ? "1px solid currentColor" : "1px solid var(--line)", cursor: "pointer", height: 24 }} onClick={() => setState(state === s ? null : s)}>
             <span className="dot" />{s === "running" ? "A correr" : s === "error" ? "Com erro" : "Parados"} {rows.filter((r) => runState(r.status) === s).length}
           </button>
         ))}
-        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="sr-only">Filtrar workloads</span>
-          <input className="input" style={{ width: 280 }} placeholder="Filtrar por nome ou imagem…" value={q} onChange={(e) => setQ(e.target.value)} />
-        </label>
-      </div>
-
-      {sel.length > 0 && (
-        <div role="region" aria-label="Ações em lote" className="toolbar" style={{ background: "var(--sel)", borderColor: "var(--sel-line)" }}>
-          <b style={{ color: "var(--sel-tx)", fontWeight: 500 }}>
-            {sel.length} selecionados {filteredAllSelected && hasMoreThanPage ? "(todos os resultados filtrados)" : "(nesta página)"}
-          </b>
-          {pageAllSelected && hasMoreThanPage && !filteredAllSelected && (
-            <button className="btn sm" type="button" onClick={() => setSelected(new Set(shown.map((r) => r.name)))}>
-              Selecionar todos os {shown.length} resultados filtrados
-            </button>
-          )}
-          {filteredAllSelected && hasMoreThanPage && (
-            <button className="btn sm" type="button" onClick={() => setSelected(new Set())}>Limpar seleção</button>
-          )}
-          <button className="btn sm" type="button" onClick={() => void bulk(cmd.stop, "Parar")}>Parar</button>
-          <button className="btn sm" type="button" onClick={() => void bulk(cmd.start, "Iniciar")}>Iniciar</button>
-          <button className="btn sm" type="button" onClick={() => void bulk(cmd.restart, "Reiniciar")}>Reiniciar</button>
-          <button className="btn sm danger" type="button" onClick={() => void bulk(cmd.remove, "Remover")}>Remover</button>
-          <span style={{ marginLeft: "auto" }}><CliHint argv={["stop", ...sel.map((s) => s.name)]} compact /></span>
-        </div>
-      )}
-      {error && <ErrorNote error={error} />}
-
-      <div className="table-wrap" style={{ flex: 1 }}>
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: 28 }}><input type="checkbox" aria-label="Selecionar página" checked={pageAllSelected} onChange={(e) => setSelected((s) => { const n = new Set(s); for (const r of pageRows) e.target.checked ? n.add(r.name) : n.delete(r.name); return n; })} /></th>
-              <th>Nome · info</th><th>Tipo</th><th>Estado</th><th>Namespace</th><th style={{ textAlign: "right" }}>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.length === 0 && (
-              <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem workloads</td></tr>
-            )}
-            {pageRows.map((w) => {
-              const st = runState(w.status);
-              return (
-                <tr key={w.name} className={selected.has(w.name) ? "sel" : undefined} onDoubleClick={() => go({ name: "workload", id: w.name })}>
-                  <td><input type="checkbox" aria-label={`Selecionar ${w.name}`} checked={selected.has(w.name)} onChange={() => toggle(w.name)} /></td>
-                  <td>
-                    <button type="button" onClick={() => go({ name: "workload", id: w.name })} style={{ background: "none", border: 0, padding: 0, color: "var(--tx)", fontWeight: 500, cursor: "pointer" }}>{w.name}</button>
-                    <span className="sub">{w.info}</span>
-                  </td>
-                  <td><TypeChip type={w.type} /></td>
-                  <td><StateChip state={st} label={stateLabel(w)} /></td>
-                  <td className="mono muted">{w.namespace}</td>
-                  <td style={{ textAlign: "right" }}>
-                    <button className="btn ico" type="button" aria-label={`Logs de ${w.name}`} onClick={() => { go({ name: "workload", id: w.name }); openDock("logs"); }}><Icon name="logs" /></button>
-                    {st === "running"
-                      ? <button className="btn ico" type="button" aria-label={`Parar ${w.name}`} onClick={() => void doAct(cmd.stop(w), `Parar ${w.name}`)}><Icon name="stop" /></button>
-                      : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void doAct(cmd.start(w), `Iniciar ${w.name}`)}><Icon name="play" /></button>}
-                    <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void doAct(cmd.restart(w), `Reiniciar ${w.name}`)}><Icon name="restart" /></button>
-                    <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => void doAct(cmd.remove(w), `Remover ${w.name}`)}><Icon name="trash" /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
-      <div className="toolbar" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, background: "var(--panel)", fontSize: 12, color: "var(--mut)" }}>
-        <CliHint argv={cmd.workloads()} compact />
-        <span style={{ marginLeft: "auto" }}>Duplo clique abre o detalhe</span>
-      </div>
+        selection={{
+          value: selected,
+          onChange: setSelected,
+          bulkBar: ({ pageKeys, filteredKeys }) => {
+            const pageAllSelected = pageKeys.length > 0 && pageKeys.every((k) => selected.has(k));
+            const filteredAllSelected = filteredKeys.length > 0 && filteredKeys.every((k) => selected.has(k));
+            const hasMoreThanPage = filteredKeys.length > pageKeys.length;
+            return (
+              <div role="region" aria-label="Ações em lote" className="toolbar" style={{ background: "var(--sel)", borderColor: "var(--sel-line)" }}>
+                <b style={{ color: "var(--sel-tx)", fontWeight: 500 }}>
+                  {sel.length} selecionados {filteredAllSelected && hasMoreThanPage ? "(todos os resultados filtrados)" : "(nesta página)"}
+                </b>
+                {pageAllSelected && hasMoreThanPage && !filteredAllSelected && (
+                  <button className="btn sm" type="button" onClick={() => setSelected(new Set(filteredKeys))}>
+                    Selecionar todos os {filteredKeys.length} resultados filtrados
+                  </button>
+                )}
+                {filteredAllSelected && hasMoreThanPage && (
+                  <button className="btn sm" type="button" onClick={() => setSelected(new Set())}>Limpar seleção</button>
+                )}
+                <button className="btn sm" type="button" onClick={() => void bulk(cmd.stop, "Parar")}>Parar</button>
+                <button className="btn sm" type="button" onClick={() => void bulk(cmd.start, "Iniciar")}>Iniciar</button>
+                <button className="btn sm" type="button" onClick={() => void bulk(cmd.restart, "Reiniciar")}>Reiniciar</button>
+                <button className="btn sm danger" type="button" onClick={() => void bulk(cmd.remove, "Remover")}>Remover</button>
+                <span style={{ marginLeft: "auto" }}><CliHint argv={["stop", ...sel.map((s) => s.name)]} compact /></span>
+              </div>
+            );
+          },
+        }}
+        actions={(w) => {
+          const st = runState(w.status);
+          return (
+            <>
+              <button className="btn ico" type="button" aria-label={`Logs de ${w.name}`} onClick={() => { go({ name: "workload", id: w.name }); openDock("logs"); }}><Icon name="logs" /></button>
+              {st === "running"
+                ? <button className="btn ico" type="button" aria-label={`Parar ${w.name}`} onClick={() => void doAct(cmd.stop(w), `Parar ${w.name}`)}><Icon name="stop" /></button>
+                : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void doAct(cmd.start(w), `Iniciar ${w.name}`)}><Icon name="play" /></button>}
+              <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void doAct(cmd.restart(w), `Reiniciar ${w.name}`)}><Icon name="restart" /></button>
+              <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => void doAct(cmd.remove(w), `Remover ${w.name}`)}><Icon name="trash" /></button>
+            </>
+          );
+        }}
+        footer={
+          <div className="toolbar" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, background: "var(--panel)", fontSize: 12, color: "var(--mut)" }}>
+            <CliHint argv={cmd.workloads()} compact />
+            <span style={{ marginLeft: "auto" }}>Duplo clique abre o detalhe</span>
+          </div>
+        }
+      />
     </>
   );
 }

@@ -73,6 +73,57 @@ describe("paginate", () => {
   });
 });
 
+// Tamanho de página CONFIGURÁVEL (10/25/50/100). A pesquisa/ordenação operam
+// sobre o conjunto completo; só o tamanho da FATIA visível muda.
+describe("paginate com tamanho de página configurável", () => {
+  it("size 25: 60 itens → 3 páginas de 25/25/10", () => {
+    const items = range(60);
+    expect(paginate(items, 1, 25).items).toHaveLength(25);
+    expect(paginate(items, 1, 25).pages).toBe(3);
+    expect(paginate(items, 2, 25).items).toEqual(range(50).slice(25));
+    const last = paginate(items, 3, 25);
+    expect(last.items).toHaveLength(10);
+    expect(last.items[9]).toBe(60);
+    expect(last.size).toBe(25);
+  });
+
+  it("size 50: 50 itens cabem numa página; 51 precisam de duas", () => {
+    expect(paginate(range(50), 1, 50).pages).toBe(1);
+    expect(paginate(range(50), 1, 50).items).toHaveLength(50);
+    const two = paginate(range(51), 2, 50);
+    expect(two.pages).toBe(2);
+    expect(two.items).toEqual([51]);
+    expect(two.start).toBe(50);
+  });
+
+  it("size 100: 250 itens → 3 páginas; a última tem 50", () => {
+    const items = range(250);
+    expect(paginate(items, 1, 100).pages).toBe(3);
+    expect(paginate(items, 1, 100).items).toHaveLength(100);
+    expect(paginate(items, 3, 100).items).toHaveLength(50);
+  });
+
+  it("aumentar o tamanho satura a página atual (ex.: pág. 3 de 10 vira pág. 1 com size 100)", () => {
+    // 90 itens: com size 10 há 9 páginas; mudar para size 100 deixa 1 página.
+    const items = range(90);
+    expect(paginate(items, 3, 10).page).toBe(3);
+    const bigger = paginate(items, 3, 100);
+    expect(bigger.pages).toBe(1);
+    expect(bigger.page).toBe(1);
+    expect(bigger.items).toHaveLength(90);
+  });
+
+  it("todas as fatias (size 25) cobrem o conjunto sem lacunas nem duplicados", () => {
+    const items = range(57);
+    const collected = [
+      ...paginate(items, 1, 25).items,
+      ...paginate(items, 2, 25).items,
+      ...paginate(items, 3, 25).items,
+    ];
+    expect(collected).toEqual(items);
+  });
+});
+
 describe("orderBy (estabilidade determinística)", () => {
   it("desempata por chave quando o comparador dá empate", () => {
     const items = [

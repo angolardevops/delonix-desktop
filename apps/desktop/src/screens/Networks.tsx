@@ -1,9 +1,10 @@
 import { useApp } from "../app/context";
 import { CliHint, ErrorNote, PageHead } from "../components/ui";
 import { Pager } from "../components/Pager";
+import { ListSearch, useListView } from "../components/DataTable";
 import { cmd } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
-import { orderBy, usePagination } from "../lib/pagination";
+import type { NetworkRow } from "../lib/types";
 
 export function Networks() {
   const { client, go } = useApp();
@@ -11,8 +12,13 @@ export function Networks() {
   const workloads = useResource(() => client.workloads(), 10000).data ?? [];
   const status = (n: string) => runState(workloads.find((w) => w.name === n)?.status ?? "");
   const color = (n: string) => ({ running: "var(--ok)", error: "var(--bad)", stopped: "var(--mut)" })[status(n)];
-  // Cada rede é 1 item na grelha; ordenação determinística por nome e 10/página.
-  const page = usePagination(orderBy(data ?? [], (n) => n.name));
+  // Cada rede é 1 cartão na grelha. Pesquisa sobre o conjunto COMPLETO (nome,
+  // subrede, membros), ordenação determinística e paginação com tamanho
+  // configurável — a mesma barra partilhada das tabelas (ver DataTable).
+  const { q, setQ, size, setSize, page } = useListView<NetworkRow>(data ?? [], {
+    getKey: (n) => n.name,
+    searchText: (n) => `${n.name} ${n.subnet} ${n.members.map((m) => `${m.name} ${m.ip}`).join(" ")}`,
+  });
 
   return (
     <>
@@ -20,6 +26,9 @@ export function Networks() {
       {error && <ErrorNote error={error} />}
       <div className="split">
         <div className="primary" style={{ padding: 0, display: "flex", flexDirection: "column" }}>
+          <div className="toolbar dt-toolbar">
+            <ListSearch value={q} onChange={setQ} placeholder="Pesquisar rede, subrede ou membro…" label="Pesquisar redes" />
+          </div>
           {page.total === 0 && <p className="muted" style={{ padding: 24, margin: 0 }}>Sem redes</p>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, padding: "20px 24px", flex: 1 }}>
             {page.items.map((n) => (
@@ -39,7 +48,7 @@ export function Networks() {
               </div>
             ))}
           </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} pageSize={size} onPageSize={setSize} />
         </div>
         <aside className="aside">
           <section className="section">

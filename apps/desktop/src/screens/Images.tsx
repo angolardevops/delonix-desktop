@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
-import { Pager } from "../components/Pager";
+import { DataTable, type Column } from "../components/DataTable";
 import { cmd } from "../lib/cli";
 import { useResource } from "../lib/hooks";
-import { orderBy, usePagination } from "../lib/pagination";
+import type { ImageRow } from "../lib/types";
 
 type F = "all" | "used" | "unused";
 
@@ -16,13 +16,15 @@ export function Images() {
   const [ref, setRef] = useState("");
   const rows = data ?? [];
   const unused = rows.filter((r) => r.usedBy.length === 0);
-  // Filtro sobre o conjunto completo, ordenação determinística (desempate por
-  // ref+id) e só depois paginação de 10/página — ver lib/pagination.ts.
-  const shown = orderBy(
-    f === "all" ? rows : f === "used" ? rows.filter((r) => r.usedBy.length) : unused,
-    (r) => r.ref + r.id,
-  );
-  const page = usePagination(shown);
+  const shown = f === "all" ? rows : f === "used" ? rows.filter((r) => r.usedBy.length) : unused;
+
+  const columns: Column<ImageRow>[] = [
+    { key: "ref", header: "Repositório : tag", truncate: true, width: 320, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "id", header: "ID", truncate: true, width: 140, cellClassName: "mono muted" },
+    { key: "size", header: "Tamanho", cellClassName: "mono" },
+    { key: "created", header: "Criada", cellClassName: "muted" },
+    { key: "usedBy", header: "Usada por", truncate: true, width: 220, render: (i) => (i.usedBy.length ? i.usedBy.join(", ") : <Chip tone="warn">sem uso</Chip>) },
+  ];
 
   return (
     <>
@@ -35,29 +37,19 @@ export function Images() {
       {error && <ErrorNote error={error} />}
       <div className="split">
         <div className="primary">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Repositório : tag</th><th>ID</th><th>Tamanho</th><th>Criada</th><th>Usada por</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
-              <tbody>
-                {page.total === 0 && (
-                  <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem imagens</td></tr>
-                )}
-                {page.items.map((i) => (
-                  <tr key={i.ref + i.id}>
-                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{i.ref}</td>
-                    <td className="mono muted">{i.id}</td>
-                    <td className="mono">{i.size}</td>
-                    <td className="muted">{i.created}</td>
-                    <td>{i.usedBy.length ? i.usedBy.join(", ") : <Chip tone="warn">sem uso</Chip>}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <button className="btn ico danger" type="button" aria-label={`Remover ${i.ref}`} onClick={() => void act(cmd.rmi(i.ref), `Remover ${i.ref}`).then(() => refresh())}><Icon name="trash" /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <DataTable<ImageRow>
+            columns={columns}
+            rows={shown}
+            getKey={(i) => i.ref + i.id}
+            tieBreak={(i) => i.ref + i.id}
+            searchPlaceholder="Pesquisar por repositório, ID ou uso…"
+            searchLabel="Pesquisar imagens"
+            searchText={(i) => `${i.ref} ${i.id} ${i.usedBy.join(" ")}`}
+            empty="Sem imagens"
+            actions={(i) => (
+              <button className="btn ico danger" type="button" aria-label={`Remover ${i.ref}`} onClick={() => void act(cmd.rmi(i.ref), `Remover ${i.ref}`).then(() => refresh())}><Icon name="trash" /></button>
+            )}
+          />
         </div>
         <aside className="aside">
           <section className="section">

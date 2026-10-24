@@ -4,6 +4,7 @@ import { useApp } from "../app/context";
 import { cmd, show } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 import { Terminal } from "./Terminal";
 import { Chip } from "./ui";
 
@@ -73,11 +74,18 @@ function LogsPanel() {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
       <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)" }}>
-        <label className="muted" style={{ fontSize: 12 }}>
-          Workload{" "}
-          <select className="input mono" value={name} onChange={(e) => setName(e.target.value)}>
-            {containers.map((c) => <option key={c.name}>{c.name}</option>)}
-          </select>
+        <label className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          Workload
+          <Select
+            size="sm"
+            mono
+            ariaLabel="Escolher workload para os logs"
+            value={name}
+            onChange={setName}
+            options={containers.map((c) => ({ value: c.name, label: c.name }))}
+            placeholder="Sem containers"
+            style={{ minWidth: 180 }}
+          />
         </label>
         <Chip tone="ok" dot>a seguir</Chip>
         <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(cmd.logsFollow(name))}</span>
@@ -112,11 +120,17 @@ function TerminalPanel() {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
       <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)" }}>
-        <label className="muted" style={{ fontSize: 12 }}>
-          Container{" "}
-          <select className="input mono" value={name} onChange={(e) => setName(e.target.value)}>
-            {running.map((c) => <option key={c.name}>{c.name}</option>)}
-          </select>
+        <label className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          Container
+          <Select
+            size="sm"
+            mono
+            ariaLabel="Escolher container para o terminal"
+            value={name}
+            onChange={setName}
+            options={running.map((c) => ({ value: c.name, label: c.name }))}
+            style={{ minWidth: 180 }}
+          />
         </label>
         <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(cmd.exec(name))}</span>
       </div>
@@ -126,6 +140,7 @@ function TerminalPanel() {
 }
 
 function AssistantPanel() {
+  const [model, setModel] = useState("Ollama · local");
   return (
     <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
       <div style={{ flex: 3, padding: "14px 24px", display: "flex", flexDirection: "column", gap: 10, overflow: "auto" }}>
@@ -139,13 +154,12 @@ function AssistantPanel() {
       </div>
       <aside style={{ flex: 1, borderLeft: "1px solid var(--line)", background: "var(--panel)", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
         <span className="lbl">Modelo</span>
-        <select className="input" aria-label="Modelo">
-          <option>Ollama · local</option>
-          <option>Claude</option>
-          <option>OpenAI</option>
-          <option>Gemini</option>
-          <option>Compatível com OpenAI</option>
-        </select>
+        <Select
+          ariaLabel="Modelo"
+          value={model}
+          onChange={setModel}
+          options={["Ollama · local", "Claude", "OpenAI", "Gemini", "Compatível com OpenAI"].map((m) => ({ value: m, label: m }))}
+        />
         <span className="muted" style={{ fontSize: 12 }}>Política do namespace: só modelos locais</span>
       </aside>
     </div>

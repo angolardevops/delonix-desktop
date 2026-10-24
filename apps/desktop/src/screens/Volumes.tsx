@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead } from "../components/ui";
-import { Pager } from "../components/Pager";
+import { DataTable, type Column } from "../components/DataTable";
 import { cmd } from "../lib/cli";
 import { useResource } from "../lib/hooks";
-import { orderBy, usePagination } from "../lib/pagination";
+import type { VolumeRow } from "../lib/types";
 
 export function Volumes() {
   const { client, act, go } = useApp();
@@ -14,10 +14,15 @@ export function Volumes() {
   const [name, setName] = useState("");
   const rows = data ?? [];
   const orphans = rows.filter((v) => v.usedBy.length === 0);
-  // Ordenação determinística (desempate por nome) antes de paginar 10/página.
-  const page = usePagination(orderBy(rows, (v) => v.name));
   // Snapshots dependem do provider de storage (btrfs/zfs/lvm). Mostra o estado real do catálogo.
   const snapshot = providers.filter((p) => p.kind === "storage").flatMap((p) => p.capabilities).find((c) => c.name.includes("snapshot"));
+
+  const columns: Column<VolumeRow>[] = [
+    { key: "name", header: "Nome", truncate: true, width: 240, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "driver", header: "Driver", cellClassName: "muted" },
+    { key: "size", header: "Tamanho", cellClassName: "mono" },
+    { key: "usedBy", header: "Montado em", truncate: true, width: 260, render: (v) => (v.usedBy.length ? v.usedBy.join(", ") : <Chip tone="warn">órfão</Chip>) },
+  ];
 
   return (
     <>
@@ -33,28 +38,18 @@ export function Volumes() {
       {error && <ErrorNote error={error} />}
       <div className="split">
         <div className="primary">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Nome</th><th>Driver</th><th>Tamanho</th><th>Montado em</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
-              <tbody>
-                {page.total === 0 && (
-                  <tr><td colSpan={5} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem volumes</td></tr>
-                )}
-                {page.items.map((v) => (
-                  <tr key={v.name}>
-                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{v.name}</td>
-                    <td className="muted">{v.driver}</td>
-                    <td className="mono">{v.size}</td>
-                    <td>{v.usedBy.length ? v.usedBy.join(", ") : <Chip tone="warn">órfão</Chip>}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <button className="btn ico danger" type="button" aria-label={`Remover ${v.name}`} onClick={() => void act(cmd.volumeRm(v.name), `Remover volume ${v.name}`).then(() => refresh())}><Icon name="trash" /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
+          <DataTable<VolumeRow>
+            columns={columns}
+            rows={rows}
+            getKey={(v) => v.name}
+            searchPlaceholder="Pesquisar por nome, driver ou uso…"
+            searchLabel="Pesquisar volumes"
+            searchText={(v) => `${v.name} ${v.driver} ${v.usedBy.join(" ")}`}
+            empty="Sem volumes"
+            actions={(v) => (
+              <button className="btn ico danger" type="button" aria-label={`Remover ${v.name}`} onClick={() => void act(cmd.volumeRm(v.name), `Remover volume ${v.name}`).then(() => refresh())}><Icon name="trash" /></button>
+            )}
+          />
         </div>
         <aside className="aside">
           <section className="section">
