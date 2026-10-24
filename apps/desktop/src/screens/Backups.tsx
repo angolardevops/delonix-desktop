@@ -3,6 +3,7 @@ import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead } from "../components/ui";
 import { DataTable, type Column } from "../components/DataTable";
+import { Drawer } from "../components/Drawer";
 import { Select } from "../components/Select";
 import { cmd } from "../lib/cli";
 import { useResource } from "../lib/hooks";
@@ -22,6 +23,7 @@ export function Backups() {
   const { data, error, refresh } = useResource(() => client.backups(dir || undefined), 20000);
   const [kind, setKind] = useState<(typeof KINDS)[number]>("container");
   const [name, setName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const rows = data ?? [];
   const from = dir || undefined;
@@ -39,55 +41,52 @@ export function Backups() {
 
   return (
     <>
-      <PageHead title="Backups" subtitle={`${rows.length} arquivos${dir ? ` · ${dir}` : " · diretório atual"}`} />
+      <PageHead title="Backups" subtitle={`${rows.length} arquivos${dir ? ` · ${dir}` : " · diretório atual"}`}>
+        <button className="btn pri" type="button" onClick={() => setCreateOpen(true)}><Icon name="plus" size={13} /> Criar backup</button>
+      </PageHead>
       {error && <ErrorNote error={error} />}
       <div className="toolbar" style={{ borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
         <input className="input mono" placeholder="Diretório (--from), vazio = atual" value={dirInput} onChange={(e) => setDirInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") listDir(); }} aria-label="Diretório dos arquivos" style={{ maxWidth: 340 }} />
         <button className="btn" type="button" onClick={listDir}>Listar</button>
       </div>
-      <div className="split">
-        <div className="primary">
-          <DataTable<BackupRow>
-            columns={columns}
-            rows={rows}
-            getKey={(b) => b.archive}
-            tieBreak={(b) => b.archive}
-            searchPlaceholder="Pesquisar arquivo, recurso ou tipo…"
-            searchLabel="Pesquisar backups"
-            searchText={(b) => `${b.archive} ${b.name} ${b.kind}`}
-            empty="Sem arquivos neste diretório"
-            actions={(b) => (
-              <>
-                <button className="btn sm" type="button" aria-label={`Restaurar ${b.archive}`} title="Restaurar (sobrepõe o estado vivo)" onClick={() => void act(cmd.backupRestore(b.archive, from), `Restaurar ${b.archive}`).then(() => refresh())}>
-                  <Icon name="restart" size={13} /> Restaurar
-                </button>
-                <button className="btn ico danger" type="button" aria-label={`Remover ${b.archive}`} onClick={() => void act(cmd.backupRemove(b.archive, from), `Remover arquivo ${b.archive}`).then(() => refresh())}><Icon name="trash" /></button>
-              </>
-            )}
-          />
-        </div>
-        <aside className="aside">
-          <section className="section">
-            <h2>Criar backup</h2>
-            <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              Tipo de recurso
-              <Select
-                ariaLabel="Tipo de recurso"
-                value={kind}
-                onChange={(v) => setKind(v as (typeof KINDS)[number])}
-                options={KINDS.map((k) => ({ value: k, label: k }))}
-              />
-            </label>
-            <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              Nome do recurso
-              <input className="input mono" placeholder="db" value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <button className="btn pri" type="button" disabled={!name} onClick={() => void act(createArgv, `Backup de ${kind} ${name}`).then((ok) => { if (ok) setName(""); refresh(); })}>Criar backup</button>
-            <p className="muted" style={{ margin: 0, fontSize: 11 }}>Arquiva o registo e os dados dos volumes do recurso{dir ? ` em ${dir}` : " no diretório atual"}.</p>
-            {name && <CliHint argv={createArgv} compact />}
-          </section>
-        </aside>
-      </div>
+      <DataTable<BackupRow>
+        columns={columns}
+        rows={rows}
+        getKey={(b) => b.archive}
+        tieBreak={(b) => b.archive}
+        searchPlaceholder="Pesquisar arquivo, recurso ou tipo…"
+        searchLabel="Pesquisar backups"
+        searchText={(b) => `${b.archive} ${b.name} ${b.kind}`}
+        empty="Sem arquivos neste diretório"
+        actions={(b) => (
+          <>
+            <button className="btn sm" type="button" aria-label={`Restaurar ${b.archive}`} title="Restaurar (sobrepõe o estado vivo)" onClick={() => void act(cmd.backupRestore(b.archive, from), `Restaurar ${b.archive}`).then(() => refresh())}>
+              <Icon name="restart" size={13} /> Restaurar
+            </button>
+            <button className="btn ico danger" type="button" aria-label={`Remover ${b.archive}`} onClick={() => void act(cmd.backupRemove(b.archive, from), `Remover arquivo ${b.archive}`).then(() => refresh())}><Icon name="trash" /></button>
+          </>
+        )}
+      />
+      <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Criar backup">
+        <section className="section">
+          <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            Tipo de recurso
+            <Select
+              ariaLabel="Tipo de recurso"
+              value={kind}
+              onChange={(v) => setKind(v as (typeof KINDS)[number])}
+              options={KINDS.map((k) => ({ value: k, label: k }))}
+            />
+          </label>
+          <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            Nome do recurso
+            <input className="input mono" placeholder="db" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <button className="btn pri" type="button" disabled={!name} onClick={() => void act(createArgv, `Backup de ${kind} ${name}`).then((ok) => { if (ok) { setName(""); setCreateOpen(false); } refresh(); })}>Criar backup</button>
+          <p className="muted" style={{ margin: 0, fontSize: 11 }}>Arquiva o registo e os dados dos volumes do recurso{dir ? ` em ${dir}` : " no diretório atual"}.</p>
+          {name && <CliHint argv={createArgv} compact />}
+        </section>
+      </Drawer>
     </>
   );
 }

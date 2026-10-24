@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 type Item = { route: Route; icon: string; label: string; count?: number | string; badge?: number; dock?: boolean };
 
 export function Sidebar() {
-  const { client, route, go, openDock } = useApp();
+  const { client, route, go, openDock, sidebarCollapsed } = useApp();
   const dash = useResource(() => client.dash(), 10000).data;
   const providers = useResource(() => client.providers(), 60000).data;
   const broken = providers?.flatMap((p) => p.capabilities).filter((c) => c.state !== "supported" && c.state !== "partial").length;
@@ -40,10 +40,10 @@ export function Sidebar() {
   const active = (r: Route, dock?: boolean) => !dock && (r.name === route.name || (r.name === "workloads" && (route.name === "workload" || route.name === "create")));
 
   return (
-    <nav className="sidebar" aria-label="Navegação principal">
+    <nav id="sidebar-nav" className={`sidebar${sidebarCollapsed ? " rail" : ""}`} aria-label="Navegação principal">
       {groups.map((g) => (
         <div key={g.title}>
-          <div className="lbl">{g.title}</div>
+          <div className="lbl" aria-hidden={sidebarCollapsed || undefined}>{g.title}</div>
           <ul>
             {g.items.map((i) => (
               <li key={i.label}>
@@ -51,24 +51,26 @@ export function Sidebar() {
                   type="button"
                   className={`nav${active(i.route, i.dock) ? " on" : ""}`}
                   aria-current={active(i.route, i.dock) ? "page" : undefined}
+                  title={sidebarCollapsed ? i.label : undefined}
+                  aria-label={sidebarCollapsed ? i.label : undefined}
                   onClick={() => (i.dock ? openDock("assistant") : go(i.route))}
                 >
                   <Icon name={i.icon} />
-                  {i.label}
+                  <span className="nav-label">{i.label}</span>
                   {i.count !== undefined && <span className="count">{i.count}</span>}
-                  {!!i.badge && <span className="chip bad" style={{ marginLeft: "auto", height: 18, padding: "0 6px" }}>{i.badge}</span>}
+                  {!!i.badge && <span className="chip bad nav-badge" aria-label={`${i.badge} por resolver`}>{i.badge}</span>}
                 </button>
               </li>
             ))}
           </ul>
         </div>
       ))}
-      <div style={{ marginTop: "auto", borderTop: "1px solid var(--line)", padding: "10px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, color: client.live ? "var(--ok)" : "var(--warn)", fontWeight: 500 }}>
+      <div className="sidebar-foot">
+        <div className="foot-line" style={{ color: client.live ? "var(--ok)" : "var(--warn)" }} title={client.live ? "Engine local" : "Duplo local (sem Tauri)"}>
           <span className="dot" />
-          {client.live ? "Engine local" : "Duplo local (sem Tauri)"}
+          <span className="foot-text">{client.live ? "Engine local" : "Duplo local (sem Tauri)"}</span>
         </div>
-        <div className="muted" style={{ fontSize: 12 }}>rootless · cgroup v2</div>
+        <div className="muted foot-text" style={{ fontSize: 12 }}>rootless · cgroup v2</div>
       </div>
     </nav>
   );

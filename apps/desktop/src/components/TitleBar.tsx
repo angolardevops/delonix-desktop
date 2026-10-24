@@ -9,9 +9,20 @@ async function win(action: "minimize" | "toggleMaximize" | "close") {
 }
 
 export function TitleBar() {
-  const { openPalette } = useApp();
+  const { openPalette, sidebarCollapsed, toggleSidebar } = useApp();
   return (
     <div className="titlebar" data-tauri-drag-region>
+      <button
+        className="wc ham"
+        type="button"
+        aria-label={sidebarCollapsed ? "Expandir menu lateral" : "Colapsar menu lateral"}
+        aria-expanded={!sidebarCollapsed}
+        aria-controls="sidebar-nav"
+        title="Alternar menu lateral (Ctrl B)"
+        onClick={toggleSidebar}
+      >
+        <Icon name="menu" />
+      </button>
       <div className="brand" data-tauri-drag-region>
         <Logo />
         <span>Delonix Desktop</span>

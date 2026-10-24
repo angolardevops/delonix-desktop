@@ -69,6 +69,7 @@
   /* Medidas da janela */
   --h-titlebar: 34px;
   --w-sidebar: 232px;
+  --w-sidebar-rail: 52px;   /* menu colapsado: só ícones */
   --h-dock-bar: 30px;
   --h-statusbar: 24px;
   --h-row: 34px;

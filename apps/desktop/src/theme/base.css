@@ -30,14 +30,30 @@ button { font: inherit; }
 .wc.x:hover { background: var(--close-hover); color: var(--tx-strong); }
 
 /* Menu lateral: lista que ocupa a largura toda, hover = cor do body */
-.sidebar { width: var(--w-sidebar); flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding-top: 12px; overflow-y: auto; }
+.sidebar { width: var(--w-sidebar); flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding-top: 12px; overflow-y: auto; overflow-x: hidden; transition: width .16s ease; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
-.nav { display: flex; align-items: center; gap: 10px; width: 100%; height: var(--h-row); padding: 0 16px 0 14px; color: var(--tx2); border: 0; border-left: 2px solid transparent; background: transparent; cursor: pointer; text-align: left; }
+.nav { display: flex; align-items: center; gap: 10px; width: 100%; height: var(--h-row); padding: 0 16px 0 14px; color: var(--tx2); border: 0; border-left: 2px solid transparent; background: transparent; cursor: pointer; text-align: left; position: relative; }
 .nav:hover { background: var(--bg); color: var(--tx); }
 .nav.on { background: var(--bg); color: var(--tx-on); border-left-color: var(--acc); }
-.nav .count { margin-left: auto; font-size: var(--fs-sm); color: var(--mut); }
+.nav .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .count { font-size: var(--fs-sm); color: var(--mut); }
+.nav-badge { margin-left: auto; height: 18px; padding: 0 6px; }
 .sidebar .lbl { padding: 18px 16px 6px; }
 .sidebar .lbl:first-child { padding-top: 6px; }
+.sidebar-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 10px 16px; }
+.sidebar-foot .foot-line { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+/* Rail: menu colapsado — só ícones, com o rótulo em tooltip (title). */
+.sidebar.rail { width: var(--w-sidebar-rail); }
+.sidebar.rail .lbl { padding: 10px 0 4px; text-align: center; font-size: 0; height: 1px; opacity: .25; }
+.sidebar.rail .nav { padding: 0; justify-content: center; }
+.sidebar.rail .nav .nav-label, .sidebar.rail .nav .count { display: none; }
+.sidebar.rail .nav-badge { position: absolute; top: 5px; right: 7px; min-width: 7px; width: 7px; height: 7px; padding: 0; margin: 0; font-size: 0; overflow: hidden; }
+.sidebar.rail .sidebar-foot { padding: 10px 0; text-align: center; }
+.sidebar.rail .sidebar-foot .foot-line { justify-content: center; }
+.sidebar.rail .sidebar-foot .foot-text { display: none; }
+.ham { cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 
 /* Botões */
 .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--h-btn); padding: 0 12px; border: 1px solid var(--line); background: var(--side); color: var(--tx); font-weight: 500; cursor: pointer; white-space: nowrap; }
@@ -161,3 +177,25 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 .opt.on { background: var(--sel); border-left-color: var(--acc); }
 .opt .r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .toast { position: fixed; right: 16px; bottom: 64px; max-width: 520px; padding: 10px 14px; background: var(--side); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); z-index: 20; }
+
+/* Painéis flutuantes (UI v2): gaveta deslizante da direita e popover ancorado.
+   Escala de z-index: conteúdo < drawer(8)/popover(9) < .overlay modais+paleta(10)
+   < toast(20). Os flutuantes sobrepõem-se à lista, mas ConfirmDialog e a
+   CommandPalette (.overlay) ficam SEMPRE por cima deles. */
+.drawer-root { position: fixed; inset: 0; z-index: 8; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(6, 7, 9, .42); animation: flt-fade .12s ease-out; }
+.drawer { position: absolute; top: 0; right: 0; height: 100%; max-width: 100vw; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--dialog-line); box-shadow: -14px 0 40px rgba(0, 0, 0, .5); animation: flt-slide .16s ease-out; }
+.drawer:focus { outline: none; }
+.drawer-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { margin: 0; flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; }
+.drawer-body { flex: 1; min-height: 0; overflow: auto; }
+.drawer-body > .section:last-child { border-bottom: 0; }
+.drawer-foot { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--side); }
+
+.popover { position: fixed; z-index: 9; min-width: 220px; max-width: min(92vw, 360px); background: var(--side); border: 1px solid var(--dialog-line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); animation: flt-fade .1s ease-out; }
+.popover:focus { outline: none; }
+.popover > .section { border-bottom: 0; }
+
+@keyframes flt-slide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes flt-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-backdrop, .popover { animation: none; } }

@@ -34,6 +34,9 @@ export interface AppCtx {
   // histórico e mostra o resultado. Devolve true se correu bem.
   act: (argv: Argv, label: string) => Promise<boolean>;
   history: HistoryEntry[];
+  // Navegação colapsável (hamburger). Estado persistido em localStorage.
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
 }
 
 export interface HistoryEntry {

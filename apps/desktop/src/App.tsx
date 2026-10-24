@@ -38,8 +38,19 @@ export default function App() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("delonix.sidebar.collapsed") === "1"; } catch { return false; }
+  });
 
   const openDock = useCallback((t: DockTab) => { setDockTab(t); setDockOpen(true); }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("delonix.sidebar.collapsed", next ? "1" : "0"); } catch { /* sem localStorage (ex.: SSR/testes) */ }
+      return next;
+    });
+  }, []);
 
   const act = useCallback(async (argv: Argv, label: string) => {
     const risk = await client.risk(argv);
@@ -73,12 +84,13 @@ export default function App() {
       if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
       if (mod && e.key === "`") { e.preventDefault(); setDockOpen((o) => !o); }
       if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); setRoute({ name: "create" }); }
+      if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggleSidebar]);
 
-  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history };
+  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar };
 
   const screen = (() => {
     switch (route.name) {

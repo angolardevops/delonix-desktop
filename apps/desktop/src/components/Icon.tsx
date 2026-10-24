@@ -29,6 +29,7 @@ const PATHS: Record<string, string> = {
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   copy: "M8 8h12v12H8zM16 8V4H4v12h4",
   chevron: "M6 9l6 6 6-6",
+  menu: "M4 7h16M4 12h16M4 17h16",
   min: "M6 12h12",
   max: "M6 6h12v12H6z",
   close: "M7 7l10 10M17 7L7 17",

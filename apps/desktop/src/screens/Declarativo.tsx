@@ -3,6 +3,7 @@ import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { DataTable, type Column } from "../components/DataTable";
+import { Drawer } from "../components/Drawer";
 import { cmd, type Argv } from "../lib/cli";
 import type { ComposeService, StackPlanRow } from "../lib/types";
 
@@ -55,6 +56,7 @@ function StacksPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<{ title: string; text: string } | null>(null);
+  const [applyOpen, setApplyOpen] = useState(false);
 
   const plan = async () => {
     setBusy(true);
@@ -110,58 +112,54 @@ function StacksPanel() {
         <button className="btn" type="button" disabled={busy} onClick={() => void showText(cmd.stackValidate(manifest), "stack validate")}>Validar</button>
         <button className="btn" type="button" disabled={busy} onClick={() => void showText(cmd.stackDescribe(manifest), "stack describe")}>Descrever</button>
         <button className="btn" type="button" disabled={busy} onClick={() => void showText(cmd.stackHistory(manifest), "stack history")}>Histórico</button>
+        <button className="btn" type="button" onClick={() => setApplyOpen(true)}><Icon name="play" size={13} /> Aplicar…</button>
       </div>
 
       {error && <ErrorNote error={error} />}
 
-      <div className="split">
-        <div className="primary">
-          <DataTable<StackPlanRow>
-            columns={columns}
-            rows={all}
-            getKey={(r) => `${r.kind}/${r.name}`}
-            tieBreak={(r) => `${r.kind}/${r.name}`}
-            searchPlaceholder="Pesquisar recurso, kind ou ação…"
-            searchLabel="Pesquisar plano"
-            searchText={(r) => `${r.kind} ${r.name} ${r.action}`}
-            empty={
-              rows === null
-                ? <>Indica um manifesto e clica <b>Planear</b> para ver o que um <span className="mono">apply</span> faria.</>
-                : <>Nada a aplicar — a máquina já corresponde ao manifesto.</>
-            }
-          />
-          {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
-        </div>
+      <DataTable<StackPlanRow>
+        columns={columns}
+        rows={all}
+        getKey={(r) => `${r.kind}/${r.name}`}
+        tieBreak={(r) => `${r.kind}/${r.name}`}
+        searchPlaceholder="Pesquisar recurso, kind ou ação…"
+        searchLabel="Pesquisar plano"
+        searchText={(r) => `${r.kind} ${r.name} ${r.action}`}
+        empty={
+          rows === null
+            ? <>Indica um manifesto e clica <b>Planear</b> para ver o que um <span className="mono">apply</span> faria.</>
+            : <>Nada a aplicar — a máquina já corresponde ao manifesto.</>
+        }
+      />
+      {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
 
-        <aside className="aside">
-          <section className="section">
-            <h2>Aplicar manifesto</h2>
-            <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-              {rows === null ? "Planeia primeiro." : changes ? `${changes} recurso(s) mudariam.` : "Sem alterações pendentes."}
-            </p>
-            <button
-              className="btn pri"
-              type="button"
-              disabled={busy}
-              onClick={() => void act(cmd.stackApply(manifest), `Aplicar stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
-            >
-              <Icon name="play" size={13} /> Aplicar
-            </button>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={busy}
-              onClick={() => void act(cmd.stackDestroy(manifest), `Destruir stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
-            >
-              <Icon name="trash" size={13} /> Destruir
-            </button>
-            <CliHint argv={cmd.stackApply(manifest)} compact />
-            <p className="muted" style={{ margin: 0, fontSize: 11 }}>
-              O stack não tem estado próprio no engine — é o manifesto mais os recursos que ele cria (rotulados <span className="mono">delonix.io/stack</span>). Destruir remove só o que o stack possui.
-            </p>
-          </section>
-        </aside>
-      </div>
+      <Drawer open={applyOpen} onClose={() => setApplyOpen(false)} title="Aplicar manifesto">
+        <section className="section">
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            {rows === null ? "Planeia primeiro." : changes ? `${changes} recurso(s) mudariam.` : "Sem alterações pendentes."}
+          </p>
+          <button
+            className="btn pri"
+            type="button"
+            disabled={busy}
+            onClick={() => void act(cmd.stackApply(manifest), `Aplicar stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
+          >
+            <Icon name="play" size={13} /> Aplicar
+          </button>
+          <button
+            className="btn danger"
+            type="button"
+            disabled={busy}
+            onClick={() => void act(cmd.stackDestroy(manifest), `Destruir stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
+          >
+            <Icon name="trash" size={13} /> Destruir
+          </button>
+          <CliHint argv={cmd.stackApply(manifest)} compact />
+          <p className="muted" style={{ margin: 0, fontSize: 11 }}>
+            O stack não tem estado próprio no engine — é o manifesto mais os recursos que ele cria (rotulados <span className="mono">delonix.io/stack</span>). Destruir remove só o que o stack possui.
+          </p>
+        </section>
+      </Drawer>
     </div>
   );
 }
@@ -174,6 +172,7 @@ function ComposePanel() {
   const [busy, setBusy] = useState(false);
   const [withVolumes, setWithVolumes] = useState(false);
   const [out, setOut] = useState<{ title: string; text: string } | null>(null);
+  const [lifeOpen, setLifeOpen] = useState(false);
 
   const refresh = async () => {
     setBusy(true);
@@ -225,59 +224,55 @@ function ComposePanel() {
           <Icon name="restart" size={13} /> Ver serviços
         </button>
         <button className="btn" type="button" disabled={busy} onClick={() => void showConfig()}>Config</button>
+        <button className="btn" type="button" onClick={() => setLifeOpen(true)}><Icon name="play" size={13} /> Ciclo de vida…</button>
       </div>
 
       {error && <ErrorNote error={error} />}
 
-      <div className="split">
-        <div className="primary">
-          <DataTable<ComposeService>
-            columns={columns}
-            rows={all}
-            getKey={(s) => s.name || s.service}
-            tieBreak={(s) => s.service || s.name}
-            searchPlaceholder="Pesquisar serviço, container ou imagem…"
-            searchLabel="Pesquisar serviços"
-            searchText={(s) => `${s.service} ${s.name} ${s.image} ${s.status}`}
-            empty={
-              rows === null
-                ? <>Indica um ficheiro compose e clica <b>Ver serviços</b>.</>
-                : <>Nenhum serviço deste projeto está de pé. Usa <b>Subir</b>.</>
-            }
-          />
-          {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
-        </div>
+      <DataTable<ComposeService>
+        columns={columns}
+        rows={all}
+        getKey={(s) => s.name || s.service}
+        tieBreak={(s) => s.service || s.name}
+        searchPlaceholder="Pesquisar serviço, container ou imagem…"
+        searchLabel="Pesquisar serviços"
+        searchText={(s) => `${s.service} ${s.name} ${s.image} ${s.status}`}
+        empty={
+          rows === null
+            ? <>Indica um ficheiro compose e clica <b>Ver serviços</b>.</>
+            : <>Nenhum serviço deste projeto está de pé. Usa <b>Subir</b>.</>
+        }
+      />
+      {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
 
-        <aside className="aside">
-          <section className="section">
-            <h2>Ciclo de vida</h2>
-            <button
-              className="btn pri"
-              type="button"
-              disabled={busy}
-              onClick={() => void act(cmd.composeUp(file), `compose up${file ? ` (${file})` : ""}`).then((ok) => { if (ok) void refresh(); })}
-            >
-              <Icon name="play" size={13} /> Subir (up -d)
-            </button>
-            <label className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              <input type="checkbox" checked={withVolumes} onChange={(e) => setWithVolumes(e.target.checked)} />
-              Remover volumes nomeados (-v)
-            </label>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={busy}
-              onClick={() => void act(cmd.composeDown(file, withVolumes), `compose down${withVolumes ? " -v" : ""}${file ? ` (${file})` : ""}`).then((ok) => { if (ok) void refresh(); })}
-            >
-              <Icon name="stop" size={13} /> Baixar (down{withVolumes ? " -v" : ""})
-            </button>
-            <CliHint argv={cmd.composeDown(file, withVolumes)} compact />
-            <p className="muted" style={{ margin: 0, fontSize: 11 }}>
-              <span className="mono">down -v</span> apaga os volumes nomeados do projeto — os dados vão com eles.
-            </p>
-          </section>
-        </aside>
-      </div>
+      <Drawer open={lifeOpen} onClose={() => setLifeOpen(false)} title="Ciclo de vida">
+        <section className="section">
+          <button
+            className="btn pri"
+            type="button"
+            disabled={busy}
+            onClick={() => void act(cmd.composeUp(file), `compose up${file ? ` (${file})` : ""}`).then((ok) => { if (ok) void refresh(); })}
+          >
+            <Icon name="play" size={13} /> Subir (up -d)
+          </button>
+          <label className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={withVolumes} onChange={(e) => setWithVolumes(e.target.checked)} />
+            Remover volumes nomeados (-v)
+          </label>
+          <button
+            className="btn danger"
+            type="button"
+            disabled={busy}
+            onClick={() => void act(cmd.composeDown(file, withVolumes), `compose down${withVolumes ? " -v" : ""}${file ? ` (${file})` : ""}`).then((ok) => { if (ok) void refresh(); })}
+          >
+            <Icon name="stop" size={13} /> Baixar (down{withVolumes ? " -v" : ""})
+          </button>
+          <CliHint argv={cmd.composeDown(file, withVolumes)} compact />
+          <p className="muted" style={{ margin: 0, fontSize: 11 }}>
+            <span className="mono">down -v</span> apaga os volumes nomeados do projeto — os dados vão com eles.
+          </p>
+        </section>
+      </Drawer>
     </div>
   );
 }
