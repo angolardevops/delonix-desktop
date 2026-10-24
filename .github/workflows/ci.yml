@@ -23,9 +23,17 @@ jobs:
 
       - name: Instalar toolchain Rust estável
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache de build
         uses: Swatinem/rust-cache@v2
+
+      - name: Formatação (fmt --check)
+        run: cargo fmt --all --check
+
+      - name: Lint (clippy -D warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # O workspace cobre apenas crates/* — apps/desktop/src-tauri entra quando
       # as libs de sistema Tauri (libwebkit2gtk-4.1-dev …) estiverem presentes,
