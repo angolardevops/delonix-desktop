@@ -1,0 +1,15 @@
+[package]
+name = "delonix-desktop-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Camada-core do Delonix Desktop: cliente do contrato delonix.node.v1 (socket Unix) e ponte CLI-JSON. É o backend que os comandos Tauri invocam — sem dependência da GUI."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "delonix-desktop-proof"
+path = "src/bin/proof.rs"
