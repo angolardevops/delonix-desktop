@@ -49,6 +49,22 @@ Método: condutor XTEST (python-xlib) para cliques/teclas; captura por `get_imag
 ### BUG §3 apanhado pela prova ao vivo (terminal interativo)
 O dock "Terminal" (e o separador Terminal do detalhe) ficou LIGADO (mostra `container exec -it <nome>` + xterm), mas a **sessão termina imediatamente** ("[sessão terminada]"; teclar não revive). O shim confirma que a app CHAMA `delonix container exec -it live-sh` (sem erro no log), e o MESMO comando por CLI com TTY real FICA VIVO (só morre por `timeout`). → O exec do engine funciona; o **ciclo de vida do PTY na app (Frente B: `src-tauri/src/exec.rs` / `components/Terminal.tsx`) é o defeito** — a sessão fecha-se sozinha. A corrigir (hipóteses: EOF no master do PTY, fallback bash→sh em busybox, ou cleanup de efeito a matar o filho). Mocks/compilação escondiam isto.
 
+## Ronda 4 — fix §3 do terminal + UI v2 (binário de integra @1e05afc)
+
+| Área | Provado ao vivo |
+|---|---|
+| **§3 terminal CORRIGIDO** | Depois do fix (herdar env + id único por montagem), o terminal do dock corre comandos reais no container: `ls` → árvore do busybox; `echo delonixworks` → `delonixworks` + novo prompt `/ #`. Antes: "[sessão terminada]". |
+| **#2 DataTable + paginação** | Segredos: tabela a largura TODA (aside removido), search "Pesquisar nome ou chave", rodapé "Página 1 de 2 · 17 itens · **Por página [10 ▾]**" (Select de tamanho configurável). |
+| **#3 Drawer flutuante** | "Criar segredo" (botão no topo) abre uma GAVETA deslizante da direita sobre a lista (✕/Escape fecham); campos intactos; lista a largura toda quando fechada. |
+| **#3 Hamburger** | Clique no ☰ colapsa a sidebar para um RAIL só de ícones (~52px) e o conteúdo expande. |
+| **#4 densidade** | A tabela cabe sem scroll horizontal prematuro. |
+
+Nota de captura: após uma TRANSIÇÃO CSS (colapso do hamburger via Ctrl+B), o
+XGetImage passou a devolver tela uniforme escura embora o React continuasse VIVO
+(a sondar o engine) — é a limitação conhecida do WebKit software-render (ver
+memória), NÃO um crash. Capturar logo após o clique (sem esperar a transição) ou
+reiniciar o webview contorna-a.
+
 ## Notas de reprodução
 - Condutor e capturas em `scratchpad/` (xdo.py, grab.py, shot_*.png, dlx-shim, dlx-calls.log).
 - Sessão Wayland → `GDK_BACKEND=x11` obrigatório para XTEST/XGetImage.
