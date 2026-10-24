@@ -64,8 +64,33 @@ impl LocalContext {
         }
     }
 
+    /// Todos os containers (inclui parados) — a lista da vista de Containers
+    /// precisa dos parados para oferecer o botão "Start". Mesma regra de ponte
+    /// que [`Self::containers`].
+    pub fn containers_all(&mut self) -> Result<Vec<Workload>> {
+        self.cli.containers_all()
+    }
+
     pub fn logs(&self, container: &str) -> Result<String> {
         self.cli.logs(container)
+    }
+
+    // Mutações de ciclo de vida da vista de Containers. Cada uma delega na
+    // ponte CLI-JSON (o contrato `node.v1` ainda não serve mutações de
+    // container) e devolve `Result` — a UI reporta o erro redigido e recarrega
+    // a lista para refletir o novo estado.
+    pub fn start_container(&self, name: &str) -> Result<()> {
+        self.cli.start(name)
+    }
+    pub fn stop_container(&self, name: &str) -> Result<()> {
+        self.cli.stop(name)
+    }
+    pub fn remove_container(&self, name: &str) -> Result<()> {
+        self.cli.remove(name)
+    }
+    /// Corre um novo container destacado e devolve o seu id.
+    pub fn run_container(&self, name: &str, image: &str, cmd: &[&str]) -> Result<String> {
+        self.cli.run_detached(name, image, cmd)
     }
 
     /// Contagens por recurso para os cartões de métricas do Dashboard.

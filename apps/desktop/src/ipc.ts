@@ -72,5 +72,10 @@ export const ipc = {
   providers: () => invoke<Provider[]>('list_providers'),
   containers: () => invoke<Workload[]>('list_containers'),
   logs: (name: string) => invoke<string>('container_logs', { name }),
+  startContainer: (name: string) => invoke<void>('container_start', { name }),
+  stopContainer: (name: string) => invoke<void>('container_stop', { name }),
+  removeContainer: (name: string) => invoke<void>('container_remove', { name }),
+  runContainer: (name: string, image: string, command: string[] = []) =>
+    invoke<string>('container_run', { name, image, command }),
   resourceCounts: () => invoke<ResourceCounts>('resource_counts'),
 };

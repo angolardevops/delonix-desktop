@@ -93,6 +93,14 @@ impl CliBridge {
         Ok(String::from_utf8_lossy(&out).trim().to_string())
     }
 
+    /// (Re)arranca um container parado: `container start <name>`. Distinto de
+    /// `run_detached` (que cria um novo a partir de uma imagem) — este reanima
+    /// um que já existe, o verbo natural do botão "Start" da lista.
+    pub fn start(&self, name: &str) -> Result<()> {
+        let name = validate_name(name)?;
+        self.run(&["container", "start", name]).map(|_| ())
+    }
+
     pub fn stop(&self, name: &str) -> Result<()> {
         let name = validate_name(name)?;
         self.run(&["container", "stop", name]).map(|_| ())

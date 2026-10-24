@@ -30,12 +30,41 @@ fn list_providers() -> Result<Vec<Provider>, String> {
 
 #[tauri::command]
 fn list_containers() -> Result<Vec<Workload>, String> {
-    LocalContext::from_env().containers().map_err(err)
+    // Inclui parados: a vista oferece "Start" para os que estão em baixo.
+    LocalContext::from_env().containers_all().map_err(err)
 }
 
 #[tauri::command]
 fn container_logs(name: String) -> Result<String, String> {
     LocalContext::from_env().logs(&name).map_err(err)
+}
+
+// Mutações de ciclo de vida disparadas pelos botões da lista. Devolvem `()`
+// (ou o id, no caso de run) e deixam a UI recarregar `list_containers` para
+// observar o novo estado — nada de estado otimista no webview.
+#[tauri::command]
+fn container_start(name: String) -> Result<(), String> {
+    LocalContext::from_env().start_container(&name).map_err(err)
+}
+
+#[tauri::command]
+fn container_stop(name: String) -> Result<(), String> {
+    LocalContext::from_env().stop_container(&name).map_err(err)
+}
+
+#[tauri::command]
+fn container_remove(name: String) -> Result<(), String> {
+    LocalContext::from_env()
+        .remove_container(&name)
+        .map_err(err)
+}
+
+#[tauri::command]
+fn container_run(name: String, image: String, command: Vec<String>) -> Result<String, String> {
+    let cmd: Vec<&str> = command.iter().map(String::as_str).collect();
+    LocalContext::from_env()
+        .run_container(&name, &image, &cmd)
+        .map_err(err)
 }
 
 /// Contagens por recurso para os cartões de métricas do Dashboard. Não falha:
@@ -52,6 +81,10 @@ fn main() {
             list_providers,
             list_containers,
             container_logs,
+            container_start,
+            container_stop,
+            container_remove,
+            container_run,
             resource_counts
         ])
         .run(tauri::generate_context!())
