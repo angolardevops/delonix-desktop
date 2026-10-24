@@ -2,6 +2,13 @@
 # Compilar a janela Tauri exige libs de sistema que podem faltar no host
 # (ex.: libwebkit2gtk-4.1-dev). Instalar com o comando em docs/architecture/
 # (uma acção `sudo` do dono, não executada pelo agente).
+#
+# Sub-workspace autónomo: a tabela `[workspace]` vazia diz ao cargo para NÃO o
+# tratar como membro do workspace raiz (`crates/*`). Assim a janela compila
+# localmente quando as libs existem, sem o CI (`cargo build --workspace`) tentar
+# compilá-la nos runners sem webkit.
+[workspace]
+
 [package]
 name = "delonix-desktop"
 version = "0.1.0"

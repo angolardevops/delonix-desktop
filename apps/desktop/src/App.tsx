@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
-import { CapabilityBadge, type CapabilityState } from '@delonix/design-system';
+import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
 import { ipc, isTauri, type Provider, type NodeInfo } from './ipc';
+import Dashboard from './views/Dashboard';
+import {
+  IconDashboard, IconContainers, IconPods, IconImages,
+  IconVolumes, IconKubernetes, IconExtensions, IconSettings,
+} from './icons';
 
 // Duplo de desenvolvimento (vite dev, sem Tauri). Valores REAIS medidos neste
 // host — ver reports/2026-10-24-linux-vertical-slice.md. Faixa visível avisa.
@@ -28,8 +32,69 @@ const DEV_PROVIDERS: Provider[] = [
   ] },
 ];
 
+type ViewId = 'dashboard' | 'containers' | 'pods' | 'images' | 'volumes' | 'kubernetes' | 'extensions' | 'settings';
+interface NavItem { id: ViewId; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>>; }
+
+const NAV: NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', Icon: IconDashboard },
+  { id: 'containers', label: 'Containers', Icon: IconContainers },
+  { id: 'pods', label: 'Pods', Icon: IconPods },
+  { id: 'images', label: 'Images', Icon: IconImages },
+  { id: 'volumes', label: 'Volumes', Icon: IconVolumes },
+  { id: 'kubernetes', label: 'Kubernetes', Icon: IconKubernetes },
+  { id: 'extensions', label: 'Extensions', Icon: IconExtensions },
+  { id: 'settings', label: 'Settings', Icon: IconSettings },
+];
+
+function NavRail({ active, onSelect }: { active: ViewId; onSelect: (id: ViewId) => void }) {
+  return (
+    <nav style={{
+      width: 84, flexShrink: 0, background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: 'var(--sp-2) 0', gap: 2,
+    }}>
+      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: 'var(--accent)', padding: 'var(--sp-2) 0 var(--sp-3)' }}>
+        Delonix
+      </div>
+      {NAV.map(({ id, label, Icon }) => {
+        const on = id === active;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onSelect(id)}
+            aria-current={on ? 'page' : undefined}
+            title={label}
+            style={{
+              position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              padding: '10px 4px', margin: '0 var(--sp-2)', borderRadius: 'var(--r-md, 6px)', cursor: 'pointer',
+              border: 'none', background: on ? 'var(--accent-dim)' : 'transparent',
+              color: on ? 'var(--accent)' : 'var(--text-dim)', font: 'inherit',
+            }}
+          >
+            {on && <span style={{ position: 'absolute', left: -8, top: 8, bottom: 8, width: 3, borderRadius: 3, background: 'var(--accent)' }} />}
+            <Icon />
+            <span style={{ fontSize: 10.5, lineHeight: 1.1, textAlign: 'center' }}>{label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Placeholder({ title }: { title: string }) {
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', height: '60vh', textAlign: 'center', color: 'var(--text-dim)' }}>
+      <div>
+        <h1 style={{ fontSize: 20, color: 'var(--text)', margin: '0 0 var(--sp-2)' }}>{title}</h1>
+        <p style={{ margin: 0, fontSize: 13 }}>Vista por construir — chega numa próxima fase.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const live = isTauri();
+  const [view, setView] = useState<ViewId>('dashboard');
   const [node, setNode] = useState<NodeInfo>(DEV_NODE);
   const [providers, setProviders] = useState<Provider[]>(DEV_PROVIDERS);
   const [err, setErr] = useState<string | null>(null);
@@ -37,71 +102,30 @@ export default function App() {
   useEffect(() => {
     if (!live) return;
     Promise.all([ipc.nodeInfo(), ipc.providers()])
-      .then(([n, p]) => { setNode(n); setProviders(p); })
+      .then(([n, p]) => { setNode(n); setProviders(p); setErr(null); })
       .catch((e) => setErr(String(e)));
   }, [live]);
 
-  const caps = providers.flatMap((p) => p.capabilities);
-  const hist = caps.reduce<Record<string, number>>((h, c) => {
-    h[c.state] = (h[c.state] ?? 0) + 1;
-    return h;
-  }, {});
-
   return (
-    <div style={{ fontFamily: 'var(--sans)', color: 'var(--text)', background: 'var(--bg)', minHeight: '100vh' }}>
-      {!live && (
-        <div role="status" style={{ background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 'var(--sp-2) var(--sp-4)', fontSize: 13 }}>
-          Modo de desenvolvimento (sem Tauri): dados do duplo local, não do runtime vivo.
-        </div>
-      )}
-      {err && (
-        <div role="alert" style={{ background: 'var(--red-bg)', color: 'var(--red)', padding: 'var(--sp-2) var(--sp-4)' }}>
-          Sem ligação ao runtime: {err}
-        </div>
-      )}
-      <header style={{ padding: 'var(--sp-5)', borderBottom: '1px solid var(--border)' }}>
-        <h1 style={{ margin: 0, fontSize: 20 }}>Delonix Desktop</h1>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-dim)', fontSize: 13 }}>
-          {node.hostname} · engine {node.engine_version} · {node.arch}
-          {node.rootless ? ' · rootless' : ''}{node.cgroup_delegated ? ' · cgroup delegado' : ''}
-          {' · '}workloads: {node.supported_workload_types.join(', ')}
-        </p>
-      </header>
-
-      <main style={{ padding: 'var(--sp-5)' }}>
-        <h2 style={{ fontSize: 15, color: 'var(--text-2)' }}>Capacidades por estado (feature-gating)</h2>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', marginBottom: 'var(--sp-5)' }}>
-          {Object.entries(hist).map(([state, n]) => (
-            <CapabilityBadge key={state} state={state as CapabilityState}>
-              {n} × {state}
-            </CapabilityBadge>
-          ))}
-        </div>
-
-        <h2 style={{ fontSize: 15, color: 'var(--text-2)' }}>Providers</h2>
-        {providers.map((p) => (
-          <section key={`${p.kind}/${p.id}`} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 'var(--sp-4)', marginBottom: 'var(--sp-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-              <strong>{p.kind}/{p.id}</strong>
-              <span style={{ fontSize: 12, color: p.available ? 'var(--green)' : 'var(--text-dim)' }}>
-                {p.available ? 'disponível' : 'indisponível'}
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 'auto' }}>
-                catálogo {p.catalog_version}
-              </span>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 'var(--sp-3) 0 0', display: 'grid', gap: 'var(--sp-2)' }}>
-              {p.capabilities.map((c) => (
-                <li key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', fontSize: 13 }}>
-                  <CapabilityBadge state={c.state} />
-                  <code style={{ fontFamily: 'var(--mono)' }}>{c.name}</code>
-                  {c.detail && <span style={{ color: 'var(--text-dim)' }}>{c.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
-      </main>
+    <div style={{ fontFamily: 'var(--sans)', color: 'var(--text)', background: 'var(--bg)', minHeight: '100vh', display: 'flex' }}>
+      <NavRail active={view} onSelect={setView} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, maxHeight: '100vh', overflow: 'auto' }}>
+        {!live && (
+          <div role="status" style={{ background: 'var(--amber-bg)', color: 'var(--amber-ink)', padding: 'var(--sp-2) var(--sp-4)', fontSize: 13 }}>
+            Modo de desenvolvimento (sem Tauri): dados do duplo local, não do runtime vivo.
+          </div>
+        )}
+        {err && (
+          <div role="alert" style={{ background: 'var(--red-bg)', color: 'var(--red)', padding: 'var(--sp-2) var(--sp-4)', fontSize: 13 }}>
+            Sem ligação ao runtime: {err}
+          </div>
+        )}
+        <main style={{ padding: 'var(--sp-5)', flex: 1 }}>
+          {view === 'dashboard'
+            ? <Dashboard node={node} providers={providers} />
+            : <Placeholder title={NAV.find((n) => n.id === view)!.label} />}
+        </main>
+      </div>
     </div>
   );
 }
