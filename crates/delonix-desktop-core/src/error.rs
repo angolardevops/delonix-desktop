@@ -16,7 +16,10 @@ pub enum CoreError {
     },
     /// O node-api respondeu com um estado não-2xx (o corpo é o problema
     /// RFC 9457, quando presente).
-    Http { status: u16, detail: String },
+    Http {
+        status: u16,
+        detail: String,
+    },
     /// Resposta malformada ao nível do transporte HTTP.
     Protocol(String),
     /// Não foi possível lançar o binário `delonix` (ponte CLI).

@@ -51,7 +51,11 @@ fn run() -> delonix_desktop_core::Result<()> {
     let info = node.node_info()?;
     println!(
         "→ node: {} {} rootless={} cgroup_delegated={} workloads={:?}",
-        info.arch, info.engine_version, info.rootless, info.cgroup_delegated, info.supported_workload_types
+        info.arch,
+        info.engine_version,
+        info.rootless,
+        info.cgroup_delegated,
+        info.supported_workload_types
     );
 
     let health = node.health()?;
@@ -62,7 +66,12 @@ fn run() -> delonix_desktop_core::Result<()> {
         health.conditions.len()
     );
     for c in &health.conditions {
-        println!("   [{}] {} — {}", if c.is_true() { "ok" } else { "!!" }, c.kind, c.reason);
+        println!(
+            "   [{}] {} — {}",
+            if c.is_true() { "ok" } else { "!!" },
+            c.kind,
+            c.reason
+        );
     }
 
     let providers = node.providers()?;
@@ -87,7 +96,11 @@ fn run() -> delonix_desktop_core::Result<()> {
         println!("   {state:28} {n}");
     }
     // Sanidade: tem de haver pelo menos um Supported e o catálogo tem de existir.
-    let total: usize = providers.providers.iter().map(|p| p.capabilities.len()).sum();
+    let total: usize = providers
+        .providers
+        .iter()
+        .map(|p| p.capabilities.len())
+        .sum();
     if total == 0 {
         return Err(delonix_desktop_core::CoreError::Protocol(
             "catálogo de capabilities vazio — contrato não está a reportar providers".into(),
@@ -98,7 +111,10 @@ fn run() -> delonix_desktop_core::Result<()> {
         .iter()
         .flat_map(|p| &p.capabilities)
         .any(|c| c.state == CapabilityState::Supported);
-    assert_contract(any_supported, "nenhuma capability 'supported' — inesperado neste host")?;
+    assert_contract(
+        any_supported,
+        "nenhuma capability 'supported' — inesperado neste host",
+    )?;
 
     // ── 3. Ponte CLI-JSON: ciclo de vida de um container ────────────────
     if !do_run {
@@ -116,16 +132,22 @@ fn run() -> delonix_desktop_core::Result<()> {
     let id = cli.run_detached(
         name,
         "docker.io/library/busybox:latest",
-        &["sh", "-c", "for i in $(seq 1 10); do echo tick $i; sleep 1; done"],
+        &[
+            "sh",
+            "-c",
+            "for i in $(seq 1 10); do echo tick $i; sleep 1; done",
+        ],
     )?;
     println!("   id = {id}");
 
     let found = cli.containers()?.into_iter().find(|w| w.name == name);
     match &found {
         Some(w) => println!("   ps: {} [{}] {}", w.name, w.display_status(), w.image),
-        None => return Err(delonix_desktop_core::CoreError::Protocol(
-            "container criado não aparece em `container ps -o json`".into(),
-        )),
+        None => {
+            return Err(delonix_desktop_core::CoreError::Protocol(
+                "container criado não aparece em `container ps -o json`".into(),
+            ))
+        }
     }
 
     std::thread::sleep(std::time::Duration::from_secs(2));

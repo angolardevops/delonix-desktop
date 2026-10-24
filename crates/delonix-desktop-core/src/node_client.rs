@@ -84,11 +84,9 @@ impl NodeClient {
     /// corpo (bytes). Erros do servidor viram `CoreError::Http` com o problema
     /// RFC 9457 anexado quando presente.
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
-        let mut stream = UnixStream::connect(&self.socket).map_err(|e| {
-            CoreError::Connect {
-                socket: self.socket.display().to_string(),
-                source: e,
-            }
+        let mut stream = UnixStream::connect(&self.socket).map_err(|e| CoreError::Connect {
+            socket: self.socket.display().to_string(),
+            source: e,
         })?;
         stream.set_read_timeout(Some(self.timeout)).ok();
         stream.set_write_timeout(Some(self.timeout)).ok();
@@ -136,7 +134,5 @@ fn split_http(raw: &[u8]) -> Result<(u16, &[u8])> {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }

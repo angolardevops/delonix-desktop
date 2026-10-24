@@ -72,7 +72,7 @@ impl CliBridge {
         self.run(&["container", "rm", name]).map(|_| ())
     }
 
-    /// Helpers -------------------------------------------------------------
+    // Helpers -------------------------------------------------------------
 
     fn json_array<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<Vec<T>> {
         let out = self.run(args)?;
@@ -128,7 +128,9 @@ fn validate_ref(image: &str) -> Result<&str> {
     if ok {
         Ok(image)
     } else {
-        Err(CoreError::Protocol(format!("referência inválida: {image:?}")))
+        Err(CoreError::Protocol(format!(
+            "referência inválida: {image:?}"
+        )))
     }
 }
 
