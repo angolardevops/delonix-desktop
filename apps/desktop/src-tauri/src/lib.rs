@@ -1,4 +1,5 @@
 mod cli;
+mod exec;
 mod stream;
 
 use cli::{CliResult, Risk};
@@ -49,13 +50,18 @@ fn dlx_bin() -> String {
 pub fn run() {
     tauri::Builder::default()
         .manage(stream::Streams::default())
+        .manage(exec::Execs::default())
         .invoke_handler(tauri::generate_handler![
             dlx_json,
             dlx_run,
             dlx_risk,
             dlx_bin,
             stream::dlx_stream_start,
-            stream::dlx_stream_stop
+            stream::dlx_stream_stop,
+            exec::dlx_exec_start,
+            exec::dlx_exec_write,
+            exec::dlx_exec_resize,
+            exec::dlx_exec_stop
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Delonix Desktop");
