@@ -8,6 +8,12 @@
 
 import type { CapabilityState } from '@delonix/design-system';
 
+// Identificador de vista principal (rail de navegação). Partilhado entre o
+// shell (App) e as vistas que navegam entre si (ex.: cartões do Dashboard).
+export type ViewId =
+  | 'dashboard' | 'containers' | 'pods' | 'images' | 'volumes'
+  | 'kubernetes' | 'extensions' | 'settings';
+
 export interface NodeInfo {
   arch: string;
   rootless: boolean;

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
-import { ipc, isTauri, type Provider, type NodeInfo, type ResourceCounts } from './ipc';
+import { ipc, isTauri, type Provider, type NodeInfo, type ResourceCounts, type ViewId } from './ipc';
 import Dashboard from './views/Dashboard';
 import {
   IconDashboard, IconContainers, IconPods, IconImages,
@@ -41,7 +41,6 @@ const DEV_COUNTS: ResourceCounts = {
   volumes: 27,
 };
 
-type ViewId = 'dashboard' | 'containers' | 'pods' | 'images' | 'volumes' | 'kubernetes' | 'extensions' | 'settings';
 interface NavItem { id: ViewId; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>>; }
 
 const NAV: NavItem[] = [
@@ -132,7 +131,7 @@ export default function App() {
         )}
         <main style={{ padding: 'var(--sp-5)', flex: 1 }}>
           {view === 'dashboard'
-            ? <Dashboard node={node} providers={providers} counts={counts} />
+            ? <Dashboard node={node} providers={providers} counts={counts} onNavigate={setView} />
             : <Placeholder title={NAV.find((n) => n.id === view)!.label} />}
         </main>
       </div>

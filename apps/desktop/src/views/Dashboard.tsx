@@ -1,5 +1,5 @@
 import { CapabilityBadge, type CapabilityState } from '@delonix/design-system';
-import type { NodeInfo, Provider, ResourceCounts } from '../ipc';
+import type { NodeInfo, Provider, ResourceCounts, ViewId } from '../ipc';
 import MetricCard from '../components/MetricCard';
 import {
   IconContainers, IconPods, IconImages, IconVolumes, IconExtensions,
@@ -7,9 +7,15 @@ import {
 
 // Vista Dashboard: o conteúdo vivo (nó, cartões de métricas, histograma de
 // capacidades, providers). Recebe os dados já carregados pelo shell — não fala
-// com o IPC directamente.
+// com o IPC directamente. `onNavigate` troca a vista principal no rail; cartões
+// com uma vista correspondente ficam clicáveis.
 export default function Dashboard(
-  { node, providers, counts }: { node: NodeInfo; providers: Provider[]; counts: ResourceCounts },
+  { node, providers, counts, onNavigate }: {
+    node: NodeInfo;
+    providers: Provider[];
+    counts: ResourceCounts;
+    onNavigate?: (view: ViewId) => void;
+  },
 ) {
   const caps = providers.flatMap((p) => p.capabilities);
   const hist = caps.reduce<Record<string, number>>((h, c) => {
@@ -20,14 +26,23 @@ export default function Dashboard(
   // Providers vêm de `/v1/providers` (já carregados); os restantes da ponte
   // CLI-JSON via `counts`. A contagem de providers nunca é desconhecida aqui.
   const providersUp = providers.filter((p) => p.available).length;
-  const metrics = [
+  // `view` associa o cartão a uma rota do rail; os que a omitem (ex.: providers)
+  // ficam não-clicáveis.
+  const metrics: Array<{
+    label: string;
+    value: number | null;
+    Icon: typeof IconContainers;
+    hint?: string;
+    view?: ViewId;
+  }> = [
     {
       label: 'Containers', value: counts.containers_total, Icon: IconContainers,
       hint: counts.containers_running !== null ? `${counts.containers_running} a correr` : undefined,
+      view: 'containers',
     },
-    { label: 'Pods', value: counts.pods, Icon: IconPods },
-    { label: 'Imagens', value: counts.images, Icon: IconImages },
-    { label: 'Volumes', value: counts.volumes, Icon: IconVolumes },
+    { label: 'Pods', value: counts.pods, Icon: IconPods, view: 'pods' },
+    { label: 'Imagens', value: counts.images, Icon: IconImages, view: 'images' },
+    { label: 'Volumes', value: counts.volumes, Icon: IconVolumes, view: 'volumes' },
     {
       label: 'Providers ativos', value: providersUp, Icon: IconExtensions,
       hint: `de ${providers.length}`,
@@ -52,7 +67,14 @@ export default function Dashboard(
         marginBottom: 'var(--sp-5)',
       }}>
         {metrics.map((m) => (
-          <MetricCard key={m.label} label={m.label} value={m.value} Icon={m.Icon} hint={m.hint} />
+          <MetricCard
+            key={m.label}
+            label={m.label}
+            value={m.value}
+            Icon={m.Icon}
+            hint={m.hint}
+            onClick={m.view && onNavigate ? () => onNavigate(m.view!) : undefined}
+          />
         ))}
       </div>
 
