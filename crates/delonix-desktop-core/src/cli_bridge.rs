@@ -60,6 +60,19 @@ impl CliBridge {
         self.run(&["image", "remove", img]).map(|_| ())
     }
 
+    /// Puxa uma imagem de um registo: `image pull <ref>` (a forma comum —
+    /// repositório e tag, ex. `postgres:16` ou `ghcr.io/org/app:1.2.0`). A
+    /// `ref` é validada como referência de imagem (como em [`Self::remove_image`]).
+    ///
+    /// NB: fala com a rede e pode demorar — por isso [`Self::run`] não tem
+    /// timeout e quem chama (o comando Tauri) deve mostrar «A puxar…» até
+    /// esta devolver. Só quando o processo sai com código ≠ 0 é que há falha;
+    /// a UI recarrega a lista depois para ver a imagem nova.
+    pub fn pull_image(&self, img: &str) -> Result<()> {
+        let img = validate_ref(img)?;
+        self.run(&["image", "pull", img]).map(|_| ())
+    }
+
     // Contagens por recurso para os cartões de métricas do Dashboard. Cada uma
     // é uma leitura JSON independente: quem chama decide o que fazer quando uma
     // falha (ver `LocalContext::resource_counts`, que degrada para `None`).

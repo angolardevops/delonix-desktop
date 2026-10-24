@@ -91,5 +91,8 @@ export const ipc = {
     invoke<string>('container_run', { name, image, command }),
   images: () => invoke<Image[]>('list_images'),
   removeImage: (image: string) => invoke<void>('image_remove', { image }),
+  // Pull fala com a rede e pode demorar: o invoke fica pendente até o processo
+  // sair. A UI mostra «A puxar…» enquanto isso e só recarrega a lista depois.
+  pullImage: (image: string) => invoke<void>('image_pull', { image }),
   resourceCounts: () => invoke<ResourceCounts>('resource_counts'),
 };

@@ -87,6 +87,13 @@ impl LocalContext {
         self.cli.remove_image(img)
     }
 
+    /// Puxa uma imagem de um registo (por `repo:tag`). Fala com a rede e pode
+    /// demorar; a UI mostra «A puxar…» até devolver e depois recarrega a lista
+    /// para ver a imagem nova. Mesma regra de ponte que [`Self::remove_image`].
+    pub fn pull_image(&self, img: &str) -> Result<()> {
+        self.cli.pull_image(img)
+    }
+
     // Mutações de ciclo de vida da vista de Containers. Cada uma delega na
     // ponte CLI-JSON (o contrato `node.v1` ainda não serve mutações de
     // container) e devolve `Result` — a UI reporta o erro redigido e recarrega

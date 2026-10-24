@@ -79,6 +79,15 @@ fn image_remove(image: String) -> Result<(), String> {
     LocalContext::from_env().remove_image(&image).map_err(err)
 }
 
+// Pull fala com a rede e pode demorar: este comando bloqueia até o processo
+// `delonix image pull` sair. A UI mostra «A puxar…» enquanto o invoke está
+// pendente e só recarrega `list_images` quando ele devolve — nunca declara
+// falha num poll cedo (o Err só vem de um código de saída ≠ 0, ver cli_bridge).
+#[tauri::command]
+fn image_pull(image: String) -> Result<(), String> {
+    LocalContext::from_env().pull_image(&image).map_err(err)
+}
+
 /// Contagens por recurso para os cartões de métricas do Dashboard. Não falha:
 /// cada contagem indisponível vem como `null` e o cartão mostra um traço.
 #[tauri::command]
@@ -99,6 +108,7 @@ fn main() {
             container_run,
             list_images,
             image_remove,
+            image_pull,
             resource_counts
         ])
         .run(tauri::generate_context!())

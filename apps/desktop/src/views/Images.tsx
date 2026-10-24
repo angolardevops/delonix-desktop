@@ -61,6 +61,8 @@ export default function Images() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pullRef, setPullRef] = useState('');
+  const [pulling, setPulling] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!live) { setItems(DEV_IMAGES); return; }
@@ -96,6 +98,27 @@ export default function Images() {
     }
   }, [live, refresh]);
 
+  // Puxa a imagem referida no campo e recarrega a lista para a ver aparecer.
+  // Pull fala com a rede e pode demorar: `pulling` trava o campo e o botão e
+  // mostra «A puxar…» até o invoke devolver — não há poll a declarar falha
+  // cedo (só um erro real do comando sobe). Em sucesso limpa o campo.
+  const pull = useCallback(async () => {
+    const ref = pullRef.trim();
+    if (!ref) return;
+    if (!live) { setErr('Ação indisponível no modo de desenvolvimento (sem Tauri).'); return; }
+    setPulling(true);
+    setErr(null);
+    try {
+      await ipc.pullImage(ref);
+      setPullRef('');
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setPulling(false);
+    }
+  }, [live, pullRef, refresh]);
+
   const sel = items.find((img) => imageRef(img) === selected) ?? null;
 
   return (
@@ -107,6 +130,27 @@ export default function Images() {
             {items.length} imagem{items.length === 1 ? '' : 's'}
           </p>
         </div>
+        <form
+          onSubmit={(e) => { e.preventDefault(); void pull(); }}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}
+        >
+          <input
+            type="text"
+            value={pullRef}
+            onChange={(e) => setPullRef(e.target.value)}
+            disabled={pulling}
+            placeholder="repositório:tag (ex.: postgres:16)"
+            aria-label="Referência da imagem a puxar"
+            style={{
+              font: 'inherit', fontSize: 13, padding: '6px 10px', width: 240,
+              borderRadius: 'var(--r-md, 6px)', border: '1px solid var(--border)',
+              background: 'var(--bg, var(--card))', color: 'var(--text)',
+            }}
+          />
+          <button type="submit" disabled={pulling || pullRef.trim() === ''} style={btnStyle('primary')}>
+            {pulling ? 'A puxar…' : 'Pull'}
+          </button>
+        </form>
         <button
           type="button"
           onClick={() => void refresh()}
