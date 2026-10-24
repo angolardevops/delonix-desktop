@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
+import { Pager } from "../components/Pager";
 import { cmd } from "../lib/cli";
 import { useResource } from "../lib/hooks";
+import { orderBy, usePagination } from "../lib/pagination";
 
 type F = "all" | "used" | "unused";
 
@@ -14,7 +16,13 @@ export function Images() {
   const [ref, setRef] = useState("");
   const rows = data ?? [];
   const unused = rows.filter((r) => r.usedBy.length === 0);
-  const shown = f === "all" ? rows : f === "used" ? rows.filter((r) => r.usedBy.length) : unused;
+  // Filtro sobre o conjunto completo, ordenação determinística (desempate por
+  // ref+id) e só depois paginação de 10/página — ver lib/pagination.ts.
+  const shown = orderBy(
+    f === "all" ? rows : f === "used" ? rows.filter((r) => r.usedBy.length) : unused,
+    (r) => r.ref + r.id,
+  );
+  const page = usePagination(shown);
 
   return (
     <>
@@ -31,7 +39,10 @@ export function Images() {
             <table>
               <thead><tr><th>Repositório : tag</th><th>ID</th><th>Tamanho</th><th>Criada</th><th>Usada por</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
               <tbody>
-                {shown.map((i) => (
+                {page.total === 0 && (
+                  <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem imagens</td></tr>
+                )}
+                {page.items.map((i) => (
                   <tr key={i.ref + i.id}>
                     <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{i.ref}</td>
                     <td className="mono muted">{i.id}</td>
@@ -46,6 +57,7 @@ export function Images() {
               </tbody>
             </table>
           </div>
+          <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
         </div>
         <aside className="aside">
           <section className="section">
