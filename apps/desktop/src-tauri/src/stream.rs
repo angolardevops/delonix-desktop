@@ -19,7 +19,7 @@ struct Line {
     line: String,
 }
 
-const STREAMABLE: &[&[&str]] = &[&["logs"], &["system", "events"]];
+const STREAMABLE: &[&[&str]] = &[&["container", "logs"], &["system", "events"]];
 
 fn allowed(args: &[String]) -> bool {
     STREAMABLE

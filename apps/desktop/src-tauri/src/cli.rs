@@ -33,12 +33,15 @@ impl Risk {
 /// Prefixos de argv permitidos e a sua classe. O primeiro que casa ganha, por
 /// isso os mais específicos vêm primeiro.
 const RULES: &[(&[&str], Risk)] = &[
+    // Verbos AGRUPADOS (existem no release 5.1.1 E na develop). Não usar os
+    // aliases de raiz estilo Docker (run/ps/images/logs/…): só existem na
+    // develop, partem contra o engine 5.1.1.
     // Leitura (todas com JSON estável)
     (&["dashboard"], Risk::Read),
     (&["workload", "ls"], Risk::Read),
     (&["workload", "describe"], Risk::Read),
-    (&["ps"], Risk::Read),
-    (&["images"], Risk::Read),
+    (&["container", "ps"], Risk::Read),
+    (&["image", "ls"], Risk::Read),
     (&["volume", "ls"], Risk::Read),
     (&["network", "ls"], Risk::Read),
     (&["vm", "ls"], Risk::Read),
@@ -51,18 +54,22 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["mcp", "doctor"], Risk::Read),
     (&["version"], Risk::Read),
     // Escrita segura
-    (&["pull"], Risk::SafeWrite),
-    (&["start"], Risk::SafeWrite),
+    (&["image", "pull"], Risk::SafeWrite),
+    (&["container", "start"], Risk::SafeWrite),
+    (&["vm", "start"], Risk::SafeWrite),
     (&["volume", "create"], Risk::SafeWrite),
     (&["network", "create"], Risk::SafeWrite),
-    (&["run"], Risk::SafeWrite),
+    (&["container", "run"], Risk::SafeWrite),
     // Disruptivas
-    (&["stop"], Risk::Disruptive),
-    (&["restart"], Risk::Disruptive),
     (&["workload", "stop"], Risk::Disruptive),
+    (&["container", "stop"], Risk::Disruptive),
+    (&["vm", "stop"], Risk::Disruptive),
+    (&["container", "restart"], Risk::Disruptive),
+    (&["vm", "restart"], Risk::Disruptive),
     // Destrutivas
-    (&["rm"], Risk::Destructive),
-    (&["rmi"], Risk::Destructive),
+    (&["workload", "rm"], Risk::Destructive),
+    (&["container", "rm"], Risk::Destructive),
+    (&["image", "remove"], Risk::Destructive),
     (&["volume", "rm"], Risk::Destructive),
     (&["network", "rm"], Risk::Destructive),
 ];
@@ -126,8 +133,20 @@ mod tests {
     }
 
     #[test]
-    fn destructive_needs_confirm() {
-        assert!(classify(&v("rm -f odoo-16")).unwrap().requires_confirm());
-        assert!(!classify(&v("workload ls -o json")).unwrap().requires_confirm());
+    fn root_docker_aliases_are_refused() {
+        // Só existem na develop; partem contra o release 5.1.1. O desktop emite
+        // as formas agrupadas, por isso os aliases de raiz têm de ficar FORA.
+        for a in ["run nginx", "ps", "images", "logs -f x", "pull x", "rmi x", "start x", "stop x", "restart x", "rm -f x"] {
+            assert_eq!(classify(&v(a)), None, "alias de raiz não devia ser permitido: {a}");
+        }
+    }
+
+    #[test]
+    fn grouped_verbs_are_classified() {
+        assert!(!classify(&v("image ls -o json")).unwrap().requires_confirm());
+        assert!(classify(&v("workload rm -f odoo-16")).unwrap().requires_confirm());
+        assert!(classify(&v("image remove nginx")).unwrap().requires_confirm());
+        assert!(classify(&v("vm start fc-1")).is_some());
+        assert!(!classify(&v("container run -d nginx")).unwrap().requires_confirm());
     }
 }

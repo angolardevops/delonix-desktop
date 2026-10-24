@@ -11,7 +11,7 @@ export const cmd = {
   dash: (): Argv => ["dashboard", "--json"],
   workloads: (): Argv => ["workload", "ls", "-o", "json"],
   describe: (name: string): Argv => ["workload", "describe", name],
-  images: (): Argv => ["images", "-o", "json"],
+  images: (): Argv => ["image", "ls", "-o", "json"],
   volumes: (): Argv => ["volume", "ls", "-o", "json"],
   networks: (): Argv => ["network", "ls", "-o", "json"],
   providers: (): Argv => ["provider", "ls", "-o", "json"],
@@ -20,22 +20,25 @@ export const cmd = {
   doctor: (): Argv => ["system", "doctor"],
   mcpTools: (): Argv => ["mcp", "capabilities"],
 
-  start: (w: Pick<WorkloadRow, "name">): Argv => ["start", w.name],
-  // containers e VMs: `workload stop` encaminha para o backend certo
+  // start/restart não têm forma de raiz nem no grupo `workload`: despacham-se
+  // por tipo (`vm …` para VMs, `container …` para o resto).
+  start: (w: Pick<WorkloadRow, "name" | "type">): Argv => [w.type === "vm" ? "vm" : "container", "start", w.name],
+  // `workload stop` encaminha para o backend certo (container ou VM).
   stop: (w: Pick<WorkloadRow, "name">): Argv => ["workload", "stop", w.name],
-  restart: (w: Pick<WorkloadRow, "name">): Argv => ["restart", w.name],
-  remove: (w: Pick<WorkloadRow, "name">): Argv => ["rm", "-f", w.name],
-  logsFollow: (name: string): Argv => ["logs", "-f", name],
+  restart: (w: Pick<WorkloadRow, "name" | "type">): Argv => [w.type === "vm" ? "vm" : "container", "restart", w.name],
+  // `workload rm` é agnóstico ao tipo; -f força mesmo a correr.
+  remove: (w: Pick<WorkloadRow, "name">): Argv => ["workload", "rm", "-f", w.name],
+  logsFollow: (name: string): Argv => ["container", "logs", "-f", name],
   exec: (name: string): Argv => ["container", "exec", "-it", name],
   events: (): Argv => ["system", "events", "-f", "-o", "json"],
 
-  pull: (ref: string): Argv => ["pull", ref],
-  rmi: (ref: string): Argv => ["rmi", ref],
+  pull: (ref: string): Argv => ["image", "pull", ref],
+  rmi: (ref: string): Argv => ["image", "remove", ref],
   volumeCreate: (name: string): Argv => ["volume", "create", name],
   volumeRm: (name: string): Argv => ["volume", "rm", name],
 
   run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string }): Argv => [
-    "run", "-d", "--name", o.name,
+    "container", "run", "-d", "--name", o.name,
     ...o.ports.flatMap((p) => ["-p", p]),
     ...o.env.flatMap((e) => ["-e", e]),
     ...o.volumes.flatMap((v) => ["-v", v]),

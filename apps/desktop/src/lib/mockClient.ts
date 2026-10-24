@@ -117,9 +117,9 @@ const doctorItems: DoctorItem[] = [
 ];
 
 const RISK: [string[], RiskLevel][] = [
-  [["rm"], "DESTRUCTIVE"], [["rmi"], "DESTRUCTIVE"], [["volume", "rm"], "DESTRUCTIVE"],
-  [["workload", "stop"], "DISRUPTIVE"], [["stop"], "DISRUPTIVE"], [["restart"], "DISRUPTIVE"],
-  [["start"], "SAFE_WRITE"], [["pull"], "SAFE_WRITE"], [["run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"],
+  [["workload", "rm"], "DESTRUCTIVE"], [["container", "rm"], "DESTRUCTIVE"], [["image", "remove"], "DESTRUCTIVE"], [["volume", "rm"], "DESTRUCTIVE"], [["network", "rm"], "DESTRUCTIVE"],
+  [["workload", "stop"], "DISRUPTIVE"], [["container", "stop"], "DISRUPTIVE"], [["vm", "stop"], "DISRUPTIVE"], [["container", "restart"], "DISRUPTIVE"], [["vm", "restart"], "DISRUPTIVE"],
+  [["container", "start"], "SAFE_WRITE"], [["vm", "start"], "SAFE_WRITE"], [["image", "pull"], "SAFE_WRITE"], [["container", "run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"], [["network", "create"], "SAFE_WRITE"],
 ];
 const riskOf = (argv: Argv) => RISK.find(([p]) => p.every((t, i) => argv[i] === t))?.[1] ?? null;
 
@@ -157,11 +157,11 @@ export class MockClient implements DelonixClient {
     const name = argv[argv.length - 1];
     workloads = workloads.map((w) =>
       w.name !== name ? w
-        : argv[0] === "start" || argv[0] === "restart" ? { ...w, status: w.type === "vm" ? "Running" : "Up 1 second" }
+        : argv.includes("start") || argv.includes("restart") ? { ...w, status: w.type === "vm" ? "Running" : "Up 1 second" }
         : argv.includes("stop") ? { ...w, status: w.type === "vm" ? "Stopped" : "Exited (0) 1 second ago" }
         : w,
     );
-    if (argv[0] === "rm") workloads = workloads.filter((w) => w.name !== name);
+    if (argv.includes("rm")) workloads = workloads.filter((w) => w.name !== name);
     return wait({ ...base, ok: true, code: 0, stdout: `${name}\n` });
   }
 
