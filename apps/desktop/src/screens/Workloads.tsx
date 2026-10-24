@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { CliHint, ErrorNote, PageHead, StateChip, Tabs, TypeChip } from "../components/ui";
+import { Pager } from "../components/Pager";
 import { cmd, type Argv } from "../lib/cli";
 import { runState, useResource, type RunState } from "../lib/hooks";
+import { orderBy, usePagination } from "../lib/pagination";
 import type { WorkloadRow } from "../lib/types";
 
 type TypeFilter = "all" | "container" | "pod" | "vm";
@@ -18,11 +20,23 @@ export function Workloads() {
 
   const rows = data ?? [];
   const count = (t: TypeFilter) => (t === "all" ? rows.length : rows.filter((r) => r.type === t).length);
+  // Filtro + pesquisa sobre o conjunto COMPLETO; ordenação determinística
+  // (desempate por nome) ANTES de paginar — ver lib/pagination.ts.
   const shown = useMemo(
-    () => rows.filter((r) => (type === "all" || r.type === type) && (!state || runState(r.status) === state) && `${r.name} ${r.info}`.toLowerCase().includes(q.toLowerCase())),
+    () => orderBy(
+      rows.filter((r) => (type === "all" || r.type === type) && (!state || runState(r.status) === state) && `${r.name} ${r.info}`.toLowerCase().includes(q.toLowerCase())),
+      (r) => r.name,
+    ),
     [rows, type, state, q],
   );
+  const page = usePagination(shown);
+  const pageRows = page.items;
   const sel = rows.filter((r) => selected.has(r.name));
+  // Seleção em massa: distinguir se abrange só a página atual ou TODOS os
+  // resultados filtrados (o utilizador tem de saber sobre o que a ação incide).
+  const pageAllSelected = pageRows.length > 0 && pageRows.every((r) => selected.has(r.name));
+  const filteredAllSelected = shown.length > 0 && shown.every((r) => selected.has(r.name));
+  const hasMoreThanPage = shown.length > pageRows.length;
 
   const toggle = (name: string) => setSelected((s) => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const doAct = async (argv: Argv, label: string) => { await act(argv, label); void refresh(); };
@@ -62,7 +76,17 @@ export function Workloads() {
 
       {sel.length > 0 && (
         <div role="region" aria-label="Ações em lote" className="toolbar" style={{ background: "var(--sel)", borderColor: "var(--sel-line)" }}>
-          <b style={{ color: "var(--sel-tx)", fontWeight: 500 }}>{sel.length} selecionados</b>
+          <b style={{ color: "var(--sel-tx)", fontWeight: 500 }}>
+            {sel.length} selecionados {filteredAllSelected && hasMoreThanPage ? "(todos os resultados filtrados)" : "(nesta página)"}
+          </b>
+          {pageAllSelected && hasMoreThanPage && !filteredAllSelected && (
+            <button className="btn sm" type="button" onClick={() => setSelected(new Set(shown.map((r) => r.name)))}>
+              Selecionar todos os {shown.length} resultados filtrados
+            </button>
+          )}
+          {filteredAllSelected && hasMoreThanPage && (
+            <button className="btn sm" type="button" onClick={() => setSelected(new Set())}>Limpar seleção</button>
+          )}
           <button className="btn sm" type="button" onClick={() => void bulk(cmd.stop, "Parar")}>Parar</button>
           <button className="btn sm" type="button" onClick={() => void bulk(cmd.start, "Iniciar")}>Iniciar</button>
           <button className="btn sm" type="button" onClick={() => void bulk(cmd.restart, "Reiniciar")}>Reiniciar</button>
@@ -76,12 +100,15 @@ export function Workloads() {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 28 }}><input type="checkbox" aria-label="Selecionar todos" checked={shown.length > 0 && shown.every((r) => selected.has(r.name))} onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((r) => r.name)) : new Set())} /></th>
+              <th style={{ width: 28 }}><input type="checkbox" aria-label="Selecionar página" checked={pageAllSelected} onChange={(e) => setSelected((s) => { const n = new Set(s); for (const r of pageRows) e.target.checked ? n.add(r.name) : n.delete(r.name); return n; })} /></th>
               <th>Nome · info</th><th>Tipo</th><th>Estado</th><th>Namespace</th><th style={{ textAlign: "right" }}>Ações</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((w) => {
+            {pageRows.length === 0 && (
+              <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem workloads</td></tr>
+            )}
+            {pageRows.map((w) => {
               const st = runState(w.status);
               return (
                 <tr key={w.name} className={selected.has(w.name) ? "sel" : undefined} onDoubleClick={() => go({ name: "workload", id: w.name })}>
@@ -107,6 +134,7 @@ export function Workloads() {
           </tbody>
         </table>
       </div>
+      <Pager page={page.page} pages={page.pages} total={page.total} canPrev={page.canPrev} canNext={page.canNext} onFirst={page.first} onPrev={page.prev} onNext={page.next} onLast={page.last} />
       <div className="toolbar" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, background: "var(--panel)", fontSize: 12, color: "var(--mut)" }}>
         <CliHint argv={cmd.workloads()} compact />
         <span style={{ marginLeft: "auto" }}>Duplo clique abre o detalhe</span>
