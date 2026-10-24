@@ -1,6 +1,6 @@
 // Duplo local: os mesmos dados dos mockups, para desenvolver no browser sem
 // Tauri nem engine. A UI mostra sempre uma faixa "duplo local" neste modo.
-import type { DelonixClient } from "./client";
+import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
@@ -133,6 +133,23 @@ export class MockClient implements DelonixClient {
     let i = 0;
     const t = setInterval(() => onLine(`${new Date().toISOString().replace("T", " ").slice(0, 23)}  ${LOG[i++ % LOG.length]}`), 900);
     return () => clearInterval(t);
+  }
+
+  async exec(_id: string, name: string, onData: (data: string) => void, _onEnd: () => void): Promise<ExecSession> {
+    // Duplo local: um shell simulado que ecoa o que se escreve (sem engine).
+    onData(`\x1b[2mduplo local — shell simulado em ${name}\x1b[0m\r\n$ `);
+    let line = "";
+    return {
+      write: (data: string) => {
+        for (const ch of data) {
+          if (ch === "\r") { onData(`\r\n$ `); line = ""; }
+          else if (ch === "\x7f") { if (line) { line = line.slice(0, -1); onData("\b \b"); } }
+          else { line += ch; onData(ch); }
+        }
+      },
+      resize: () => {},
+      stop: () => {},
+    };
   }
 
   async events(onEvent: (e: EngineEvent) => void) {

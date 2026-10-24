@@ -26,6 +26,7 @@ export const cmd = {
   restart: (w: Pick<WorkloadRow, "name">): Argv => ["restart", w.name],
   remove: (w: Pick<WorkloadRow, "name">): Argv => ["rm", "-f", w.name],
   logsFollow: (name: string): Argv => ["logs", "-f", name],
+  exec: (name: string): Argv => ["container", "exec", "-it", name],
   events: (): Argv => ["system", "events", "-f", "-o", "json"],
 
   pull: (ref: string): Argv => ["pull", ref],

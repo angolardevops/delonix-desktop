@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
+import { Terminal } from "../components/Terminal";
 import { CliHint, Chip, StateChip, Tabs, TypeChip } from "../components/ui";
 import { cmd } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
 
-type T = "logs" | "inspect" | "stats";
+type T = "logs" | "terminal" | "inspect" | "stats";
 
 export function WorkloadDetail({ id }: { id: string }) {
   const { client, go, act } = useApp();
@@ -56,7 +57,7 @@ export function WorkloadDetail({ id }: { id: string }) {
           <button className="btn danger" type="button" onClick={() => void act(cmd.remove(w), `Remover ${w.name}`).then((ok) => ok && go({ name: "workloads" }))}><Icon name="trash" />Remover</button>
         </div>
       </header>
-      <Tabs<T> value={tab} onChange={setTab} items={[{ id: "logs", label: "Logs" }, { id: "inspect", label: "Inspecionar" }, { id: "stats", label: "Estatísticas" }]} />
+      <Tabs<T> value={tab} onChange={setTab} items={[{ id: "logs", label: "Logs" }, { id: "terminal", label: "Terminal" }, { id: "inspect", label: "Inspecionar" }, { id: "stats", label: "Estatísticas" }]} />
       <div className="split">
         <div className="primary" style={{ display: "flex", flexDirection: "column" }}>
           {tab === "logs" && (
@@ -71,6 +72,11 @@ export function WorkloadDetail({ id }: { id: string }) {
                 <div ref={end} />
               </div>
             </>
+          )}
+          {tab === "terminal" && (
+            w.type !== "container"
+              ? <p className="muted" style={{ padding: 24 }}>A consola de VM usa `delonix vm console` (ver PROMPT.md §8.3).</p>
+              : <Terminal key={w.name} name={w.name} />
           )}
           {tab === "inspect" && <Inspect name={w.name} />}
           {tab === "stats" && <p className="muted" style={{ padding: 24 }}>Séries por workload: ler `workload.usage` (MCP) ou `delonix stats` e guardar histórico local de 15 min. Ver PROMPT.md §8.2.</p>}

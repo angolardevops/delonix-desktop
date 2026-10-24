@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DelonixClient } from "./client";
+import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
@@ -165,6 +165,29 @@ export class TauriClient implements DelonixClient {
     return () => {
       un();
       void invoke("dlx_stream_stop", { id });
+    };
+  }
+
+  async exec(id: string, name: string, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession> {
+    const unData = await listen<{ id: string; data: string }>("dlx-exec", (e) => {
+      if (e.payload.id === id) onData(e.payload.data);
+    });
+    const unEnd = await listen<{ id: string }>("dlx-exec-end", (e) => {
+      if (e.payload.id === id) {
+        onEnd();
+        unData();
+        unEnd();
+      }
+    });
+    await invoke("dlx_exec_start", { id, name });
+    return {
+      write: (data: string) => void invoke("dlx_exec_write", { id, data }),
+      resize: (cols: number, rows: number) => void invoke("dlx_exec_resize", { id, cols, rows }),
+      stop: () => {
+        unData();
+        unEnd();
+        void invoke("dlx_exec_stop", { id });
+      },
     };
   }
 
