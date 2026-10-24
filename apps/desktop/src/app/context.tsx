@@ -9,6 +9,7 @@ export type Route =
   | { name: "workload"; id: string }
   | { name: "create" }
   | { name: "images" }
+  | { name: "build" }
   | { name: "volumes" }
   | { name: "secrets" }
   | { name: "backups" }

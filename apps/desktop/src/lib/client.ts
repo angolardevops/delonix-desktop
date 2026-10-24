@@ -35,7 +35,14 @@ export interface DelonixClient {
   readText(argv: Argv): Promise<CliResult>;
   risk(argv: Argv): Promise<RiskLevel | null>;
   run(argv: Argv, confirm: boolean): Promise<CliResult>;
-  stream(id: string, argv: Argv, onLine: (line: string) => void): Promise<() => void>;
+  // Registries (§ registries): autentica num registry OCI. A password segue por
+  // stdin no backend (comando dedicado `dlx_login`), NUNCA pelo argv. O
+  // resultado (ok/erro) não contém a password.
+  login(registry: string, username: string, password: string): Promise<CliResult>;
+  // Fluxos longos (logs, eventos, build). `onLine` recebe cada linha; o `onEnd`
+  // opcional dispara quando o processo termina (ex.: um `build` acaba) — os
+  // fluxos infinitos (`logs -f`) nunca o chamam.
+  stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void): Promise<() => void>;
   events(onEvent: (e: EngineEvent) => void): Promise<() => void>;
   // Exec interativo (§3): abre um shell no container `name` por PTY. Os bytes
   // do PTY chegam por `onData`; o fim do processo por `onEnd`.

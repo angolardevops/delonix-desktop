@@ -30,20 +30,103 @@ export function Workspaces() {
   );
 }
 
+// Registries (§ registries). Liga a `image login`/`image logout` (delonix-oci).
+// CONSTRANGIMENTO: a password do login só entra por STDIN, nunca por argv — por
+// isso o login passa por um comando backend dedicado (`dlx_login`), não por
+// `dlx_run`. O `image logout` é argv normal (SafeWrite). O engine 5.1.1 NÃO tem
+// `image login --list`, por isso a lista mostra os registries autenticados
+// NESTA sessão (mais os que o utilizador acrescentar), com essa nota.
 export function Registries() {
+  const { client, act } = useApp();
+  const [registry, setRegistry] = useState("ghcr.io");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  // Registries autenticados nesta sessão (o engine não expõe uma listagem).
+  const [session, setSession] = useState<{ registry: string; username: string }[]>([]);
+
+  const login = () => {
+    const reg = registry.trim();
+    const user = username.trim();
+    if (!reg || !user || !password) return;
+    setErr(null);
+    setMsg(null);
+    setBusy(true);
+    void client
+      .login(reg, user, password)
+      .then((r) => {
+        if (!r.ok) { setErr(r.stderr.trim() || `login falhou (código ${r.code})`); return; }
+        setSession((s) => [{ registry: reg, username: user }, ...s.filter((x) => x.registry !== reg)]);
+        setMsg(`Autenticado em ${reg} como ${user}.`);
+        setPassword(""); // a password nunca fica retida na UI após o login
+      })
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const logout = (reg: string) =>
+    void act(cmd.imageLogout(reg), `Terminar sessão em ${reg}`).then((ok) => {
+      if (ok) setSession((s) => s.filter((x) => x.registry !== reg));
+    });
+
   return (
     <>
-      <PageHead title="Registries" subtitle="Local, privados e públicos num só sítio" />
-      <Planned what="Regras de encaminhamento, mirror pull-through, promoção e modo offline" dependsOn="configuração de registries no engine; hoje `pull`/`push` aceitam credenciais por registry (delonix-oci)" />
-      <div className="table-wrap" style={{ marginTop: 14 }}>
-        <table>
-          <thead><tr><th>Registry</th><th>Tipo</th><th>Estado</th></tr></thead>
-          <tbody>
-            <tr><td className="mono">localhost:5000</td><td><Chip tone="inf">local</Chip></td><td className="muted">exemplo</td></tr>
-            <tr><td className="mono">mirror · docker.io</td><td><Chip tone="inf">mirror</Chip></td><td className="muted">exemplo</td></tr>
-            <tr><td className="mono">registry.empresa.internal</td><td><Chip tone="neu">privado</Chip></td><td className="muted">exemplo</td></tr>
-          </tbody>
-        </table>
+      <PageHead title="Registries" subtitle="Autenticação em registries OCI · login (password por stdin) e logout" />
+      <Planned what="Regras de encaminhamento, mirror pull-through, promoção e modo offline" dependsOn="configuração de registries no engine; hoje só há credenciais por registry (`image login`/`logout`, delonix-oci)" />
+      <div className="split">
+        <div className="primary">
+          <div className="note">
+            <span>Registries autenticados <b>nesta sessão</b>. O engine 5.1.1 guarda as credenciais em <span className="mono">auth.json</span> mas não expõe uma listagem (<span className="mono">image login --list</span> não existe), por isso a app só mostra os que foram autenticados aqui.</span>
+          </div>
+          {err && <ErrorNote error={err} />}
+          {msg && <div className="note" style={{ background: "var(--okb, rgba(0,160,80,.08))" }}><span>{msg}</span></div>}
+          <div className="table-wrap" style={{ marginTop: 14 }}>
+            <table>
+              <thead><tr><th>Registry</th><th>Utilizador</th><th>Estado</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
+              <tbody>
+                {session.length === 0 && (
+                  <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem registries autenticados nesta sessão.</td></tr>
+                )}
+                {session.map((s) => (
+                  <tr key={s.registry}>
+                    <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{s.registry}</td>
+                    <td className="mono muted">{s.username}</td>
+                    <td><Chip tone="ok" dot>autenticado</Chip></td>
+                    <td style={{ textAlign: "right" }}>
+                      <button className="btn sm" type="button" onClick={() => logout(s.registry)}>Terminar sessão</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <aside className="aside">
+          <section className="section">
+            <h2>Autenticar num registry</h2>
+            <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              Registry
+              <input className="input mono" value={registry} placeholder="ghcr.io" onChange={(e) => setRegistry(e.target.value)} />
+            </label>
+            <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              Utilizador
+              <input className="input mono" value={username} placeholder="angolardevops" onChange={(e) => setUsername(e.target.value)} />
+            </label>
+            <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              Password / token
+              <input className="input mono" type="password" value={password} placeholder="••••••••" onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") login(); }} />
+            </label>
+            <button className="btn pri" type="button" disabled={busy || !registry.trim() || !username.trim() || !password} onClick={login}>
+              {busy ? "A autenticar…" : "Autenticar"}
+            </button>
+            <p className="muted" style={{ fontSize: 11, margin: 0 }}>
+              A password segue por <span className="mono">stdin</span> (nunca pela linha de comando) e não é guardada na app. Equivale a: <span className="mono">printf … | delonix image login {registry.trim() || "&lt;registry&gt;"} -u {username.trim() || "&lt;user&gt;"} --password-stdin</span>
+            </p>
+          </section>
+        </aside>
       </div>
     </>
   );

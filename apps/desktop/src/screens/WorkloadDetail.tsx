@@ -32,10 +32,13 @@ export function WorkloadDetail({ id }: { id: string }) {
   };
 
   useEffect(() => {
-    if (tab !== "logs" || !w || w.type !== "container") return;
+    // Logs ao vivo para containers (`container logs -f`) e pods (`pod logs -f`,
+    // 1.º membro). VMs usam a consola série (`vm console`), fora deste fluxo.
+    if (tab !== "logs" || !w || (w.type !== "container" && w.type !== "pod")) return;
     setLines([]);
+    const argv = w.type === "pod" ? cmd.podLogsFollow(id) : cmd.logsFollow(id);
     let stop: (() => void) | undefined;
-    void client.stream(`detail-${id}`, cmd.logsFollow(id), (l) => setLines((p) => [...p.slice(-1999), l])).then((s) => (stop = s));
+    void client.stream(`detail-${id}`, argv, (l) => setLines((p) => [...p.slice(-1999), l])).then((s) => (stop = s));
     return () => stop?.();
   }, [client, id, tab, w?.type]);
 
@@ -97,15 +100,17 @@ export function WorkloadDetail({ id }: { id: string }) {
                 <button className="btn sm" type="button" style={{ color: follow ? "var(--ok)" : undefined }} onClick={() => setFollow(!follow)}><span className="dot" />Seguir</button>
               </div>
               <div className="log" style={{ flex: 1, overflow: "auto", border: 0, minHeight: 360 }}>
-                {w.type !== "container" ? "A consola série de VMs liga-se em `delonix vm console` (ver PROMPT.md §8.3)." : shown.join("\n")}
+                {w.type === "vm" ? "A consola série de VMs liga-se em `delonix vm console` (ver PROMPT.md §8.3)." : shown.join("\n")}
                 <div ref={end} />
               </div>
             </>
           )}
           {tab === "terminal" && (
-            w.type !== "container"
+            w.type === "vm"
               ? <p className="muted" style={{ padding: 24 }}>A consola de VM usa `delonix vm console` (ver PROMPT.md §8.3).</p>
-              : <Terminal key={w.name} name={w.name} />
+              : w.type === "pod"
+                ? <p className="muted" style={{ padding: 24 }}>Um shell num membro do pod abre-se por `delonix pod exec {w.name} -- sh` (ver PROMPT.md §8.4).</p>
+                : <Terminal key={w.name} name={w.name} />
           )}
           {tab === "inspect" && <Inspect name={w.name} />}
           {tab === "stats" && <Stats w={w} />}
@@ -115,7 +120,7 @@ export function WorkloadDetail({ id }: { id: string }) {
           <section className="section">
             <h2>Equivalente na CLI</h2>
             <CliHint argv={cmd.describe(w.name)} />
-            <CliHint argv={cmd.logsFollow(w.name)} />
+            <CliHint argv={w.type === "pod" ? cmd.podLogsFollow(w.name) : cmd.logsFollow(w.name)} />
           </section>
           <section className="section">
             <h2>Estado</h2>

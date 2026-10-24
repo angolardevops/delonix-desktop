@@ -35,6 +35,14 @@ async fn dlx_run(args: Vec<String>, confirm: bool) -> Result<CliResult, String> 
     }
 }
 
+/// Autentica num registry OCI. A password vem só por este caminho (stdin do
+/// processo `image login --password-stdin`); NUNCA passa pelo argv de `dlx_run`.
+/// A password não é registada em histórico, logs nem mensagens de erro.
+#[tauri::command]
+async fn dlx_login(registry: String, username: String, password: String) -> Result<CliResult, String> {
+    cli::login(&registry, &username, &password).await
+}
+
 /// Classe de risco de um comando, para a UI decidir se mostra confirmação.
 #[tauri::command]
 fn dlx_risk(args: Vec<String>) -> Option<Risk> {
@@ -55,6 +63,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             dlx_json,
             dlx_run,
+            dlx_login,
             dlx_risk,
             dlx_bin,
             stream::dlx_stream_start,

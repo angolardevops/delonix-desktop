@@ -346,13 +346,25 @@ export class TauriClient implements DelonixClient {
     return invoke<CliResult>("dlx_run", { args: argv, confirm });
   }
 
-  async stream(id: string, argv: Argv, onLine: (line: string) => void) {
+  // A password vai por parâmetro ao comando backend, que a escreve no stdin do
+  // `image login --password-stdin`. Nunca entra num argv nem é registada.
+  login(registry: string, username: string, password: string) {
+    return invoke<CliResult>("dlx_login", { registry, username, password });
+  }
+
+  async stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void) {
     const un = await listen<{ id: string; line: string }>("dlx-stream", (e) => {
       if (e.payload.id === id) onLine(e.payload.line);
+    });
+    // O backend emite `dlx-stream-end` com o id quando o processo termina
+    // (relevante para fluxos finitos como `build`).
+    const unEnd = await listen<string>("dlx-stream-end", (e) => {
+      if (e.payload === id) onEnd?.();
     });
     await invoke("dlx_stream_start", { id, args: argv });
     return () => {
       un();
+      unEnd();
       void invoke("dlx_stream_stop", { id });
     };
   }

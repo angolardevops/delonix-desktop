@@ -15,6 +15,7 @@ import { Capabilities } from "./screens/Capabilities";
 import { CreateWorkload } from "./screens/CreateWorkload";
 import { Events } from "./screens/Events";
 import { Images } from "./screens/Images";
+import { Build } from "./screens/Build";
 import { Networks } from "./screens/Networks";
 import { Backups } from "./screens/Backups";
 import { Declarativo } from "./screens/Declarativo";
@@ -87,6 +88,7 @@ export default function App() {
       case "workload": return <WorkloadDetail id={route.id} />;
       case "create": return <CreateWorkload />;
       case "images": return <Images />;
+      case "build": return <Build />;
       case "volumes": return <Volumes />;
       case "secrets": return <Secrets />;
       case "backups": return <Backups />;

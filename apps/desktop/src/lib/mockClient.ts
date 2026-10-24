@@ -291,7 +291,25 @@ export class MockClient implements DelonixClient {
     return wait({ ...base, ok: true, code: 0, stdout: `${name}\n` });
   }
 
-  async stream(_id: string, _argv: Argv, onLine: (line: string) => void) {
+  // Duplo local: o login "aceita" sempre (sem engine). A password é ignorada.
+  async login(registry: string, username: string, _password: string): Promise<CliResult> {
+    void _password;
+    return wait({ ok: true, code: 0, stdout: `Login Succeeded (${username}@${registry})\n`, stderr: "", argv: ["delonix", "image", "login", registry, "-u", username, "--password-stdin"] });
+  }
+
+  async stream(_id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void) {
+    // Um `build` simulado: emite algumas linhas e TERMINA (dispara onEnd). Os
+    // fluxos infinitos (logs/eventos) continuam a correr até se parar.
+    if (argv[0] === "build") {
+      const steps = ["STEP 1/4 FROM alpine:3.20", "STEP 2/4 RUN apk add --no-cache ca-certificates", "STEP 3/4 COPY . /app", "STEP 4/4 CMD [\"/app/server\"]", "--> a escrever manifesto", "COMMIT (duplo local) — sem engine"];
+      let i = 0;
+      const t = setInterval(() => {
+        if (i < steps.length) { onLine(steps[i++]); return; }
+        clearInterval(t);
+        onEnd?.();
+      }, 600);
+      return () => clearInterval(t);
+    }
     let i = 0;
     const t = setInterval(() => onLine(`${new Date().toISOString().replace("T", " ").slice(0, 23)}  ${LOG[i++ % LOG.length]}`), 900);
     return () => clearInterval(t);

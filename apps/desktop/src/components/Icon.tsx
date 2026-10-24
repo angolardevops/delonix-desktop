@@ -4,6 +4,7 @@ const PATHS: Record<string, string> = {
   workspaces: "M3 7h6l2 2h10v10H3z",
   workloads: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9",
   images: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5",
+  build: "M14 3l7 7-4 4-7-7zM10 11l-6 6v3h3l6-6M13 8l3 3",
   volumes: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
   kubernetes: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v6M12 15v6M3 12h6M15 12h6",
   declarative: "M6 3h9l5 5v13H6zM14 3v5h5M9 13h7M9 17h7",

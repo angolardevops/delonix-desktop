@@ -38,6 +38,33 @@ export const cmd = {
 
   pull: (ref: string): Argv => ["image", "pull", ref],
   rmi: (ref: string): Argv => ["image", "remove", ref],
+
+  // --- Pods (§8). SÓ por manifesto (`kind: Pod`): não há flags soltas. O pod
+  // aparece depois em Workloads (type=pod) e o ciclo de vida usa `workload
+  // stop/rm`. `pod logs -f` segue os logs de um membro (fluxo por STREAM).
+  podCreate: (manifest: string): Argv => ["pod", "create", "-f", manifest],
+  podLogsFollow: (pod: string, container?: string): Argv => [
+    "pod", "logs", "-f", ...(container ? ["--container", container] : []), pod,
+  ],
+
+  // --- Build de imagens (§ build). Fluxo por STREAM (logs demorados ao vivo):
+  // `build -t <tag> [--file <dockerfile>] [--build-arg K=V ...] [contexto]`. O
+  // contexto é posicional (default `.`); o Dockerfile default é `<contexto>/
+  // Dockerfile`. Confirmado por `--help` no 5.1.1.
+  build: (o: { tag: string; context?: string; dockerfile?: string; buildArgs?: string[] }): Argv => [
+    "build", "-t", o.tag,
+    ...(o.dockerfile && o.dockerfile.trim() ? ["-f", o.dockerfile.trim()] : []),
+    ...(o.buildArgs ?? []).flatMap((a) => ["--build-arg", a]),
+    (o.context && o.context.trim()) || ".",
+  ],
+
+  // --- Registries (§ registries). `image login` tem comando backend dedicado
+  // (password por stdin); aqui só o argv informativo (SEM password) para o
+  // CliHint. `image logout` é argv normal (SafeWrite, corre por dlx_run).
+  imageLoginShown: (registry: string, username: string): Argv => [
+    "image", "login", registry, "-u", username, "--password-stdin",
+  ],
+  imageLogout: (registry: string): Argv => ["image", "logout", registry],
   volumeCreate: (name: string): Argv => ["volume", "create", name],
   volumeRm: (name: string): Argv => ["volume", "rm", name],
 

@@ -34,11 +34,14 @@ export function CreateWorkload() {
   const [vmMemory, setVmMemory] = useState("2");
   const [vmDisk, setVmDisk] = useState("20");
   const [vmNetwork, setVmNetwork] = useState("ingress");
+  // Pods (§8): criam-se por manifesto (`kind: Pod`), não por flags soltas.
+  const [podManifest, setPodManifest] = useState("examples/pod-multi.yaml");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
   const argv = cmd.run({ name, image, ports: split(ports), env: split(env), volumes: split(volumes), memory, cpus, restart });
+  const podArgv = cmd.podCreate(podManifest.trim());
 
   // O estado de cada tipo vem do catálogo de capacidades, não de texto fixo.
   const compute = providers.filter((p) => p.kind === "compute");
@@ -46,7 +49,7 @@ export function CreateWorkload() {
   const kindChip = (k: Kind) =>
     k === "vm"
       ? vmState === "supported" ? <Chip tone="ok" dot>Funciona</Chip> : <Chip tone="warn" dot>Ver capacidades</Chip>
-      : k === "pod" ? <Chip tone="warn" dot>Assistente por fazer</Chip> : <Chip tone="ok" dot>Funciona</Chip>;
+      : <Chip tone="ok" dot>Funciona</Chip>;
 
   const createVm = () => {
     setErr(null);
@@ -87,7 +90,15 @@ export function CreateWorkload() {
             ))}
           </div>
           {kind === "pod" ? (
-            <p className="muted">O formulário de pods (`delonix pod`) segue o mesmo padrão: campos à esquerda, comando ao vivo à direita. Ver PROMPT.md §8.4.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
+                Caminho do manifesto (<span className="mono">kind: Pod</span>)
+                <input className="input mono" value={podManifest} onChange={(e) => setPodManifest(e.target.value)} placeholder="examples/pod-multi.yaml" aria-label="Caminho do manifesto do pod" />
+              </label>
+              <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                Um pod são N containers a partilhar o netns (um IP, alcançáveis entre si por <span className="mono">localhost</span>). Cria-se sempre de um ficheiro — não há flags soltas. Depois aparece em Workloads (tipo <span className="mono">pod</span>); parar/remover faz-se lá.
+              </p>
+            </div>
           ) : kind === "vm" ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               {vmFields.map(([label, value, set]) => (
@@ -121,7 +132,7 @@ export function CreateWorkload() {
                 A criação de VM passa pelo contrato de socket <span className="mono">delonix.node.v1</span> (<span className="mono">CreateVirtualMachine</span>), não pela CLI. Requer <span className="mono">delonix serve node-api</span> a correr.
               </p>
             ) : (
-              <pre className="code">{show(argv)}</pre>
+              <pre className="code">{show(kind === "pod" ? podArgv : argv)}</pre>
             )}
           </section>
           <div style={{ marginTop: "auto", display: "flex", gap: 8, padding: 16, borderTop: "1px solid var(--line)" }}>
@@ -129,8 +140,11 @@ export function CreateWorkload() {
             {kind === "vm" ? (
               <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={busy || !vmName.trim()}
                 onClick={createVm}>{busy ? "A criar…" : "Criar VM"}</button>
+            ) : kind === "pod" ? (
+              <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={!podManifest.trim()}
+                onClick={() => void act(podArgv, `Criar pod de ${podManifest.trim()}`).then((ok) => ok && go({ name: "workloads" }))}>Criar pod</button>
             ) : (
-              <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={kind !== "container"}
+              <button className="btn pri" type="button" style={{ marginLeft: "auto" }}
                 onClick={() => void act(argv, `Criar ${name}`).then((ok) => ok && go({ name: "workload", id: name }))}>Criar e iniciar</button>
             )}
           </div>

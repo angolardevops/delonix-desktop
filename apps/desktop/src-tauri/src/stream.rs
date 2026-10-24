@@ -19,7 +19,17 @@ struct Line {
     line: String,
 }
 
-const STREAMABLE: &[&[&str]] = &[&["container", "logs"], &["system", "events"]];
+// Fluxos permitidos. `build` produz logs demorados em tempo real; `pod logs`
+// segue os logs de um membro de um pod (ambos confirmados por `--help` no
+// 5.1.1). `build` é um verbo de raiz LEGÍTIMO do engine (não um alias estilo
+// Docker) — a regra §4 dos aliases de raiz só vale para a allowlist de argv de
+// `dlx_run` (classify), não para os fluxos.
+const STREAMABLE: &[&[&str]] = &[
+    &["container", "logs"],
+    &["system", "events"],
+    &["pod", "logs"],
+    &["build"],
+];
 
 fn allowed(args: &[String]) -> bool {
     STREAMABLE
@@ -70,5 +80,30 @@ pub fn dlx_stream_stop(streams: State<'_, Streams>, id: String) {
         if let Some(mut child) = map.remove(&id) {
             let _ = child.start_kill();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn streamable_allows_logs_events_pod_logs_and_build() {
+        assert!(allowed(&v("container logs -f odoo-16")));
+        assert!(allowed(&v("system events -f -o json")));
+        assert!(allowed(&v("pod logs -f web")));
+        assert!(allowed(&v("build -t app:v1 .")));
+    }
+
+    #[test]
+    fn streamable_refuses_everything_else() {
+        // Nem verbos destrutivos nem aliases de raiz entram por aqui.
+        assert!(!allowed(&v("workload rm -f web")));
+        assert!(!allowed(&v("logs -f web")));
+        assert!(!allowed(&v("pod create -f pod.yaml")));
     }
 }

@@ -10,7 +10,7 @@ import { orderBy, usePagination } from "../lib/pagination";
 type F = "all" | "used" | "unused";
 
 export function Images() {
-  const { client, act } = useApp();
+  const { client, act, go } = useApp();
   const { data, error, refresh } = useResource(() => client.images(), 15000);
   const [f, setF] = useState<F>("all");
   const [ref, setRef] = useState("");
@@ -68,6 +68,11 @@ export function Images() {
             </label>
             <button className="btn pri" type="button" disabled={!ref} onClick={() => void act(cmd.pull(ref), `Puxar ${ref}`).then(() => refresh())}>Puxar</button>
             {ref && <CliHint argv={cmd.pull(ref)} compact />}
+          </section>
+          <section className="section">
+            <h2>Construir do Dockerfile</h2>
+            <p style={{ margin: 0, color: "var(--tx2)" }}>Constrói uma imagem com <span className="mono">delonix build</span> e acompanha os logs ao vivo.</p>
+            <button className="btn" type="button" onClick={() => go({ name: "build" })}><Icon name="build" size={13} /> Construir imagem</button>
           </section>
           <section className="section">
             <h2>Limpeza sugerida</h2>

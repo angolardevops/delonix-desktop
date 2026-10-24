@@ -12,6 +12,8 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,6 +84,16 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["volume", "create"], Risk::SafeWrite),
     (&["network", "create"], Risk::SafeWrite),
     (&["container", "run"], Risk::SafeWrite),
+    // Pods (§8): criar de um manifesto (`kind: Pod`). O pod aparece depois em
+    // Workloads (type=pod); `workload stop/rm` já cobrem o ciclo de vida. NÃO há
+    // flags soltas — é sempre por ficheiro (`pod create -f <manifesto>`). Criar
+    // não destrói nada → SafeWrite (corre sem confirmação, como `container run`).
+    (&["pod", "create"], Risk::SafeWrite),
+    // Registries: `image logout` remove as credenciais guardadas de um registry.
+    // É reversível (basta voltar a autenticar) e não apaga nenhum recurso vivo →
+    // SafeWrite. O `image login` NÃO está aqui: a password entra por stdin e por
+    // isso tem um comando dedicado (`dlx_login`), não passa por `dlx_run`.
+    (&["image", "logout"], Risk::SafeWrite),
     // Segredos e backups — escrita segura (§E). `secret rotate` só gera um novo
     // valor aleatório para uma chave existente; não destrói nada.
     (&["secret", "create"], Risk::SafeWrite),
@@ -160,6 +172,58 @@ pub async fn exec(args: &[String]) -> Result<CliResult, String> {
     })
 }
 
+/// Argv de `image login` para um registry/utilizador. A password NUNCA aparece
+/// aqui: entra sempre por stdin (`--password-stdin`), nunca pelo argv (onde
+/// ficaria no histórico da shell e em /proc). Isolado para ser testável.
+pub fn login_argv(registry: &str, username: &str) -> Vec<String> {
+    vec![
+        "image".to_string(),
+        "login".to_string(),
+        registry.to_string(),
+        "-u".to_string(),
+        username.to_string(),
+        "--password-stdin".to_string(),
+    ]
+}
+
+/// Autentica num registry OCI. A password é ESCRITA no stdin do processo
+/// `delonix image login … --password-stdin` e nunca toca no argv nem é
+/// registada em lado nenhum (nem em erros). Devolve o resultado do CLI (cujos
+/// stdout/stderr também não contêm a password).
+pub async fn login(registry: &str, username: &str, password: &str) -> Result<CliResult, String> {
+    let args = login_argv(registry, username);
+    let mut child = Command::new(bin())
+        .args(&args)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("não foi possível executar `delonix`: {e}. Define DELONIX_BIN ou instala o CLI."))?;
+    {
+        // A password é escrita e o stdin fechado (drop) para o CLI ver o EOF. O
+        // erro de escrita é genérico — nunca ecoa o segredo.
+        let mut stdin = child.stdin.take().ok_or("o processo de login não expôs stdin")?;
+        stdin
+            .write_all(password.as_bytes())
+            .await
+            .map_err(|_| "falha ao escrever a password no stdin do login".to_string())?;
+    }
+    let out = child
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("falha ao concluir o login: {e}"))?;
+    let mut argv = vec!["delonix".to_string()];
+    argv.extend(args);
+    Ok(CliResult {
+        ok: out.status.success(),
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        argv,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +279,33 @@ mod tests {
         assert_eq!(classify(&v("secret unset db-pass K")), None);
         assert_eq!(classify(&v("secret apply -f secrets.yaml")), None);
         assert_eq!(classify(&v("backup schedule container db")), None);
+    }
+
+    #[test]
+    fn pods_build_and_registry_verbs_are_classified() {
+        // Pods: criar de manifesto é SafeWrite (corre sem confirmação).
+        assert_eq!(classify(&v("pod create -f examples/pod-multi.yaml")), Some(Risk::SafeWrite));
+        // `image logout` é SafeWrite (remove credenciais, reversível).
+        assert_eq!(classify(&v("image logout ghcr.io")), Some(Risk::SafeWrite));
+        // `image login` NÃO passa por dlx_run — tem comando dedicado (stdin).
+        // Fica FORA da allowlist de argv (falha fechada se alguém o tentar correr).
+        assert_eq!(classify(&v("image login ghcr.io -u user --password-stdin")), None);
+        // `build` é um fluxo por STREAM, não por dlx_run → não está em RULES.
+        assert_eq!(classify(&v("build -t app:v1 .")), None);
+        // Subcomandos de pod que a UI não emite por argv ficam fora (o ciclo de
+        // vida usa `workload stop/rm`; logs/exec/attach têm caminhos próprios).
+        assert_eq!(classify(&v("pod exec web sh")), None);
+        assert_eq!(classify(&v("pod rm web")), None);
+    }
+
+    #[test]
+    fn login_argv_never_carries_the_password() {
+        // A password entra por stdin — o argv tem só registry/utilizador/flag.
+        let argv = login_argv("ghcr.io", "angolardevops");
+        assert_eq!(argv, vec!["image", "login", "ghcr.io", "-u", "angolardevops", "--password-stdin"]);
+        // Garantia explícita: nenhum elemento é (ou contém) um segredo passado.
+        let secret = "s3cr3t-token";
+        assert!(!login_argv("ghcr.io", "angolardevops").iter().any(|a| a.contains(secret)));
     }
 
     #[test]
