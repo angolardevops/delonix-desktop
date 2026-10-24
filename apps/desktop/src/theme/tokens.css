@@ -1,0 +1,78 @@
+/*
+ * Tokens do tema — ÚNICO sítio com cores, tipografia e medidas.
+ *
+ * Os valores abaixo são PROVISÓRIOS. Substituir pelos tokens do
+ * delonix-portal (tema Console9 dark) mantendo os mesmos nomes: nenhum
+ * componente usa hex diretamente, só estas variáveis.
+ */
+:root {
+  /* Superfícies */
+  --bg: #0f1114;        /* corpo da app; também a cor do hover/ativo no menu */
+  --side: #16191e;      /* barra de título, menu lateral, barra de estado, hover de linhas */
+  --panel: #13161a;     /* painéis laterais, cabeçalhos de tabela, painel inferior */
+  --term: #0a0b0d;      /* terminal, logs, blocos de código */
+  --line: #262b32;      /* divisórias principais */
+  --line2: #1d2127;     /* divisórias entre linhas */
+  --btn-hover: #1f2329;
+  --track: #23272e;     /* fundo de barras de progresso */
+  --dialog-line: #343a43;
+  --close-hover: #c42b1c; /* botão fechar da janela */
+
+  /* Texto */
+  --tx-strong: #ffffff; /* texto em hover e sobre --acc */
+  --tx-on: #f1f3f5;     /* item ativo */
+  --tx-cell: #d6dae0;   /* células de tabela */
+  --tx-term: #c9ced6;   /* terminal e logs */
+  --link-hover: #b5d2ff;
+  --tx: #e6e8eb;
+  --tx2: #a9b0ba;
+  --mut: #8e96a1;       /* contraste >= 4.5:1 sobre --bg e --panel */
+
+  /* Ação */
+  --acc: #3d7be0;
+  --acc-hover: #4a88ee;
+  --sel: #122038;       /* linha selecionada */
+
+  /* Estados (texto / fundo) */
+  --ok: #5fe0a0;   --okb: #11261b;
+  --warn: #f5b94a; --warnb: #2b220f;
+  --bad: #ff7b7f;  --badb: #2c1416;
+  --inf: #8ab8ff;  --infb: #13213a;
+  --neu: #aeb5bf;  --neub: #1e2228;
+
+  /* Marca: só no logótipo, nunca na navegação nem em estados */
+  --brand-petal: #e5484d;
+  --brand-core: #ffd27a;
+
+  /* Bordas e realces derivados dos estados */
+  --sel-tx: #cfe1ff;    /* texto sobre --sel */
+  --sel-line: #23406b;  /* borda de faixas informativas e da barra de lote */
+  --warn-line: #4a3a14;
+  --bad-line: #5a2a2e;
+  --hot-row: #1c1214;   /* linha de evento crítico correlacionado */
+
+  /* Gráficos */
+  --chart-1: #6aa8ff;
+  --chart-2: #e3a43b;
+  --bar-ok: #3fbf7f;
+  --bar-warn: #e3a43b;
+  --bar-bad: #e5555a;
+
+  /* Tipografia */
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 18px;
+
+  /* Medidas da janela */
+  --h-titlebar: 34px;
+  --w-sidebar: 232px;
+  --h-dock-bar: 30px;
+  --h-statusbar: 24px;
+  --h-row: 34px;
+  --h-btn: 30px;
+  --h-btn-sm: 24px;
+  --pad-page: 24px;
+}
