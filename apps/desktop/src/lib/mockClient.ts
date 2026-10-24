@@ -4,7 +4,7 @@ import type { DelonixClient } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -22,11 +22,47 @@ let workloads: WorkloadRow[] = [
   { type: "vm", name: "fedora-kde-build", status: "Stopped", info: "8 vCPU, 8G", namespace: "default" },
 ];
 
-const dash: DashSummary = {
+const dashBase: Omit<DashSummary, "rows"> = {
   containers_running: 3, containers_total: 6, vms_running: 2, vms_total: 3, networks_total: 4, volumes_total: 27,
   images_total: 25, secrets_total: 1, memory_bytes_used: 5.2 * GB, memory_bytes_limit: 12 * GB,
   network_rx_bytes: 2_100_000, network_tx_bytes: 340_000, storage_bytes_total: 28.4 * GB,
 };
+
+// Rows numéricas plausíveis para o modo browser. Os contadores crescem com o
+// tempo decorrido (cpu_usec cumulativo, io/net cumulativos) para que as taxas
+// calculadas por diferença entre amostras não sejam zero. mem_bytes é
+// instantâneo. Containers parados e VMs NÃO trazem cpu/mem (null), tal como no
+// engine real.
+const MB = 1024 ** 2;
+const started = Date.now();
+const running = (name: string, cores: number, mem: number, ioR: number, ioW: number, rx: number, tx: number): DashRow => {
+  const sec = (Date.now() - started) / 1000;
+  return {
+    kind: "container", name, status: "running", up: true, extra: "", ok: true,
+    cpu_usage_usec: Math.round(cores * 1e6 * sec), // 1 núcleo-segundo = 1e6 usec
+    mem_bytes: Math.round(mem),
+    io_read_bytes: Math.round(ioR * sec),
+    io_write_bytes: Math.round(ioW * sec),
+    net_rx_bytes: Math.round(rx * sec),
+    net_tx_bytes: Math.round(tx * sec),
+  };
+};
+const unmeasured = (name: string, kind: "container" | "vm", status: string, extra = ""): DashRow => ({
+  kind, name, status, up: status === "running", extra, ok: status !== "exited",
+  cpu_usage_usec: null, mem_bytes: null, io_read_bytes: null, io_write_bytes: null,
+  net_rx_bytes: null, net_tx_bytes: null,
+});
+const mockRows = (): DashRow[] => [
+  running("traefik", 0.12, 64 * MB, 2 * 1024, 1 * 1024, 48 * 1024, 36 * 1024),
+  running("postgres-dev", 0.35, 312 * MB, 64 * 1024, 128 * 1024, 22 * 1024, 40 * 1024),
+  running("redis", 0.05, 24 * MB, 512, 256, 8 * 1024, 6 * 1024),
+  unmeasured("odoo-16", "container", "exited"),
+  unmeasured("minio", "container", "exited"),
+  unmeasured("keycloak", "container", "exited"),
+  unmeasured("fc-ci-runner-1", "vm", "running", "2 vCPU, 1G"),
+  unmeasured("fc-ci-runner-2", "vm", "running", "2 vCPU, 1G"),
+  unmeasured("fedora-kde-build", "vm", "stopped", "8 vCPU, 8G"),
+];
 
 const images: ImageRow[] = [
   { ref: "postgres:16", id: "b1a0c8e9f2d3", size: "432 MB", created: "há 3 sem", usedBy: ["postgres-dev"] },
@@ -99,7 +135,7 @@ const LOG = [
 export class MockClient implements DelonixClient {
   readonly live = false;
   binary = () => wait("duplo local");
-  dash = () => wait(dash);
+  dash = () => wait({ ...dashBase, rows: mockRows() });
   workloads = () => wait(workloads);
   images = () => wait(images);
   volumes = () => wait(volumes);
