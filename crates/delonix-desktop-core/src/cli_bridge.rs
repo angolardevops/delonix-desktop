@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::error::{CoreError, Result};
-use crate::model::Workload;
+use crate::model::{Image, Workload};
 
 /// Invoca o binário `delonix` com saída JSON.
 #[derive(Debug, Clone)]
@@ -43,6 +43,21 @@ impl CliBridge {
     /// Camada unificada container+VM: `workload ls -o json`.
     pub fn workloads(&self) -> Result<Vec<Workload>> {
         self.json_array(&["workload", "ls", "-o", "json"])
+    }
+
+    /// Imagens locais: `image ls -o json`. Forma própria (ver [`Image`]) —
+    /// análogo a [`Self::containers_all`], mas devolve imagens, não workloads.
+    pub fn images(&self) -> Result<Vec<Image>> {
+        self.json_array(&["image", "ls", "-o", "json"])
+    }
+
+    /// Remove uma imagem local: `image remove <ref>` (NB: o verbo é `remove`,
+    /// não `rm`). A `img` é um id-digest (`sha256:…`) ou `repo:tag`, validada
+    /// como referência de imagem. Sem `--force`: uma imagem ainda em uso recusa
+    /// e o erro redigido sobe à UI, como em [`Self::remove`] para containers.
+    pub fn remove_image(&self, img: &str) -> Result<()> {
+        let img = validate_ref(img)?;
+        self.run(&["image", "remove", img]).map(|_| ())
     }
 
     // Contagens por recurso para os cartões de métricas do Dashboard. Cada uma

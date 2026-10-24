@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
 import { ipc, isTauri, type Provider, type NodeInfo, type ResourceCounts, type ViewId } from './ipc';
 import Dashboard from './views/Dashboard';
 import Containers from './views/Containers';
+import Images from './views/Images';
 import {
   IconDashboard, IconContainers, IconPods, IconImages,
   IconVolumes, IconKubernetes, IconExtensions, IconSettings,
@@ -135,6 +136,8 @@ export default function App() {
             ? <Dashboard node={node} providers={providers} counts={counts} onNavigate={setView} />
             : view === 'containers'
             ? <Containers />
+            : view === 'images'
+            ? <Images />
             : <Placeholder title={NAV.find((n) => n.id === view)!.label} />}
         </main>
       </div>

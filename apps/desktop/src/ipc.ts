@@ -46,6 +46,18 @@ export interface Workload {
   image: string;
 }
 
+// Uma imagem local da ponte CLI-JSON (`image ls -o json`). Forma própria, NÃO
+// um Workload: identifica-se pelo digest (`id`), traz as suas tags (`repo_tags`,
+// vazio = imagem órfã/sem tag), o tamanho em bytes e o instante de criação
+// (epoch em segundos). Campos alinhados com o DTO Rust `model::Image`.
+export interface Image {
+  repo_tags: string[];
+  id: string;
+  created_unix: number;
+  size_bytes: number;
+  orphan: boolean;
+}
+
 // Contagens por recurso para os cartões de métricas do Dashboard. Cada campo é
 // `number | null`: `null` significa «indisponível» (recurso não servido, CLI
 // em erro) — o cartão mostra um traço, nunca um zero enganador. Containers/
@@ -77,5 +89,7 @@ export const ipc = {
   removeContainer: (name: string) => invoke<void>('container_remove', { name }),
   runContainer: (name: string, image: string, command: string[] = []) =>
     invoke<string>('container_run', { name, image, command }),
+  images: () => invoke<Image[]>('list_images'),
+  removeImage: (image: string) => invoke<void>('image_remove', { image }),
   resourceCounts: () => invoke<ResourceCounts>('resource_counts'),
 };

@@ -8,7 +8,7 @@
 
 use crate::cli_bridge::CliBridge;
 use crate::error::Result;
-use crate::model::{ApiRoot, Health, ListProviders, NodeInfo, ResourceCounts, Workload};
+use crate::model::{ApiRoot, Health, Image, ListProviders, NodeInfo, ResourceCounts, Workload};
 use crate::node_client::NodeClient;
 
 /// O contexto LOCAL (o runtime na própria máquina). O contexto REMOTO
@@ -73,6 +73,18 @@ impl LocalContext {
 
     pub fn logs(&self, container: &str) -> Result<String> {
         self.cli.logs(container)
+    }
+
+    /// Imagens locais — pela ponte CLI-JSON (a raiz de `/v1` ainda não anuncia
+    /// `images`). Mesma regra de ponte que [`Self::containers_all`].
+    pub fn images(&self) -> Result<Vec<Image>> {
+        self.cli.images()
+    }
+
+    /// Remove uma imagem local (por id-digest ou `repo:tag`). A UI recarrega a
+    /// lista para observar o novo estado — nada de estado otimista.
+    pub fn remove_image(&self, img: &str) -> Result<()> {
+        self.cli.remove_image(img)
     }
 
     // Mutações de ciclo de vida da vista de Containers. Cada uma delega na

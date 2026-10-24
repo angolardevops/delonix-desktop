@@ -193,6 +193,25 @@ impl Workload {
     }
 }
 
+/// Uma imagem local da ponte CLI-JSON (`image ls -o json`). Forma própria
+/// (ADR-0005 do runtime) — NÃO é um [`Workload`]: identifica-se pelo digest
+/// (`id`), traz as suas tags (`repo_tags`, vazio = «sem tag»/órfã), o tamanho
+/// em bytes e o instante de criação (epoch). Tudo opcional e tolerante: o
+/// contrato cresce por fatias (ADR-0042).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Image {
+    #[serde(default)]
+    pub repo_tags: Vec<String>,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub created_unix: i64,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub orphan: bool,
+}
+
 /// Contagens por recurso para os cartões de métricas do Dashboard.
 ///
 /// Cada contagem é tolerante por desenho: `None` significa «indisponível»

@@ -5,7 +5,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use delonix_desktop_core::model::{NodeInfo, Provider, ResourceCounts, Workload};
+use delonix_desktop_core::model::{Image, NodeInfo, Provider, ResourceCounts, Workload};
 use delonix_desktop_core::LocalContext;
 
 /// Converte qualquer `CoreError` numa string para a fronteira IPC (o webview
@@ -67,6 +67,18 @@ fn container_run(name: String, image: String, command: Vec<String>) -> Result<St
         .map_err(err)
 }
 
+// Imagens: lista pela ponte CLI-JSON e rm análogo às mutações de container —
+// devolve `()` e a UI recarrega `list_images` para observar o novo estado.
+#[tauri::command]
+fn list_images() -> Result<Vec<Image>, String> {
+    LocalContext::from_env().images().map_err(err)
+}
+
+#[tauri::command]
+fn image_remove(image: String) -> Result<(), String> {
+    LocalContext::from_env().remove_image(&image).map_err(err)
+}
+
 /// Contagens por recurso para os cartões de métricas do Dashboard. Não falha:
 /// cada contagem indisponível vem como `null` e o cartão mostra um traço.
 #[tauri::command]
@@ -85,6 +97,8 @@ fn main() {
             container_stop,
             container_remove,
             container_run,
+            list_images,
+            image_remove,
             resource_counts
         ])
         .run(tauri::generate_context!())
