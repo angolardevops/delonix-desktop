@@ -1,5 +1,5 @@
 import type {
-  CliResult, DashSummary, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -15,6 +15,7 @@ export interface DelonixClient {
   volumes(): Promise<VolumeRow[]>;
   networks(): Promise<NetworkRow[]>;
   providers(): Promise<ProviderReport[]>;
+  doctor(): Promise<DoctorItem[]>;
   risk(argv: Argv): Promise<RiskLevel | null>;
   run(argv: Argv, confirm: boolean): Promise<CliResult>;
   stream(id: string, argv: Argv, onLine: (line: string) => void): Promise<() => void>;

@@ -68,8 +68,8 @@ export function Overview() {
         {[
           { l: "Containers", v: d?.containers_total, s: d ? `${d.containers_running} a correr` : "", r: { name: "workloads" } as const },
           { l: "VMs", v: d?.vms_total, s: d ? `${d.vms_running} a correr` : "", r: { name: "workloads" } as const },
-          { l: "Imagens", v: d?.images_total, s: fmtBytes(d?.storage_bytes_images), r: { name: "images" } as const },
-          { l: "Volumes", v: d?.volumes_total, s: fmtBytes(d?.storage_bytes_volumes), r: { name: "volumes" } as const },
+          { l: "Imagens", v: d?.images_total, s: d ? "em cache" : "", r: { name: "images" } as const },
+          { l: "Volumes", v: d?.volumes_total, s: d ? "+ armazenamento em rede" : "", r: { name: "volumes" } as const },
           { l: "Redes", v: d?.networks_total, s: "", r: { name: "networks" } as const },
         ].map((k) => (
           <button key={k.l} type="button" onClick={() => go(k.r)} style={{ textAlign: "left", padding: "14px 24px", background: "transparent", border: 0, borderRight: "1px solid var(--line2)", color: "var(--tx)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -87,6 +87,10 @@ export function Overview() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}><span>Rede</span><span className="mono">{d?.network_rx_bytes != null ? `${fmtBytes(d.network_rx_bytes)} ↓ · ${fmtBytes(d.network_tx_bytes)} ↑` : "não medida"}</span></div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}><span>Armazenamento</span><span className="mono">{d ? fmtBytes(d.storage_bytes_total) : "—"}</span></div>
+          <span className="muted" style={{ fontSize: 12 }}>imagens + volumes + VMs + containers</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}><span>Capacidades</span><button className="btn sm" type="button" onClick={() => go({ name: "capabilities" })}>Diagnóstico</button></div>

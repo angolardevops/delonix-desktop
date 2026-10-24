@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useApp } from "../app/context";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { bucketChip, bucketLabel, bucketOf, reasonLabel, userFixable, type Bucket } from "../lib/capability";
 import { cmd } from "../lib/cli";
+import { fixableItems } from "../lib/doctor";
 import { useResource } from "../lib/hooks";
 
 type F = "all" | Bucket | "fixable";
@@ -10,6 +11,8 @@ type F = "all" | Bucket | "fixable";
 export function Capabilities() {
   const { client } = useApp();
   const { data, error, refresh } = useResource(() => client.providers(), 0);
+  const { data: doctor } = useResource(useCallback(() => client.doctor(), [client]), 0);
+  const fixes = fixableItems(doctor ?? []);
   const [f, setF] = useState<F>("all");
   const providers = data ?? [];
   const all = providers.flatMap((p) => p.capabilities);
@@ -30,6 +33,25 @@ export function Capabilities() {
       ]} />
       {error && <ErrorNote error={error} />}
       <div style={{ overflow: "auto", flex: 1 }}>
+        {(f === "all" || f === "fixable") && fixes.length > 0 && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 24px", background: "var(--panel)", borderBottom: "1px solid var(--line)", borderTop: "1px solid var(--line)" }}>
+              <b>Como resolver neste host</b>
+              <span className="muted" style={{ fontSize: 11 }}>a partir de <span className="mono">delonix system doctor</span></span>
+              <span style={{ marginLeft: "auto" }}><CliHint argv={cmd.doctor()} compact /></span>
+            </div>
+            {fixes.map((it) => (
+              <div key={(it.code ?? "") + it.title} style={{ display: "grid", gridTemplateColumns: "150px minmax(0,1fr) auto", gap: 16, alignItems: "center", padding: "10px 24px", borderBottom: "1px solid var(--line2)" }}>
+                <span className="mono" style={{ color: "var(--tx2)" }}>{it.code ?? it.title}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                  <span style={{ color: "var(--tx2)" }}>{it.detail || it.title}</span>
+                  {it.fix && <span className="mono" style={{ fontSize: 11, color: "var(--tx-term)", background: "var(--term)", padding: "4px 8px", overflowX: "auto" }}>{it.fix}</span>}
+                </div>
+                {it.needsSudo ? <Chip tone="warn" dot>precisa de sudo</Chip> : <span />}
+              </div>
+            ))}
+          </div>
+        )}
         {providers.map((p) => {
           const caps = p.capabilities.filter((c) => keep(c.state));
           if (!caps.length) return null;

@@ -1,10 +1,14 @@
 // Tipos que espelham o JSON do CLI (ADR-0005 do delonix-runtime).
-// Fonte: crates/interfaces/delonix-mgmt/src/dashstats.rs (DashSummary),
-// bins/delonix-runtime-bin/src/cmd/workload.rs (WorkloadRow),
+// Fonte: bins/delonix-runtime-bin/src/cmd/workload.rs (WorkloadRow),
 // crates/contexts/delonix-compute/src/capability.rs (CapabilityState).
 // Campos de imagens, volumes, redes e providers: confirmar contra `-o json`
 // real; o cliente normaliza e tolera campos em falta.
-
+//
+// DashSummary é a forma NORMALIZADA que a UI consome. O `dashboard --json` do
+// engine 5.1.1 NÃO devolve estes campos planos: devolve `{scope, tiles[], rows[]}`
+// com `tiles:[{label,value,sub}]` já formatados em string. O tauriClient faz o
+// parsing dessas tiles (contagens e bytes humanos) para este formato. Só há um
+// STORAGE total — não há bytes por-categoria.
 export interface DashSummary {
   containers_running: number;
   containers_total: number;
@@ -18,10 +22,7 @@ export interface DashSummary {
   memory_bytes_limit: number;
   network_rx_bytes: number | null;
   network_tx_bytes: number | null;
-  storage_bytes_images: number | null;
-  storage_bytes_volumes: number | null;
-  storage_bytes_vm_images: number | null;
-  storage_bytes_containers: number | null;
+  storage_bytes_total: number | null;
 }
 
 export type WorkloadType = "container" | "vm" | "pod";
@@ -54,6 +55,15 @@ export interface NetworkRow {
   driver: string;
   subnet: string;
   members: { name: string; ip: string }[];
+}
+
+export interface DoctorItem {
+  status: "ok" | "warn" | "fail";
+  code?: string; // ex.: "DLX-RES-001"
+  title: string;
+  detail: string;
+  fix?: string; // comando de correção (texto após "→")
+  needsSudo: boolean;
 }
 
 export type CapabilityLabel =

@@ -2,8 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DelonixClient } from "./client";
 import { cmd, type Argv } from "./cli";
+import { parseDoctor } from "./doctor";
 import type {
-  CapabilityLabel, CapabilityRow, CliResult, DashSummary, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CapabilityLabel, CapabilityRow, CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -21,6 +22,18 @@ const list = (o: Obj, ...keys: string[]) => {
   return Array.isArray(v) ? v.map(String) : [];
 };
 const asArray = (v: unknown): Obj[] => (Array.isArray(v) ? (v as Obj[]) : []);
+
+// O `dashboard --json` formata os valores em string ("224.0 KiB", "0/0").
+// Extrai os inteiros de um valor de tile ("0/0" → [0,0]; "7" → [7]).
+const ints = (s: string): number[] => (s.match(/\d+/g) ?? []).map(Number);
+// Converte bytes humanos do engine ("224.0 KiB", "53.07 GiB", "0 B") em número.
+// Unidades binárias (KiB=1024); tolera KB/MB/… e devolve null se não houver nenhum.
+const BYTE_UNIT: Record<string, number> = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+const parseBytes = (s: string): number | null => {
+  const m = /(-?[\d.]+)\s*([KMGT]?i?B)\b/i.exec(s);
+  if (!m) return null;
+  return Number(m[1]) * (BYTE_UNIT[m[2].toUpperCase().replace("IB", "B")] ?? 1);
+};
 
 const LABELS: CapabilityLabel[] = [
   "supported", "partial", "unsupported-by-provider", "requires-external-component", "not-implemented", "unavailable-on-host",
@@ -42,8 +55,31 @@ export class TauriClient implements DelonixClient {
     return invoke<string>("dlx_bin");
   }
 
-  dash() {
-    return json<DashSummary>(cmd.dash());
+  async dash(): Promise<DashSummary> {
+    const raw = (await json<Obj>(cmd.dash())) ?? {};
+    const tiles = asArray(raw.tiles);
+    const by = (label: string) => tiles.find((t) => str(t, "label").toUpperCase() === label) ?? {};
+    const cnt = (label: string) => ints(str(by(label), "value"));
+    const c = cnt("CONTAINERS");
+    const v = cnt("VMS");
+    const mem = by("MEMORY");
+    const [rx, tx] = str(by("TRAFFIC"), "value").split("/");
+    return {
+      containers_running: c[0] ?? 0,
+      containers_total: c[1] ?? 0,
+      vms_running: v[0] ?? 0,
+      vms_total: v[1] ?? 0,
+      networks_total: cnt("NETWORKS")[0] ?? 0,
+      volumes_total: cnt("VOLUMES")[0] ?? 0,
+      images_total: cnt("IMAGES")[0] ?? 0,
+      secrets_total: cnt("SECRETS")[0] ?? 0,
+      // "224.0 KiB" (value) de "of 53.07 GiB slice limit" (sub).
+      memory_bytes_used: parseBytes(str(mem, "value")) ?? 0,
+      memory_bytes_limit: parseBytes(str(mem, "sub")) ?? 0,
+      network_rx_bytes: parseBytes(rx ?? ""),
+      network_tx_bytes: parseBytes(tx ?? ""),
+      storage_bytes_total: parseBytes(str(by("STORAGE"), "value")),
+    };
   }
 
   workloads() {
@@ -105,6 +141,12 @@ export class TauriClient implements DelonixClient {
         };
       }),
     );
+  }
+
+  async doctor(): Promise<DoctorItem[]> {
+    // `system doctor` é texto (sem -o json): classificado READ, corre sem confirm.
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.doctor(), confirm: false });
+    return parseDoctor([r.stdout, r.stderr].filter(Boolean).join("\n"));
   }
 
   risk(argv: Argv) {

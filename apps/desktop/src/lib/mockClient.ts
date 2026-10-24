@@ -4,7 +4,7 @@ import type { DelonixClient } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  CliResult, DashSummary, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -25,8 +25,7 @@ let workloads: WorkloadRow[] = [
 const dash: DashSummary = {
   containers_running: 3, containers_total: 6, vms_running: 2, vms_total: 3, networks_total: 4, volumes_total: 27,
   images_total: 25, secrets_total: 1, memory_bytes_used: 5.2 * GB, memory_bytes_limit: 12 * GB,
-  network_rx_bytes: 2_100_000, network_tx_bytes: 340_000, storage_bytes_images: 18.4 * GB,
-  storage_bytes_volumes: 3.2 * GB, storage_bytes_vm_images: 6.8 * GB, storage_bytes_containers: null,
+  network_rx_bytes: 2_100_000, network_tx_bytes: 340_000, storage_bytes_total: 28.4 * GB,
 };
 
 const images: ImageRow[] = [
@@ -72,6 +71,15 @@ const providers: ProviderReport[] = [
   ] },
 ];
 
+// Espelha `delonix system doctor`: pré-requisitos ✓ e recursos DLX-RES-NNN.
+const doctorItems: DoctorItem[] = [
+  { status: "ok", title: "cgroup2 delegation (--memory/--cpus/--pids-limit)", detail: "/sys/fs/cgroup/user.slice/…/app.slice", needsSudo: false },
+  { status: "ok", title: "slirp4netns — rootless networking", detail: "", needsSudo: false },
+  { status: "ok", title: "nft — firewall and isolation", detail: "", needsSudo: false },
+  { status: "warn", code: "DLX-RES-001", title: "cgroup", detail: "1 flag(s) are accepted and silently ignored: --cpuset", fix: "sudo delonix system setup --delegate, then systemctl restart user@<uid>.service", needsSudo: true },
+  { status: "warn", code: "DLX-RES-002", title: "io", detail: "--io-weight and the --device-* flags are refused here (exit 69)", fix: "sudo delonix system setup --delegate, then systemctl restart user@<uid>.service", needsSudo: true },
+];
+
 const RISK: [string[], RiskLevel][] = [
   [["rm"], "DESTRUCTIVE"], [["rmi"], "DESTRUCTIVE"], [["volume", "rm"], "DESTRUCTIVE"],
   [["workload", "stop"], "DISRUPTIVE"], [["stop"], "DISRUPTIVE"], [["restart"], "DISRUPTIVE"],
@@ -97,6 +105,7 @@ export class MockClient implements DelonixClient {
   volumes = () => wait(volumes);
   networks = () => wait(networks);
   providers = () => wait(providers);
+  doctor = () => wait(doctorItems);
   risk = (argv: Argv) => wait(riskOf(argv));
 
   async run(argv: Argv, confirm: boolean): Promise<CliResult> {
