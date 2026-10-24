@@ -45,6 +45,36 @@ impl CliBridge {
         self.json_array(&["workload", "ls", "-o", "json"])
     }
 
+    // Contagens por recurso para os cartões de métricas do Dashboard. Cada uma
+    // é uma leitura JSON independente: quem chama decide o que fazer quando uma
+    // falha (ver `LocalContext::resource_counts`, que degrada para `None`).
+
+    /// Quantos containers correndo: `container ps -o json`.
+    pub fn containers_count(&self) -> Result<usize> {
+        self.count(&["container", "ps", "-o", "json"])
+    }
+
+    /// Quantos containers no total (inclui parados): `container ps -a -o json`.
+    pub fn containers_total_count(&self) -> Result<usize> {
+        self.count(&["container", "ps", "-a", "-o", "json"])
+    }
+
+    /// Quantos pods: `get pods -o json` (os verbos genéricos por-Kind servem a
+    /// listagem; `pod` só tem lifecycle — create/logs/exec/…).
+    pub fn pods_count(&self) -> Result<usize> {
+        self.count(&["get", "pods", "-o", "json"])
+    }
+
+    /// Quantas imagens locais: `image ls -o json`.
+    pub fn images_count(&self) -> Result<usize> {
+        self.count(&["image", "ls", "-o", "json"])
+    }
+
+    /// Quantos volumes: `volume ls -o json`.
+    pub fn volumes_count(&self) -> Result<usize> {
+        self.count(&["volume", "ls", "-o", "json"])
+    }
+
     /// Logs de um container (nome validado: sem espaços nem flags).
     pub fn logs(&self, name: &str) -> Result<String> {
         let name = validate_name(name)?;
@@ -73,6 +103,14 @@ impl CliBridge {
     }
 
     // Helpers -------------------------------------------------------------
+
+    /// Conta os elementos de um array JSON sem os desserializar num tipo
+    /// concreto — basta o comprimento para uma métrica, e cada recurso tem a
+    /// sua própria forma (imagem ≠ volume ≠ container).
+    fn count(&self, args: &[&str]) -> Result<usize> {
+        let items: Vec<serde_json::Value> = self.json_array(args)?;
+        Ok(items.len())
+    }
 
     fn json_array<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<Vec<T>> {
         let out = self.run(args)?;

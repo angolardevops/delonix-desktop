@@ -8,7 +8,7 @@
 
 use crate::cli_bridge::CliBridge;
 use crate::error::Result;
-use crate::model::{ApiRoot, Health, ListProviders, NodeInfo, Workload};
+use crate::model::{ApiRoot, Health, ListProviders, NodeInfo, ResourceCounts, Workload};
 use crate::node_client::NodeClient;
 
 /// O contexto LOCAL (o runtime na própria máquina). O contexto REMOTO
@@ -66,5 +66,21 @@ impl LocalContext {
 
     pub fn logs(&self, container: &str) -> Result<String> {
         self.cli.logs(container)
+    }
+
+    /// Contagens por recurso para os cartões de métricas do Dashboard.
+    ///
+    /// Tolerante por recurso: uma leitura que falhe (verbo ausente, CLI em
+    /// erro) degrada para `None` em vez de afundar o cartão inteiro — a UI
+    /// mostra um traço nesse cartão e os outros continuam vivos. Por isso não
+    /// devolve `Result`: o conjunto parcial já é a resposta honesta.
+    pub fn resource_counts(&self) -> ResourceCounts {
+        ResourceCounts {
+            containers_running: self.cli.containers_count().ok(),
+            containers_total: self.cli.containers_total_count().ok(),
+            pods: self.cli.pods_count().ok(),
+            images: self.cli.images_count().ok(),
+            volumes: self.cli.volumes_count().ok(),
+        }
     }
 }

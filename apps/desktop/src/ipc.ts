@@ -40,6 +40,19 @@ export interface Workload {
   image: string;
 }
 
+// Contagens por recurso para os cartões de métricas do Dashboard. Cada campo é
+// `number | null`: `null` significa «indisponível» (recurso não servido, CLI
+// em erro) — o cartão mostra um traço, nunca um zero enganador. Containers/
+// pods/images/volumes vêm pela ponte CLI-JSON; os providers contam-se no
+// cliente a partir da lista já carregada de `/v1/providers`.
+export interface ResourceCounts {
+  containers_running: number | null;
+  containers_total: number | null;
+  pods: number | null;
+  images: number | null;
+  volumes: number | null;
+}
+
 export const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -53,4 +66,5 @@ export const ipc = {
   providers: () => invoke<Provider[]>('list_providers'),
   containers: () => invoke<Workload[]>('list_containers'),
   logs: (name: string) => invoke<string>('container_logs', { name }),
+  resourceCounts: () => invoke<ResourceCounts>('resource_counts'),
 };

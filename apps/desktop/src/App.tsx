@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
-import { ipc, isTauri, type Provider, type NodeInfo } from './ipc';
+import { ipc, isTauri, type Provider, type NodeInfo, type ResourceCounts } from './ipc';
 import Dashboard from './views/Dashboard';
 import {
   IconDashboard, IconContainers, IconPods, IconImages,
@@ -31,6 +31,15 @@ const DEV_PROVIDERS: Provider[] = [
     { name: 'firewall.rules', state: 'unsupported-by-provider', supported: false, detail: '' },
   ] },
 ];
+// Contagens do duplo (valores REAIS medidos neste host a 2026-10-24: 6
+// containers no total / 3 a correr, 0 pods, 25 imagens, 27 volumes).
+const DEV_COUNTS: ResourceCounts = {
+  containers_running: 3,
+  containers_total: 6,
+  pods: 0,
+  images: 25,
+  volumes: 27,
+};
 
 type ViewId = 'dashboard' | 'containers' | 'pods' | 'images' | 'volumes' | 'kubernetes' | 'extensions' | 'settings';
 interface NavItem { id: ViewId; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>>; }
@@ -97,12 +106,13 @@ export default function App() {
   const [view, setView] = useState<ViewId>('dashboard');
   const [node, setNode] = useState<NodeInfo>(DEV_NODE);
   const [providers, setProviders] = useState<Provider[]>(DEV_PROVIDERS);
+  const [counts, setCounts] = useState<ResourceCounts>(DEV_COUNTS);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!live) return;
-    Promise.all([ipc.nodeInfo(), ipc.providers()])
-      .then(([n, p]) => { setNode(n); setProviders(p); setErr(null); })
+    Promise.all([ipc.nodeInfo(), ipc.providers(), ipc.resourceCounts()])
+      .then(([n, p, c]) => { setNode(n); setProviders(p); setCounts(c); setErr(null); })
       .catch((e) => setErr(String(e)));
   }, [live]);
 
@@ -122,7 +132,7 @@ export default function App() {
         )}
         <main style={{ padding: 'var(--sp-5)', flex: 1 }}>
           {view === 'dashboard'
-            ? <Dashboard node={node} providers={providers} />
+            ? <Dashboard node={node} providers={providers} counts={counts} />
             : <Placeholder title={NAV.find((n) => n.id === view)!.label} />}
         </main>
       </div>

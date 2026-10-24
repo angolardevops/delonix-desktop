@@ -1,14 +1,38 @@
 import { CapabilityBadge, type CapabilityState } from '@delonix/design-system';
-import type { NodeInfo, Provider } from '../ipc';
+import type { NodeInfo, Provider, ResourceCounts } from '../ipc';
+import MetricCard from '../components/MetricCard';
+import {
+  IconContainers, IconPods, IconImages, IconVolumes, IconExtensions,
+} from '../icons';
 
-// Vista Dashboard: o conteúdo vivo (nó, histograma de capacidades, providers).
-// Recebe os dados já carregados pelo shell — não fala com o IPC directamente.
-export default function Dashboard({ node, providers }: { node: NodeInfo; providers: Provider[] }) {
+// Vista Dashboard: o conteúdo vivo (nó, cartões de métricas, histograma de
+// capacidades, providers). Recebe os dados já carregados pelo shell — não fala
+// com o IPC directamente.
+export default function Dashboard(
+  { node, providers, counts }: { node: NodeInfo; providers: Provider[]; counts: ResourceCounts },
+) {
   const caps = providers.flatMap((p) => p.capabilities);
   const hist = caps.reduce<Record<string, number>>((h, c) => {
     h[c.state] = (h[c.state] ?? 0) + 1;
     return h;
   }, {});
+
+  // Providers vêm de `/v1/providers` (já carregados); os restantes da ponte
+  // CLI-JSON via `counts`. A contagem de providers nunca é desconhecida aqui.
+  const providersUp = providers.filter((p) => p.available).length;
+  const metrics = [
+    {
+      label: 'Containers', value: counts.containers_total, Icon: IconContainers,
+      hint: counts.containers_running !== null ? `${counts.containers_running} a correr` : undefined,
+    },
+    { label: 'Pods', value: counts.pods, Icon: IconPods },
+    { label: 'Imagens', value: counts.images, Icon: IconImages },
+    { label: 'Volumes', value: counts.volumes, Icon: IconVolumes },
+    {
+      label: 'Providers ativos', value: providersUp, Icon: IconExtensions,
+      hint: `de ${providers.length}`,
+    },
+  ];
 
   return (
     <>
@@ -20,6 +44,17 @@ export default function Dashboard({ node, providers }: { node: NodeInfo; provide
           {' · '}workloads: {node.supported_workload_types.join(', ')}
         </p>
       </header>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+        gap: 'var(--sp-3)',
+        marginBottom: 'var(--sp-5)',
+      }}>
+        {metrics.map((m) => (
+          <MetricCard key={m.label} label={m.label} value={m.value} Icon={m.Icon} hint={m.hint} />
+        ))}
+      </div>
 
       <h2 style={{ fontSize: 15, color: 'var(--text-2)' }}>Capacidades por estado (feature-gating)</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', marginBottom: 'var(--sp-5)' }}>

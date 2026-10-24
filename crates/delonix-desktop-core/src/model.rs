@@ -192,3 +192,24 @@ impl Workload {
         }
     }
 }
+
+/// Contagens por recurso para os cartões de métricas do Dashboard.
+///
+/// Cada contagem é tolerante por desenho: `None` significa «indisponível»
+/// (o recurso não é servido, a CLI falhou, ou o verbo não existe neste nó) —
+/// a UI mostra um traço, nunca um zero enganador. Containers/pods/images/
+/// volumes vêm da ponte CLI-JSON (a raiz de `/v1` ainda não os anuncia); os
+/// providers são contados no cliente a partir de `/v1/providers`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResourceCounts {
+    #[serde(default)]
+    pub containers_running: Option<usize>,
+    #[serde(default)]
+    pub containers_total: Option<usize>,
+    #[serde(default)]
+    pub pods: Option<usize>,
+    #[serde(default)]
+    pub images: Option<usize>,
+    #[serde(default)]
+    pub volumes: Option<usize>,
+}
