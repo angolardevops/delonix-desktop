@@ -37,6 +37,28 @@ export const cmd = {
   volumeCreate: (name: string): Argv => ["volume", "create", name],
   volumeRm: (name: string): Argv => ["volume", "rm", name],
 
+  // --- Segredos (§E). SÓ verbos agrupados. ---------------------------------
+  secretsLs: (): Argv => ["secret", "ls", "-o", "json"],
+  // inspect devolve METADADOS (nomes das chaves, valores redigidos); nunca `--reveal`.
+  secretInspect: (name: string): Argv => ["secret", "inspect", name, "-o", "json"],
+  // O valor entra por `--from-literal KEY=value`. Um segredo é um mapa chave→valor.
+  secretCreate: (o: { name: string; key: string; value: string; force?: boolean }): Argv => [
+    "secret", "create", o.name, "--from-literal", `${o.key}=${o.value}`, ...(o.force ? ["-f"] : []),
+  ],
+  secretRm: (name: string): Argv => ["secret", "rm", name],
+  // rotate gera um novo valor aleatório para UMA chave do segredo.
+  secretRotate: (name: string, key: string): Argv => ["secret", "rotate", name, key],
+
+  // --- Backups (§E). `backup ls` é TEXTO (sem -o json) no 5.1.1. ------------
+  backupsLs: (from?: string): Argv => ["backup", "ls", ...(from ? ["--from", from] : [])],
+  backupInspect: (archive: string, from?: string): Argv => ["backup", "inspect", archive, ...(from ? ["--from", from] : [])],
+  // backup de UM recurso: kind (container/pod/vm/stack) + nome; --to é o destino.
+  backupCreate: (o: { kind: string; name: string; to?: string }): Argv => [
+    "backup", "create", o.kind, o.name, ...(o.to ? ["--to", o.to] : []),
+  ],
+  backupRestore: (archive: string, from?: string): Argv => ["backup", "restore", archive, ...(from ? ["--from", from] : [])],
+  backupRemove: (archive: string, from?: string): Argv => ["backup", "remove", archive, ...(from ? ["--from", from] : [])],
+
   run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string }): Argv => [
     "container", "run", "-d", "--name", o.name,
     ...o.ports.flatMap((p) => ["-p", p]),

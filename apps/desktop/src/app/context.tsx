@@ -10,6 +10,8 @@ export type Route =
   | { name: "create" }
   | { name: "images" }
   | { name: "volumes" }
+  | { name: "secrets" }
+  | { name: "backups" }
   | { name: "kubernetes" }
   | { name: "networks" }
   | { name: "registries" }

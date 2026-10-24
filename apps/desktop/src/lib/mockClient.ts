@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -130,6 +130,22 @@ const providers: ProviderReport[] = [
   ] },
 ];
 
+// Segredos simulados (§E): SÓ metadados — o valor NUNCA existe no duplo local.
+const fmtMock = (d: Date) => d.toLocaleString("pt-AO", { dateStyle: "short", timeStyle: "short" });
+let secrets: SecretRow[] = [
+  { name: "pg-dev", keys: 2, names: ["POSTGRES_PASSWORD", "DATABASE_URL"], updated: fmtMock(new Date(Date.now() - 3 * 864e5)), version: 1, usedBy: ["postgres-dev"] },
+  { name: "minio-root", keys: 2, names: ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"], updated: fmtMock(new Date(Date.now() - 12 * 864e5)), version: 2, usedBy: ["minio"] },
+  { name: "keycloak-db", keys: 1, names: ["KC_DB_PASSWORD"], updated: fmtMock(new Date(Date.now() - 5 * 864e5)), version: 1, usedBy: [] },
+  { name: "traefik-acme", keys: 1, names: ["CF_DNS_API_TOKEN"], updated: fmtMock(new Date(Date.now() - 1 * 864e5)), version: 3, usedBy: ["traefik"] },
+];
+
+// Arquivos de backup simulados (§E). O `archive` é o id.
+let backups: BackupRow[] = [
+  { archive: "container-postgres-dev-20260811-205312.tar.gz", kind: "container", name: "postgres-dev", created: "11/08/26 20:53", size: "412 MB", host: "walter-dev" },
+  { archive: "container-minio-20260810-030000.tar.gz", kind: "container", name: "minio", created: "10/08/26 03:00", size: "604 MB", host: "walter-dev" },
+  { archive: "vm-fedora-kde-build-20260809-190000.tar.gz", kind: "vm", name: "fedora-kde-build", created: "09/08/26 19:00", size: "8,1 GB", host: "walter-dev" },
+];
+
 // Espelha `delonix system doctor`: pré-requisitos ✓ e recursos DLX-RES-NNN.
 const doctorItems: DoctorItem[] = [
   { status: "ok", title: "cgroup2 delegation (--memory/--cpus/--pids-limit)", detail: "/sys/fs/cgroup/user.slice/…/app.slice", needsSudo: false },
@@ -141,8 +157,11 @@ const doctorItems: DoctorItem[] = [
 
 const RISK: [string[], RiskLevel][] = [
   [["workload", "rm"], "DESTRUCTIVE"], [["container", "rm"], "DESTRUCTIVE"], [["image", "remove"], "DESTRUCTIVE"], [["volume", "rm"], "DESTRUCTIVE"], [["network", "rm"], "DESTRUCTIVE"],
+  [["secret", "rm"], "DESTRUCTIVE"], [["backup", "remove"], "DESTRUCTIVE"],
   [["workload", "stop"], "DISRUPTIVE"], [["container", "stop"], "DISRUPTIVE"], [["vm", "stop"], "DISRUPTIVE"], [["container", "restart"], "DISRUPTIVE"], [["vm", "restart"], "DISRUPTIVE"],
+  [["backup", "restore"], "DISRUPTIVE"],
   [["container", "start"], "SAFE_WRITE"], [["vm", "start"], "SAFE_WRITE"], [["image", "pull"], "SAFE_WRITE"], [["container", "run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"], [["network", "create"], "SAFE_WRITE"],
+  [["secret", "create"], "SAFE_WRITE"], [["secret", "rotate"], "SAFE_WRITE"], [["backup", "create"], "SAFE_WRITE"],
 ];
 const riskOf = (argv: Argv) => RISK.find(([p]) => p.every((t, i) => argv[i] === t))?.[1] ?? null;
 
@@ -163,6 +182,8 @@ export class MockClient implements DelonixClient {
   images = () => wait(images);
   volumes = () => wait(volumes);
   networks = () => wait(networks);
+  secrets = () => wait(secrets);
+  backups = (_from?: string) => wait(backups);
   providers = () => wait(providers);
   doctor = () => wait(doctorItems);
   risk = (argv: Argv) => wait(riskOf(argv));
@@ -177,6 +198,30 @@ export class MockClient implements DelonixClient {
     if (!risk) return { ...base, ok: false, code: 2, stderr: `comando não permitido: ${show(argv)}` };
     if ((risk === "DISRUPTIVE" || risk === "DESTRUCTIVE") && !confirm)
       return { ...base, ok: false, code: 1, stderr: "POLICY_DENIED: precisa de confirmação" };
+    // Mutações de Segredos (§E) no duplo local. Nunca guardamos valores.
+    if (argv[0] === "secret") {
+      const sname = argv[2];
+      if (argv[1] === "create") {
+        const key = /--from-literal/.test(argv.join(" ")) ? (argv[argv.indexOf("--from-literal") + 1] ?? "").split("=")[0] : "value";
+        secrets = [...secrets.filter((s) => s.name !== sname), { name: sname, keys: 1, names: [key], updated: fmtMock(new Date()), version: 1, usedBy: [] }];
+      } else if (argv[1] === "rm") {
+        secrets = secrets.filter((s) => s.name !== sname);
+      } else if (argv[1] === "rotate") {
+        secrets = secrets.map((s) => (s.name === sname ? { ...s, updated: fmtMock(new Date()), version: s.version + 1 } : s));
+      }
+      return wait({ ...base, ok: true, code: 0, stdout: `${sname}\n` });
+    }
+    // Mutações de Backups (§E) no duplo local.
+    if (argv[0] === "backup") {
+      if (argv[1] === "create") {
+        const [, , kind, rname] = argv;
+        const archive = `${kind}-${rname}-${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15)}.tar.gz`;
+        backups = [{ archive, kind, name: rname, created: fmtMock(new Date()), size: "128 MB", host: "walter-dev" }, ...backups];
+      } else if (argv[1] === "remove") {
+        backups = backups.filter((b) => b.archive !== argv[2]);
+      }
+      return wait({ ...base, ok: true, code: 0, stdout: `${argv[2] ?? ""}\n` });
+    }
     const name = argv[argv.length - 1];
     workloads = workloads.map((w) =>
       w.name !== name ? w

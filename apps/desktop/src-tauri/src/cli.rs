@@ -53,6 +53,12 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["mcp", "capabilities"], Risk::Read),
     (&["mcp", "doctor"], Risk::Read),
     (&["version"], Risk::Read),
+    // Segredos e backups — leitura (§E). `secret ls/inspect` têm JSON; `backup
+    // ls/inspect` são TEXTO no 5.1.1 (corridos por dlx_run, classificados READ).
+    (&["secret", "ls"], Risk::Read),
+    (&["secret", "inspect"], Risk::Read),
+    (&["backup", "ls"], Risk::Read),
+    (&["backup", "inspect"], Risk::Read),
     // Escrita segura
     (&["image", "pull"], Risk::SafeWrite),
     (&["container", "start"], Risk::SafeWrite),
@@ -60,18 +66,28 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["volume", "create"], Risk::SafeWrite),
     (&["network", "create"], Risk::SafeWrite),
     (&["container", "run"], Risk::SafeWrite),
+    // Segredos e backups — escrita segura (§E). `secret rotate` só gera um novo
+    // valor aleatório para uma chave existente; não destrói nada.
+    (&["secret", "create"], Risk::SafeWrite),
+    (&["secret", "rotate"], Risk::SafeWrite),
+    (&["backup", "create"], Risk::SafeWrite),
     // Disruptivas
     (&["workload", "stop"], Risk::Disruptive),
     (&["container", "stop"], Risk::Disruptive),
     (&["vm", "stop"], Risk::Disruptive),
     (&["container", "restart"], Risk::Disruptive),
     (&["vm", "restart"], Risk::Disruptive),
+    // `backup restore` sobrepõe o estado vivo do recurso → disruptiva (§E).
+    (&["backup", "restore"], Risk::Disruptive),
     // Destrutivas
     (&["workload", "rm"], Risk::Destructive),
     (&["container", "rm"], Risk::Destructive),
     (&["image", "remove"], Risk::Destructive),
     (&["volume", "rm"], Risk::Destructive),
     (&["network", "rm"], Risk::Destructive),
+    // `secret rm` apaga o segredo; `backup remove` apaga o arquivo (§E).
+    (&["secret", "rm"], Risk::Destructive),
+    (&["backup", "remove"], Risk::Destructive),
 ];
 
 pub fn classify(args: &[String]) -> Option<Risk> {
@@ -148,5 +164,30 @@ mod tests {
         assert!(classify(&v("image remove nginx")).unwrap().requires_confirm());
         assert!(classify(&v("vm start fc-1")).is_some());
         assert!(!classify(&v("container run -d nginx")).unwrap().requires_confirm());
+    }
+
+    #[test]
+    fn secrets_and_backups_are_classified() {
+        // Leitura — correm sem confirmação.
+        assert_eq!(classify(&v("secret ls -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("secret inspect db-pass -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("backup ls --from /srv/backups")), Some(Risk::Read));
+        assert_eq!(classify(&v("backup inspect container-db.tar.gz")), Some(Risk::Read));
+        // Escrita segura.
+        assert_eq!(classify(&v("secret create db-pass --from-literal PASSWORD=x")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("secret rotate db-pass PASSWORD")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("backup create container db")), Some(Risk::SafeWrite));
+        // Disruptiva — exige confirmação.
+        assert!(classify(&v("backup restore container-db.tar.gz")).unwrap().requires_confirm());
+        // Destrutivas — exigem confirmação.
+        assert!(classify(&v("secret rm db-pass")).unwrap().requires_confirm());
+        assert!(classify(&v("backup remove container-db.tar.gz")).unwrap().requires_confirm());
+        // `secret rotate-key` (re-encripta TUDO com uma chave-mestra nova) e os
+        // outros subcomandos fora da allowlist NÃO são permitidos — falha fechada.
+        assert_eq!(classify(&v("secret rotate-key")), None);
+        assert_eq!(classify(&v("secret set db-pass --from-literal K=v")), None);
+        assert_eq!(classify(&v("secret unset db-pass K")), None);
+        assert_eq!(classify(&v("secret apply -f secrets.yaml")), None);
+        assert_eq!(classify(&v("backup schedule container db")), None);
     }
 }

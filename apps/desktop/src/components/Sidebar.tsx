@@ -18,6 +18,8 @@ export function Sidebar() {
       { route: { name: "workloads" }, icon: "workloads", label: "Workloads", count: dash ? dash.containers_total + dash.vms_total : undefined },
       { route: { name: "images" }, icon: "images", label: "Imagens", count: dash?.images_total },
       { route: { name: "volumes" }, icon: "volumes", label: "Volumes", count: dash?.volumes_total },
+      { route: { name: "secrets" }, icon: "secrets", label: "Segredos", count: dash?.secrets_total },
+      { route: { name: "backups" }, icon: "backups", label: "Backups" },
       { route: { name: "kubernetes" }, icon: "kubernetes", label: "Kubernetes" },
       { route: { name: "networks" }, icon: "networks", label: "Redes", count: dash?.networks_total },
       { route: { name: "registries" }, icon: "registries", label: "Registries" },

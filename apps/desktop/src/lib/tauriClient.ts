@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
-  CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -60,6 +60,33 @@ const parseBytes = (s: string): number | null => {
   const m = /(-?[\d.]+)\s*([KMGT]?i?B)\b/i.exec(s);
   if (!m) return null;
   return Number(m[1]) * (BYTE_UNIT[m[2].toUpperCase().replace("IB", "B")] ?? 1);
+};
+
+// Formata um instante unix (segundos) numa data local curta; "" se não medido.
+const fmtUnix = (secs: number | null): string => {
+  if (secs == null || !Number.isFinite(secs)) return "";
+  return new Date(secs * 1000).toLocaleString("pt-AO", { dateStyle: "short", timeStyle: "short" });
+};
+
+// Parseia a tabela TEXTO do `backup ls` (sem -o json no 5.1.1). Colunas
+// ARCHIVE KIND NAME CREATED SIZE HOST separadas por 2+ espaços; a 1ª linha é o
+// cabeçalho. Heurística tolerante a colunas vazias/desalinhadas.
+const parseBackupTable = (stdout: string): BackupRow[] => {
+  const lines = stdout.split("\n").map((l) => l.trimEnd()).filter((l) => l.trim().length);
+  if (lines.length === 0) return [];
+  const header = lines[0].toUpperCase();
+  const body = header.includes("ARCHIVE") && header.includes("KIND") ? lines.slice(1) : lines;
+  return body.map((l) => {
+    const c = l.split(/\s{2,}/).map((x) => x.trim());
+    return {
+      archive: c[0] ?? "",
+      kind: c[1] ?? "",
+      name: c[2] ?? "",
+      created: c[3] ?? "",
+      size: c[4] ?? "",
+      host: c[5] ?? "",
+    };
+  }).filter((b) => b.archive);
 };
 
 const LABELS: CapabilityLabel[] = [
@@ -171,6 +198,30 @@ export class TauriClient implements DelonixClient {
         ip: str(m, "ip", "ipv4", "address"),
       })),
     }));
+  }
+
+  // --- Segredos (§E) ------------------------------------------------------
+  // `secret ls -o json` → nome, nº de chaves, NOMES das chaves (nunca valores),
+  // updated_unix, versão, used_by. Só metadados chegam ao renderer.
+  async secrets(): Promise<SecretRow[]> {
+    const rows = asArray(await json<unknown>(cmd.secretsLs()));
+    return rows.map((o) => ({
+      name: str(o, "name"),
+      keys: num(o, "keys", "key_count") ?? list(o, "names", "keys_names").length,
+      names: list(o, "names", "keys_names"),
+      updated: fmtUnix(num(o, "updated_unix", "updated")),
+      version: num(o, "version") ?? 0,
+      usedBy: list(o, "used_by", "usedBy"),
+    }));
+  }
+
+  // --- Backups (§E) -------------------------------------------------------
+  // `backup ls` é TEXTO (sem -o json no 5.1.1): colunas ARCHIVE KIND NAME
+  // CREATED SIZE HOST. Corre por dlx_run (READ, sem confirm) e parseia a tabela.
+  async backups(from?: string): Promise<BackupRow[]> {
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.backupsLs(from), confirm: false });
+    if (!r.ok) throw new Error(r.stderr.trim() || `backup ls saiu com código ${r.code}`);
+    return parseBackupTable(r.stdout);
   }
 
   async providers(): Promise<ProviderReport[]> {

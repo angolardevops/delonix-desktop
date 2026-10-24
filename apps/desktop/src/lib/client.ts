@@ -1,5 +1,5 @@
 import type {
-  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -14,6 +14,10 @@ export interface DelonixClient {
   images(): Promise<ImageRow[]>;
   volumes(): Promise<VolumeRow[]>;
   networks(): Promise<NetworkRow[]>;
+  // Segredos (§E): SÓ metadados (nome/chaves/nomes-de-chaves/versão). Nunca valores.
+  secrets(): Promise<SecretRow[]>;
+  // Backups (§E): arquivos no diretório `from` (default: diretório atual do engine).
+  backups(from?: string): Promise<BackupRow[]>;
   providers(): Promise<ProviderReport[]>;
   doctor(): Promise<DoctorItem[]>;
   risk(argv: Argv): Promise<RiskLevel | null>;

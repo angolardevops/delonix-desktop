@@ -8,6 +8,8 @@ const PATHS: Record<string, string> = {
   kubernetes: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v6M12 15v6M3 12h6M15 12h6",
   networks: "M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 12h5M12 12l5-5M12 12l5 5",
   registries: "M3 4h18v6H3zM3 14h18v6H3zM7 7h.01M7 17h.01",
+  secrets: "M15 7a4 4 0 1 0-3.9 5l.9.9 2 2-1.5 1.5 1.5 1.5-2 2-2-2V12.1A4 4 0 0 0 15 7zM15 7h.01",
+  backups: "M3 7l2-3h14l2 3M3 7h18v12H3zM3 7v0M9 11h6",
   events: "M3 12h4l3-7 4 14 3-7h4",
   assistant: "M4 5h16v11H9l-5 4zM9 10h.01M12 10h.01M15 10h.01",
   capabilities: "M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6zM8.5 12l2.5 2.5 4.5-5",

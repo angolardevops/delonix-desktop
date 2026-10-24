@@ -172,3 +172,29 @@ export interface McpTool {
   name: string;
   risk: RiskLevel;
 }
+
+// --- Segredos (§E) ----------------------------------------------------------
+// SÓ metadados. O valor de um segredo NUNCA chega ao renderer: `secret ls -o
+// json` devolve o nome, o número de chaves e os NOMES das chaves (nunca os
+// valores). Fonte: `delonix secret ls -o json` do engine 5.1.1.
+export interface SecretRow {
+  name: string;
+  keys: number; // número de chaves (pares KEY=value) no segredo
+  names: string[]; // nomes das chaves (ex.: ["POSTGRES_PASSWORD", "DATABASE_URL"]) — nunca valores
+  updated: string; // data humana derivada de updated_unix
+  version: number;
+  usedBy: string[]; // recursos que consomem o segredo
+}
+
+// --- Backups (§E) -----------------------------------------------------------
+// Um arquivo de UM recurso (container/pod/vm/stack). O `backup ls` do engine
+// 5.1.1 é TEXTO (não há `-o json`): colunas ARCHIVE KIND NAME CREATED SIZE HOST.
+// O `archive` (nome do ficheiro) é o identificador para inspect/restore/remove.
+export interface BackupRow {
+  archive: string; // nome do arquivo, ex.: "container-db-20260811-205312.tar.gz" — é o id
+  kind: string; // container | pod | vm | stack | systemcontainer
+  name: string; // nome do recurso arquivado
+  created: string;
+  size: string;
+  host: string;
+}

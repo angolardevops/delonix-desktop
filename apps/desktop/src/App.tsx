@@ -16,7 +16,9 @@ import { CreateWorkload } from "./screens/CreateWorkload";
 import { Events } from "./screens/Events";
 import { Images } from "./screens/Images";
 import { Networks } from "./screens/Networks";
+import { Backups } from "./screens/Backups";
 import { Overview } from "./screens/Overview";
+import { Secrets } from "./screens/Secrets";
 import { Extensions, Kubernetes, Registries, Workspaces } from "./screens/Platform";
 import { Settings } from "./screens/Settings";
 import { Volumes } from "./screens/Volumes";
@@ -85,6 +87,8 @@ export default function App() {
       case "create": return <CreateWorkload />;
       case "images": return <Images />;
       case "volumes": return <Volumes />;
+      case "secrets": return <Secrets />;
+      case "backups": return <Backups />;
       case "kubernetes": return <Kubernetes />;
       case "networks": return <Networks />;
       case "registries": return <Registries />;
