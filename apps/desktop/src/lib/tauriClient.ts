@@ -4,7 +4,7 @@ import type { DelonixClient } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
-  CapabilityLabel, CapabilityRow, CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -22,6 +22,33 @@ const list = (o: Obj, ...keys: string[]) => {
   return Array.isArray(v) ? v.map(String) : [];
 };
 const asArray = (v: unknown): Obj[] => (Array.isArray(v) ? (v as Obj[]) : []);
+// Número numérico-real, ou null (mantém "não medido" distinto de 0).
+const num = (o: Obj, ...keys: string[]): number | null => {
+  const v = pick(o, ...keys);
+  if (v === undefined || v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+// Booleano, ou null quando o campo falta (não assumir false).
+const bool = (o: Obj, ...keys: string[]): boolean | null => {
+  const v = pick(o, ...keys);
+  return v === undefined || v === null ? null : Boolean(v);
+};
+// Uma row numérica do dashboard (métricas por recurso, §8).
+const toRow = (o: Obj): DashRow => ({
+  kind: str(o, "kind", "type"),
+  name: str(o, "name"),
+  status: str(o, "status"),
+  up: bool(o, "up"),
+  extra: str(o, "extra"),
+  ok: bool(o, "ok"),
+  cpu_usage_usec: num(o, "cpu_usage_usec"),
+  mem_bytes: num(o, "mem_bytes"),
+  io_read_bytes: num(o, "io_read_bytes"),
+  io_write_bytes: num(o, "io_write_bytes"),
+  net_rx_bytes: num(o, "net_rx_bytes"),
+  net_tx_bytes: num(o, "net_tx_bytes"),
+});
 
 // O `dashboard --json` formata os valores em string ("224.0 KiB", "0/0").
 // Extrai os inteiros de um valor de tile ("0/0" → [0,0]; "7" → [7]).
@@ -79,6 +106,8 @@ export class TauriClient implements DelonixClient {
       network_rx_bytes: parseBytes(rx ?? ""),
       network_tx_bytes: parseBytes(tx ?? ""),
       storage_bytes_total: parseBytes(str(by("STORAGE"), "value")),
+      // Métricas numéricas por recurso: parseadas em paralelo às tiles humanas.
+      rows: asArray(raw.rows).map(toRow),
     };
   }
 

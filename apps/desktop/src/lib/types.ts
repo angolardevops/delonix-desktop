@@ -23,6 +23,31 @@ export interface DashSummary {
   network_rx_bytes: number | null;
   network_tx_bytes: number | null;
   storage_bytes_total: number | null;
+  // Métricas numéricas por recurso (§8). O dashboard devolve `rows[]` em paralelo
+  // às `tiles[]`; o tauriClient parseia-as aqui. Opcional porque um engine antigo
+  // (ou o parsing só-tiles) pode não as trazer.
+  rows?: DashRow[];
+}
+
+// Uma linha de métrica por recurso do `dashboard --json` (rows[]).
+// cpu_usage_usec: contador MONOTÓNICO em microssegundos (NÃO percentagem).
+// mem_bytes: memory.current em bytes (instantâneo).
+// io_* / net_*: contadores CUMULATIVOS em bytes.
+// Campos a null quando não medíveis (rootless, ou VMs — rows de VM não trazem
+// cpu/mem). Os booleanos `up`/`ok` podem faltar → null.
+export interface DashRow {
+  kind: string; // "container" | "vm" | "pod" | "node"…
+  name: string;
+  status: string;
+  up: boolean | null;
+  extra: string;
+  ok: boolean | null;
+  cpu_usage_usec: number | null;
+  mem_bytes: number | null;
+  io_read_bytes: number | null;
+  io_write_bytes: number | null;
+  net_rx_bytes: number | null;
+  net_tx_bytes: number | null;
 }
 
 export type WorkloadType = "container" | "vm" | "pod";

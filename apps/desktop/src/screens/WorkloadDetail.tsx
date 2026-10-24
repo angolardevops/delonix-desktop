@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
-import { CliHint, Chip, StateChip, Tabs, TypeChip } from "../components/ui";
+import { CliHint, Chip, Planned, StateChip, Tabs, TypeChip } from "../components/ui";
 import { cmd } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
+import { fmtBinBytes, fmtRate, latestRates, sampleFromRow, type Sample } from "../lib/metrics";
+import type { DashRow, WorkloadRow } from "../lib/types";
 
 type T = "logs" | "inspect" | "stats";
 
@@ -73,7 +75,7 @@ export function WorkloadDetail({ id }: { id: string }) {
             </>
           )}
           {tab === "inspect" && <Inspect name={w.name} />}
-          {tab === "stats" && <p className="muted" style={{ padding: 24 }}>Séries por workload: ler `workload.usage` (MCP) ou `delonix stats` e guardar histórico local de 15 min. Ver PROMPT.md §8.2.</p>}
+          {tab === "stats" && <Stats w={w} />}
         </div>
         <aside className="aside">
           <section className="section">
@@ -94,6 +96,94 @@ export function WorkloadDetail({ id }: { id: string }) {
         </aside>
       </div>
     </>
+  );
+}
+
+// Histórico local curto: ~60 amostras a cada 15 s ≈ 15 min.
+const SAMPLE_MS = 15_000;
+const MAX_SAMPLES = 60;
+
+function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 8, padding: "12px 14px", minWidth: 160 }}>
+      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+      <div className="mono" style={{ fontSize: 20, marginTop: 4 }}>{value}</div>
+      {note && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{note}</div>}
+    </div>
+  );
+}
+
+function Stats({ w }: { w: WorkloadRow }) {
+  const { client } = useApp();
+  const [hist, setHist] = useState<Sample[]>([]);
+  // undefined = ainda a carregar; null = recurso sem row no dashboard.
+  const [row, setRow] = useState<DashRow | null | undefined>(undefined);
+
+  useEffect(() => {
+    setHist([]);
+    setRow(undefined);
+    let alive = true;
+    const tick = async () => {
+      try {
+        const d = await client.dash();
+        if (!alive) return;
+        const r = (d.rows ?? []).find((x) => x.name === w.name) ?? null;
+        setRow(r);
+        if (r) setHist((p) => [...p, sampleFromRow(r, Date.now())].slice(-MAX_SAMPLES));
+      } catch {
+        /* polling: ignora falha pontual */
+      }
+    };
+    void tick();
+    const t = setInterval(() => void tick(), SAMPLE_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [client, w.name]);
+
+  // VMs: as rows não trazem cpu/mem → caminho do provider (front D) por fazer.
+  if (w.type === "vm") {
+    return (
+      <div style={{ padding: 24 }}>
+        <Planned what="Métricas de VM por recurso" dependsOn="caminho do provider (vm stats via socket, §5/D)" />
+        <p className="muted" style={{ marginTop: 12 }}>
+          O <span className="mono">dashboard --json</span> não preenche cpu/mem para VMs; as métricas de VM precisam do caminho do provider (CPU/memória não medida aqui).
+        </p>
+      </div>
+    );
+  }
+
+  if (row === undefined) return <p className="muted" style={{ padding: 24 }}>A recolher amostras…</p>;
+  if (row === null)
+    return <p className="muted" style={{ padding: 24 }}>Sem métricas para <span className="mono">{w.name}</span> no dashboard (recurso parado ou não medível em rootless).</p>;
+
+  const r = latestRates(hist);
+  const cpu = r.cpu;
+  const first = r.samples < 2;
+
+  return (
+    <div style={{ padding: 20, overflow: "auto" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        <Metric
+          label="CPU (% por núcleo)"
+          value={cpu ? `${cpu.pctPerCore.toFixed(1).replace(".", ",")} %` : "—"}
+          note={cpu ? `${cpu.cores.toFixed(2).replace(".", ",")} núcleos${cpu.pctCapacity != null ? ` · ${cpu.pctCapacity.toFixed(1).replace(".", ",")} % capacidade` : ""}` : first ? "sem dados (primeira amostra)" : "sem dados"}
+        />
+        <Metric
+          label="Memória (atual)"
+          value={fmtBinBytes(r.mem)}
+          note="memory.current · sem limite por recurso"
+        />
+        <Metric label="IO leitura" value={fmtRate(r.ioRead)} note={first ? "sem dados (primeira amostra)" : "bytes/s (não IOPS)"} />
+        <Metric label="IO escrita" value={fmtRate(r.ioWrite)} note={first ? "sem dados (primeira amostra)" : "bytes/s (não IOPS)"} />
+        <Metric label="Rede rx" value={fmtRate(r.netRx)} note={first ? "sem dados (primeira amostra)" : "taxa (de contador acumulado)"} />
+        <Metric label="Rede tx" value={fmtRate(r.netTx)} note={first ? "sem dados (primeira amostra)" : "taxa (de contador acumulado)"} />
+      </div>
+      <p className="muted" style={{ fontSize: 12, marginTop: 16 }}>
+        {r.samples}/{MAX_SAMPLES} amostras · uma a cada {SAMPLE_MS / 1000} s (janela ~{(MAX_SAMPLES * SAMPLE_MS) / 60000} min). As taxas vêm da diferença de contadores entre as duas últimas amostras; um reinício de contador é ignorado (nunca negativo).
+      </p>
+    </div>
   );
 }
 
