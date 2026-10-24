@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { DockTab } from "../app/context";
 import { useApp } from "../app/context";
 import { cmd, show } from "../lib/cli";
-import { useResource } from "../lib/hooks";
+import { runState, useResource } from "../lib/hooks";
 import { Icon } from "./Icon";
+import { Terminal } from "./Terminal";
 import { Chip } from "./ui";
 
 export function BottomDock({ tab, open, setTab, setOpen }: { tab: DockTab; open: boolean; setTab: (t: DockTab) => void; setOpen: (o: boolean) => void }) {
@@ -90,13 +91,36 @@ function LogsPanel() {
 }
 
 function TerminalPanel() {
+  const { client } = useApp();
+  // Só containers A CORRER: o exec interativo liga-se a um PTY no container vivo.
+  const running = (useResource(() => client.workloads(), 10000).data ?? []).filter(
+    (w) => w.type === "container" && runState(w.status) === "running",
+  );
+  const [name, setName] = useState<string>("");
+  useEffect(() => {
+    if (running.length && !running.some((c) => c.name === name)) setName(running[0].name);
+  }, [running, name]);
+
+  if (!running.length) {
+    return (
+      <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+        <Chip tone="warn">Sem containers a correr</Chip>
+        <p style={{ margin: 0, color: "var(--tx2)" }}>Inicie um container para abrir um terminal interativo (<span className="mono">delonix container exec -it &lt;nome&gt;</span>).</p>
+      </div>
+    );
+  }
   return (
-    <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-      <Chip tone="warn">Por ligar</Chip>
-      <p style={{ margin: 0, color: "var(--tx2)" }}>
-        O terminal integrado precisa de um PTY no backend (plugin tauri-plugin-pty ou portable-pty) a correr{" "}
-        <span className="mono">delonix exec -it &lt;nome&gt; sh</span>, com xterm.js na UI. Ver PROMPT.md §8.3.
-      </p>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)" }}>
+        <label className="muted" style={{ fontSize: 12 }}>
+          Container{" "}
+          <select className="input mono" value={name} onChange={(e) => setName(e.target.value)}>
+            {running.map((c) => <option key={c.name}>{c.name}</option>)}
+          </select>
+        </label>
+        <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(cmd.exec(name))}</span>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>{name && <Terminal key={name} name={name} />}</div>
     </div>
   );
 }
