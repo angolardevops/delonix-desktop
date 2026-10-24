@@ -5,6 +5,11 @@ import "@xterm/xterm/css/xterm.css";
 import { useApp } from "../app/context";
 import type { ExecSession } from "../lib/client";
 
+// Id único por MONTAGEM (não por nome): o StrictMode do React monta/desmonta/
+// remonta em dev, e com um id partilhado (`exec-<nome>`) as duas sessões do
+// backend matavam-se uma à outra (map.insert por id) → "[sessão terminada]".
+let execSeq = 0;
+
 // Um terminal real (xterm.js) ligado a um exec interativo no container via PTY
 // no backend. Monta o xterm, subscreve `dlx-exec` através do cliente, escreve
 // stdin com `dlx_exec_write` e redimensiona com `addon-fit` → `dlx_exec_resize`.
@@ -28,7 +33,7 @@ export function Terminal({ name }: { name: string }) {
     term.open(el);
     fit.fit();
 
-    const id = `exec-${name}`;
+    const id = `exec-${name}-${++execSeq}`;
     let session: ExecSession | undefined;
     let disposed = false;
 

@@ -84,6 +84,12 @@ pub async fn dlx_exec_start(
     for a in &argv {
         cmd.arg(a);
     }
+    // CRÍTICO: o CommandBuilder do portable-pty NÃO herda o ambiente. Sem
+    // XDG_RUNTIME_DIR/HOME/PATH o engine rootless não encontra o estado do
+    // container (`no such container`) e o exec sai de imediato. Herdar tudo.
+    for (k, v) in std::env::vars() {
+        cmd.env(k, v);
+    }
     // Um terminal a sério quer cor e um TERM conhecido pelo xterm do frontend.
     cmd.env("TERM", "xterm-256color");
 
