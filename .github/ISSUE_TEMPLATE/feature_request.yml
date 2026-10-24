@@ -1,0 +1,31 @@
+name: Pedido de funcionalidade
+description: Propor uma capacidade ou melhoria para o delonix-desktop.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema ou necessidade
+      description: Que dor concreta resolve isto. Evita saltar já para a solução.
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Proposta
+      description: O que gostarias de ver. Comportamento observável, não implementação.
+    validations:
+      required: true
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas consideradas
+    validations:
+      required: false
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto adicional
+      description: Ligação a ADRs (docs/adr/), à matriz de lacunas (docs/audit/) ou ao threat model.
+    validations:
+      required: false

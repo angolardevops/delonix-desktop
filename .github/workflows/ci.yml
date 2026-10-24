@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# Cancela execuções antigas da mesma ref quando chega um novo push.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar toolchain Rust estável
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache de build
+        uses: Swatinem/rust-cache@v2
+
+      # O workspace cobre apenas crates/* — apps/desktop/src-tauri entra quando
+      # as libs de sistema Tauri (libwebkit2gtk-4.1-dev …) estiverem presentes,
+      # por isso o CI não precisa dessas dependências de sistema.
+      - name: Build
+        run: cargo build --workspace --locked
+
+      - name: Testes
+        run: cargo test --workspace --locked
+
+  web:
+    name: Web (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build web
+        run: npm run build:web

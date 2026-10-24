@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Segurança (divulgação responsável)
+    url: https://github.com/angolardevops/delonix-desktop/security/advisories/new
+    about: Não abras issue pública para vulnerabilidades. Usa um advisory privado.

@@ -1,0 +1,50 @@
+name: Relatório de bug
+description: Reportar um comportamento incorreto do delonix-desktop.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar. Quanto mais concreto o passo-a-passo, mais rápido se corrige.
+  - type: textarea
+    id: o-que-aconteceu
+    attributes:
+      label: O que aconteceu
+      description: Comportamento observado, com a mensagem de erro exata se houver.
+      placeholder: Ao abrir a janela, o estado de capability fica em "unknown"…
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que era esperado
+    validations:
+      required: true
+  - type: textarea
+    id: passos
+    attributes:
+      label: Passos para reproduzir
+      description: Comandos e ações, por ordem.
+      placeholder: |
+        1. cargo run --bin proof
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: so
+    attributes:
+      label: Sistema operativo
+      options:
+        - Linux
+        - macOS (via WSL/prova futura)
+        - Windows (WSL2)
+        - Outro
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Saída de `cargo --version`, versão do node, e commit (`git rev-parse --short HEAD`).
+    validations:
+      required: false

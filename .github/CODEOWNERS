@@ -1,0 +1,17 @@
+# CODEOWNERS — delonix-desktop
+# Revisão automática por caminho. A ordem importa: a última regra que casa ganha.
+# Ver: https://docs.github.com/articles/about-code-owners
+
+# Dono por omissão de todo o repositório.
+*                           @angolardevops
+
+# Núcleo Rust (ponte CLI, modelo, cliente do node).
+/crates/                    @angolardevops
+
+# Aplicação desktop (Tauri + React) e design system.
+/apps/                      @angolardevops
+/packages/                  @angolardevops
+
+# Infra de CI/governação e documentação de arquitetura/segurança.
+/.github/                   @angolardevops
+/docs/                      @angolardevops
