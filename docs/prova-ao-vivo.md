@@ -37,6 +37,18 @@ Método: condutor XTEST (python-xlib) para cliques/teclas; captura por `get_imag
 - **Métricas por recurso (tab Estatísticas)**: o Overview (agregado) ficou provado; a tab de estatísticas por workload precisa de um workload a correr com contadores.
 - **Windows / macOS**: não testados (só Linux).
 
+## Ronda 3 — frentes novas (E1/E2/dock), binário de integra @b5a247a
+
+| Área | Provado ao vivo |
+|---|---|
+| **Sidebar wired** | Segredos (17), Backups, Declarativo, Kubernetes, Registries — todos presentes com contagens reais. |
+| **§E1 Segredos** | Tela "Segredos · 17 segredos · valores nunca expostos" — 17 segredos REAIS (addon-*), só metadados (chaves/versão/data), **paginação "Página 1 de 2"**, form Criar + ação Rodar por chave. Segurança: nenhum valor exposto. |
+| **§E2 Declarativo** | Tela com separadores Stacks/Compose, campo de manifesto, Planear/Validar/Descrever/Histórico + Aplicar/Destruir. Ação chega ao engine: `stack history` → **erro tipado real `error[DX-1000] invalid argument: no manifest`**. |
+| **§E2 Kubernetes** | Tela "0 cluster(s)" wired a `cluster ls/health/kubeconfig`, nota CRI, painel Gerar manifesto (`cluster kube generate`), paginação. Substitui o placeholder antigo. |
+
+### BUG §3 apanhado pela prova ao vivo (terminal interativo)
+O dock "Terminal" (e o separador Terminal do detalhe) ficou LIGADO (mostra `container exec -it <nome>` + xterm), mas a **sessão termina imediatamente** ("[sessão terminada]"; teclar não revive). O shim confirma que a app CHAMA `delonix container exec -it live-sh` (sem erro no log), e o MESMO comando por CLI com TTY real FICA VIVO (só morre por `timeout`). → O exec do engine funciona; o **ciclo de vida do PTY na app (Frente B: `src-tauri/src/exec.rs` / `components/Terminal.tsx`) é o defeito** — a sessão fecha-se sozinha. A corrigir (hipóteses: EOF no master do PTY, fallback bash→sh em busybox, ou cleanup de efeito a matar o filho). Mocks/compilação escondiam isto.
+
 ## Notas de reprodução
 - Condutor e capturas em `scratchpad/` (xdo.py, grab.py, shot_*.png, dlx-shim, dlx-calls.log).
 - Sessão Wayland → `GDK_BACKEND=x11` obrigatório para XTEST/XGetImage.
