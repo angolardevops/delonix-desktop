@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -87,6 +87,30 @@ const parseBackupTable = (stdout: string): BackupRow[] => {
       host: c[5] ?? "",
     };
   }).filter((b) => b.archive);
+};
+
+// Parser TOLERANTE das tabelas TEXTO do engine (output::Table: GAP=3 espaços
+// entre colunas; células vazias são preenchidas com "-"/"—", nunca em branco,
+// por isso nunca colapsam). Lê o CABEÇALHO e devolve (header, rows) por células
+// separadas por 2+ espaços — um valor interno com UM espaço ("2/3 up", "API
+// PORT") fica inteiro. Linhas de aviso/erro/vazias ("(no clusters…)") são
+// descartadas. Mapeia-se cada coluna pelo NOME (resiste a reordenação).
+const parseTable = (stdout: string): { header: string[]; rows: string[][] } => {
+  const lines = stdout
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => {
+      const t = l.trim();
+      return t.length > 0 && !t.startsWith("(") && !/^(warning|error)\b/i.test(t);
+    });
+  if (lines.length === 0) return { header: [], rows: [] };
+  const split = (l: string) => l.split(/\s{2,}/).map((x) => x.trim());
+  return { header: split(lines[0]), rows: lines.slice(1).map(split) };
+};
+// Valor da coluna `label` de uma linha, por posição no cabeçalho; "" se ausente.
+const colOf = (header: string[], row: string[], label: string): string => {
+  const i = header.findIndex((h) => h.toUpperCase() === label.toUpperCase());
+  return i >= 0 ? (row[i] ?? "") : "";
 };
 
 const LABELS: CapabilityLabel[] = [
@@ -247,6 +271,71 @@ export class TauriClient implements DelonixClient {
     // `system doctor` é texto (sem -o json): classificado READ, corre sem confirm.
     const r = await invoke<CliResult>("dlx_run", { args: cmd.doctor(), confirm: false });
     return parseDoctor([r.stdout, r.stderr].filter(Boolean).join("\n"));
+  }
+
+  // --- Camada declarativa (§E) --------------------------------------------
+  // `stack plan -o json` devolve um array [{kind,name,action,changed,diffs[],
+  // planDigest}]. O engine pode imprimir um `warning` em TEXTO antes do JSON
+  // (ex.: "kind: Container … kind: Pod"), por isso corre por dlx_run e corta a
+  // partir do primeiro `[`, em vez de dlx_json (que exigiria stdout JSON puro).
+  async stackPlan(manifest?: string): Promise<StackPlanRow[]> {
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.stackPlan(manifest), confirm: false });
+    const start = r.stdout.indexOf("[");
+    if (start < 0) {
+      if (!r.ok) throw new Error(r.stderr.trim() || `stack plan saiu com código ${r.code}`);
+      return [];
+    }
+    let arr: unknown;
+    try {
+      arr = JSON.parse(r.stdout.slice(start));
+    } catch {
+      throw new Error(r.stderr.trim() || "stack plan: saída não-JSON");
+    }
+    return asArray(arr).map((o) => ({
+      kind: str(o, "kind"),
+      name: str(o, "name"),
+      action: str(o, "action"),
+      changed: bool(o, "changed") ?? false,
+      diffs: asArray(pick(o, "diffs")).length,
+      planDigest: str(o, "planDigest", "plan_digest"),
+    }));
+  }
+
+  // `cluster ls` é TEXTO (sem -o json): parseado por nome de coluna.
+  async clusters(all = false): Promise<ClusterRow[]> {
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.clustersLs(all), confirm: false });
+    if (!r.ok) throw new Error(r.stderr.trim() || `cluster ls saiu com código ${r.code}`);
+    const { header, rows } = parseTable(r.stdout);
+    return rows
+      .map((row) => ({
+        name: colOf(header, row, "NAME"),
+        mode: colOf(header, row, "MODE"),
+        state: colOf(header, row, "STATE"),
+        controlPlanes: colOf(header, row, "CONTROL-PLANES"),
+        workers: colOf(header, row, "WORKERS"),
+        apiPort: colOf(header, row, "API PORT"),
+        k8sVersion: colOf(header, row, "K8S VERSION"),
+      }))
+      .filter((c) => c.name);
+  }
+
+  // `compose ps` é TEXTO: SERVICE NAME IMAGE STATUS.
+  async composePs(file?: string): Promise<ComposeService[]> {
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.composePs(file), confirm: false });
+    if (!r.ok) throw new Error(r.stderr.trim() || `compose ps saiu com código ${r.code}`);
+    const { header, rows } = parseTable(r.stdout);
+    return rows
+      .map((row) => ({
+        service: colOf(header, row, "SERVICE"),
+        name: colOf(header, row, "NAME"),
+        image: colOf(header, row, "IMAGE"),
+        status: colOf(header, row, "STATUS"),
+      }))
+      .filter((s) => s.name);
+  }
+
+  readText(argv: Argv) {
+    return invoke<CliResult>("dlx_run", { args: argv, confirm: false });
   }
 
   risk(argv: Argv) {

@@ -12,6 +12,7 @@ export type Route =
   | { name: "volumes" }
   | { name: "secrets" }
   | { name: "backups" }
+  | { name: "declarative" }
   | { name: "kubernetes" }
   | { name: "networks" }
   | { name: "registries" }
