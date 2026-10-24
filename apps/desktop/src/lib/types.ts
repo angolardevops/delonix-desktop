@@ -132,6 +132,42 @@ export interface CliResult {
 // Mesmos nomes do servidor MCP (crates/interfaces/delonix-mcp/src/risk.rs).
 export type RiskLevel = "READ" | "SAFE_WRITE" | "DISRUPTIVE" | "DESTRUCTIVE" | "PRIVILEGED";
 
+// --- VirtualMachineService (contrato de socket delonix.node.v1, §5) ---------
+// Forma NORMALIZADA que a UI consome. Os campos vêm do proto3 JSON do contrato
+// (snake_case por `preserve_proto_field_names`); o tauriClient normaliza-os
+// para estes nomes camelCase. `memoryBytes` chega como string no JSON (int64
+// do proto3) e é convertido para número.
+
+// Uma VM lida pelo socket (`node_vm_get`/`node_vm_list`).
+export interface VmDetail {
+  name: string;
+  namespace: string;
+  phase: string; // "VIRTUAL_MACHINE_PHASE_RUNNING" | …
+  provider: string;
+  ipAddresses: string[];
+  ipPredicted: boolean;
+  vcpus: number;
+  memoryBytes: number;
+  image: string;
+}
+
+// Entrada do formulário de criação de VM (CreateWorkload).
+export interface VmCreateInput {
+  name: string;
+  image: string;
+  vcpus: number;
+  memoryBytes: number;
+  diskBytes: number;
+  network: string; // "" = sem anexo de rede explícito
+}
+
+// Um snapshot de VM (`node_vm_snapshots`).
+export interface VmSnapshot {
+  name: string;
+  includesMemory: boolean;
+  state: string; // estado do guest na captura: "running" | "shutoff"
+}
+
 export interface McpTool {
   name: string;
   risk: RiskLevel;

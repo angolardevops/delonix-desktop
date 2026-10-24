@@ -540,6 +540,7 @@ dependencies = [
 name = "delonix-desktop"
 version = "0.1.0"
 dependencies = [
+ "delonix-desktop-core",
  "portable-pty",
  "serde",
  "serde_json",
@@ -547,6 +548,14 @@ dependencies = [
  "tauri-build",
  "tokio",
  "which",
+]
+
+[[package]]
+name = "delonix-desktop-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -21,6 +21,29 @@ let workloads: WorkloadRow[] = [
   { type: "vm", name: "fc-ci-runner-2", status: "Running", info: "2 vCPU, 1G", namespace: "default" },
   { type: "vm", name: "fedora-kde-build", status: "Stopped", info: "8 vCPU, 8G", namespace: "default" },
 ];
+
+// Snapshots simulados por VM (estado em memória do duplo local).
+const snapshots: Record<string, VmSnapshot[]> = {
+  "fedora-kde-build": [{ name: "pre-update", includesMemory: false, state: "shutoff" }],
+};
+
+// Deriva um VmDetail do WorkloadRow de VM (o `info` traz "2 vCPU, 8G").
+const mockVm = (w: WorkloadRow): VmDetail => {
+  const vcpus = Number(/(\d+)\s*vCPU/i.exec(w.info)?.[1] ?? 1);
+  const g = Number(/(\d+)\s*G/i.exec(w.info)?.[1] ?? 1);
+  const running = w.status === "Running";
+  return {
+    name: w.name,
+    namespace: w.namespace,
+    phase: running ? "VIRTUAL_MACHINE_PHASE_RUNNING" : "VIRTUAL_MACHINE_PHASE_STOPPED",
+    provider: "cloud-hypervisor",
+    ipAddresses: running ? ["192.168.122.42"] : [],
+    ipPredicted: true,
+    vcpus,
+    memoryBytes: g * 1024 ** 3,
+    image: "firecracker/ci:24.04",
+  };
+};
 
 const dashBase: Omit<DashSummary, "rows"> = {
   containers_running: 3, containers_total: 6, vms_running: 2, vms_total: 3, networks_total: 4, volumes_total: 27,
@@ -186,6 +209,58 @@ export class MockClient implements DelonixClient {
       resize: () => {},
       stop: () => {},
     };
+  }
+
+  // --- VMs pelo socket node.v1 (§5), simuladas ---------------------------
+
+  vmList = () => wait(workloads.filter((w) => w.type === "vm").map(mockVm));
+
+  async vmGet(name: string): Promise<VmDetail> {
+    const w = workloads.find((x) => x.name === name && x.type === "vm");
+    if (!w) throw new Error(`VM ${name} não encontrada (duplo local)`);
+    return wait(mockVm(w));
+  }
+
+  async vmCreate(spec: VmCreateInput): Promise<void> {
+    const gib = spec.memoryBytes / 1024 ** 3;
+    workloads = [
+      ...workloads,
+      { type: "vm", name: spec.name, status: "Running", info: `${spec.vcpus} vCPU, ${gib ? `${Math.round(gib)}G` : "1G"}`, namespace: "default" },
+    ];
+    snapshots[spec.name] = [];
+    return wait(undefined);
+  }
+
+  async vmStart(name: string): Promise<void> {
+    workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Running" } : w));
+    return wait(undefined);
+  }
+
+  async vmStop(name: string): Promise<void> {
+    workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Stopped" } : w));
+    return wait(undefined);
+  }
+
+  async vmDelete(name: string): Promise<void> {
+    workloads = workloads.filter((w) => w.name !== name);
+    delete snapshots[name];
+    return wait(undefined);
+  }
+
+  vmSnapshotList = (name: string) => wait(snapshots[name] ?? []);
+
+  async vmSnapshotCreate(name: string, snapshot: string): Promise<void> {
+    const w = workloads.find((x) => x.name === name);
+    snapshots[name] = [
+      ...(snapshots[name] ?? []).filter((s) => s.name !== snapshot),
+      { name: snapshot, includesMemory: w?.status === "Running", state: w?.status === "Running" ? "running" : "shutoff" },
+    ];
+    return wait(undefined);
+  }
+
+  async vmSnapshotRestore(name: string, _snapshot: string): Promise<void> {
+    void name;
+    return wait(undefined);
   }
 
   async events(onEvent: (e: EngineEvent) => void) {

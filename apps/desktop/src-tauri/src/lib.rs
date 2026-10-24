@@ -1,5 +1,6 @@
 mod cli;
 mod exec;
+mod node;
 mod stream;
 
 use cli::{CliResult, Risk};
@@ -61,7 +62,16 @@ pub fn run() {
             exec::dlx_exec_start,
             exec::dlx_exec_write,
             exec::dlx_exec_resize,
-            exec::dlx_exec_stop
+            exec::dlx_exec_stop,
+            node::node_vm_list,
+            node::node_vm_get,
+            node::node_vm_create,
+            node::node_vm_start,
+            node::node_vm_stop,
+            node::node_vm_delete,
+            node::node_vm_snapshot_create,
+            node::node_vm_snapshots,
+            node::node_vm_snapshot_restore
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Delonix Desktop");

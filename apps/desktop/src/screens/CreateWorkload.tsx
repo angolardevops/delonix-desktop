@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../app/context";
-import { Chip, PageHead } from "../components/ui";
+import { Chip, ErrorNote, PageHead } from "../components/ui";
 import { cmd, show } from "../lib/cli";
 import { useResource } from "../lib/hooks";
 
@@ -11,6 +11,8 @@ const KINDS: { id: Kind; label: string; desc: string }[] = [
   { id: "pod", label: "Pod", desc: "Vários containers com rede partilhada" },
   { id: "vm", label: "VM / microVM", desc: "Kernel próprio · cloud-hypervisor ou libvirt" },
 ];
+
+const GIB = 1024 ** 3;
 
 export function CreateWorkload() {
   const { client, act, go } = useApp();
@@ -25,6 +27,16 @@ export function CreateWorkload() {
   const [cpus, setCpus] = useState("2");
   const [restart, setRestart] = useState("unless-stopped");
 
+  // Campos do VmSpec (contrato node.v1). Memória/disco em GiB no formulário.
+  const [vmName, setVmName] = useState("fedora-ci");
+  const [vmImage, setVmImage] = useState("fedora-40.qcow2");
+  const [vmVcpus, setVmVcpus] = useState("2");
+  const [vmMemory, setVmMemory] = useState("2");
+  const [vmDisk, setVmDisk] = useState("20");
+  const [vmNetwork, setVmNetwork] = useState("ingress");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
   const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
   const argv = cmd.run({ name, image, ports: split(ports), env: split(env), volumes: split(volumes), memory, cpus, restart });
 
@@ -35,6 +47,29 @@ export function CreateWorkload() {
     k === "vm"
       ? vmState === "supported" ? <Chip tone="ok" dot>Funciona</Chip> : <Chip tone="warn" dot>Ver capacidades</Chip>
       : k === "pod" ? <Chip tone="warn" dot>Assistente por fazer</Chip> : <Chip tone="ok" dot>Funciona</Chip>;
+
+  const createVm = () => {
+    setErr(null);
+    setBusy(true);
+    void client
+      .vmCreate({
+        name: vmName,
+        image: vmImage,
+        vcpus: Number(vmVcpus) || 0,
+        memoryBytes: Math.round((Number(vmMemory) || 0) * GIB),
+        diskBytes: Math.round((Number(vmDisk) || 0) * GIB),
+        network: vmNetwork.trim(),
+      })
+      .then(() => go({ name: "workload", id: vmName }))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const vmFields: [string, string, (v: string) => void][] = [
+    ["Imagem / disco (qcow2)", vmImage, setVmImage], ["Nome", vmName, setVmName],
+    ["vCPUs", vmVcpus, setVmVcpus], ["Memória (GiB)", vmMemory, setVmMemory],
+    ["Disco (GiB)", vmDisk, setVmDisk], ["Rede", vmNetwork, setVmNetwork],
+  ];
 
   return (
     <>
@@ -51,8 +86,17 @@ export function CreateWorkload() {
               </button>
             ))}
           </div>
-          {kind !== "container" ? (
-            <p className="muted">O formulário de {kind === "pod" ? "pods (`delonix pod`)" : "VMs (`delonix vm`, manifesto VmSpec)"} segue o mesmo padrão: campos à esquerda, comando ao vivo à direita. Ver PROMPT.md §8.4.</p>
+          {kind === "pod" ? (
+            <p className="muted">O formulário de pods (`delonix pod`) segue o mesmo padrão: campos à esquerda, comando ao vivo à direita. Ver PROMPT.md §8.4.</p>
+          ) : kind === "vm" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+              {vmFields.map(([label, value, set]) => (
+                <label key={label} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
+                  {label}
+                  <input className="input mono" value={value} onChange={(e) => set(e.target.value)} />
+                </label>
+              ))}
+            </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               {[
@@ -67,13 +111,28 @@ export function CreateWorkload() {
               ))}
             </div>
           )}
+          {kind === "vm" && err && <ErrorNote error={err} />}
         </div>
         <aside className="aside" style={{ display: "flex", flexDirection: "column" }}>
-          <section className="section"><h2>Comando ao vivo</h2><pre className="code">{show(argv)}</pre></section>
+          <section className="section">
+            <h2>{kind === "vm" ? "Pelo socket node.v1" : "Comando ao vivo"}</h2>
+            {kind === "vm" ? (
+              <p className="muted" style={{ fontSize: 12 }}>
+                A criação de VM passa pelo contrato de socket <span className="mono">delonix.node.v1</span> (<span className="mono">CreateVirtualMachine</span>), não pela CLI. Requer <span className="mono">delonix serve node-api</span> a correr.
+              </p>
+            ) : (
+              <pre className="code">{show(argv)}</pre>
+            )}
+          </section>
           <div style={{ marginTop: "auto", display: "flex", gap: 8, padding: 16, borderTop: "1px solid var(--line)" }}>
             <button className="btn" type="button" onClick={() => go({ name: "workloads" })}>Cancelar</button>
-            <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={kind !== "container"}
-              onClick={() => void act(argv, `Criar ${name}`).then((ok) => ok && go({ name: "workload", id: name }))}>Criar e iniciar</button>
+            {kind === "vm" ? (
+              <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={busy || !vmName.trim()}
+                onClick={createVm}>{busy ? "A criar…" : "Criar VM"}</button>
+            ) : (
+              <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={kind !== "container"}
+                onClick={() => void act(argv, `Criar ${name}`).then((ok) => ok && go({ name: "workload", id: name }))}>Criar e iniciar</button>
+            )}
           </div>
         </aside>
       </div>

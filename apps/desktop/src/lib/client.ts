@@ -1,5 +1,5 @@
 import type {
-  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -23,6 +23,17 @@ export interface DelonixClient {
   // Exec interativo (§3): abre um shell no container `name` por PTY. Os bytes
   // do PTY chegam por `onData`; o fim do processo por `onEnd`.
   exec(id: string, name: string, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession>;
+  // VMs pelo contrato de socket node.v1 (§5). As ações e a criação passam pelo
+  // socket (não pela CLI); a tabela de Workloads continua a vir de `workload ls`.
+  vmList(): Promise<VmDetail[]>;
+  vmGet(name: string): Promise<VmDetail>;
+  vmCreate(spec: VmCreateInput): Promise<void>;
+  vmStart(name: string): Promise<void>;
+  vmStop(name: string): Promise<void>;
+  vmDelete(name: string): Promise<void>;
+  vmSnapshotList(name: string): Promise<VmSnapshot[]>;
+  vmSnapshotCreate(name: string, snapshot: string): Promise<void>;
+  vmSnapshotRestore(name: string, snapshot: string): Promise<void>;
 }
 
 // Uma sessão de exec viva: escreve stdin, redimensiona e termina o PTY.

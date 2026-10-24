@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
-  CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VolumeRow, WorkloadRow,
+  CapabilityLabel, CapabilityRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -72,6 +72,26 @@ const toCapability = (o: Obj): CapabilityRow => {
     name: str(o, "name", "capability", "id"),
     state: LABELS.includes(state) ? state : "not-implemented",
     detail: str(o, "detail", "evidence", "reason", "component"),
+  };
+};
+
+// Normaliza uma VM do contrato (`node_vm_get`/`node_vm_list`). O JSON vem em
+// snake_case (preserve_proto_field_names); `memory_bytes` é string (int64 do
+// proto3) → num() converte-a. Estrutura meta/spec/status do VirtualMachine.
+const toVm = (o: Obj): VmDetail => {
+  const meta = (pick(o, "meta") ?? {}) as Obj;
+  const spec = (pick(o, "spec") ?? {}) as Obj;
+  const status = (pick(o, "status") ?? {}) as Obj;
+  return {
+    name: str(meta, "name"),
+    namespace: str(meta, "namespace") || "default",
+    phase: str(status, "phase"),
+    provider: str(status, "provider") || str(spec, "provider"),
+    ipAddresses: list(status, "ip_addresses"),
+    ipPredicted: bool(status, "ip_predicted") ?? false,
+    vcpus: num(spec, "vcpus") ?? 0,
+    memoryBytes: num(spec, "memory_bytes") ?? 0,
+    image: str(spec, "image"),
   };
 };
 
@@ -218,6 +238,62 @@ export class TauriClient implements DelonixClient {
         void invoke("dlx_exec_stop", { id });
       },
     };
+  }
+
+  // --- VMs pelo socket node.v1 (§5) ---------------------------------------
+
+  async vmList(): Promise<VmDetail[]> {
+    const raw = (await invoke<Obj>("node_vm_list")) ?? {};
+    return asArray(pick(raw, "virtual_machines")).map(toVm);
+  }
+
+  async vmGet(name: string): Promise<VmDetail> {
+    return toVm(await invoke<Obj>("node_vm_get", { name }));
+  }
+
+  async vmCreate(spec: VmCreateInput): Promise<void> {
+    // Corpo de CreateVirtualMachine: `name` + `spec` (o namespace vem do caminho
+    // REST, não do corpo). int64 em número — o DTO do core aceita-o na leitura.
+    const req = {
+      name: spec.name,
+      spec: {
+        image: spec.image,
+        vcpus: spec.vcpus,
+        memory_bytes: spec.memoryBytes,
+        disk_bytes: spec.diskBytes,
+        ...(spec.network ? { networks: [{ network: spec.network }] } : {}),
+      },
+    };
+    await invoke("node_vm_create", { req });
+  }
+
+  async vmStart(name: string): Promise<void> {
+    await invoke("node_vm_start", { name });
+  }
+
+  async vmStop(name: string): Promise<void> {
+    await invoke("node_vm_stop", { name });
+  }
+
+  async vmDelete(name: string): Promise<void> {
+    await invoke("node_vm_delete", { name });
+  }
+
+  async vmSnapshotList(name: string): Promise<VmSnapshot[]> {
+    const raw = (await invoke<Obj>("node_vm_snapshots", { name })) ?? {};
+    return asArray(pick(raw, "snapshots")).map((s) => ({
+      name: str(s, "name"),
+      includesMemory: bool(s, "includes_memory") ?? false,
+      state: str(s, "state"),
+    }));
+  }
+
+  async vmSnapshotCreate(name: string, snapshot: string): Promise<void> {
+    await invoke("node_vm_snapshot_create", { name, snapshot });
+  }
+
+  async vmSnapshotRestore(name: string, snapshot: string): Promise<void> {
+    await invoke("node_vm_snapshot_restore", { name, snapshot });
   }
 
   events(onEvent: (e: EngineEvent) => void) {

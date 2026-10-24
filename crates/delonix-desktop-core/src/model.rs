@@ -212,6 +212,152 @@ pub struct Image {
     pub orphan: bool,
 }
 
+// ---------------------------------------------------------------------------
+// VirtualMachineService (`delonix.node.v1`) — tipos de req/resp mínimos.
+//
+// A codificação REST do contrato usa `preserve_proto_field_names()` (ver
+// `crates/interfaces/delonix-node-api/build.rs`): o JSON na linha traz os
+// nomes de campo do proto em snake_case — logo o default do serde já casa, sem
+// `rename_all`. Os campos `int64` do proto3 (`memory_bytes`/`disk_bytes`) vêm
+// como STRING no JSON (regra do proto3 JSON); [`i64_str`] serializa como string
+// (o que o engine aceita na criação) e desserializa de string OU número.
+
+/// `i64` <-> JSON string (a forma canónica do proto3 JSON para `int64`).
+mod i64_str {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &i64, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&v.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum NumOrStr {
+            Num(i64),
+            Str(String),
+        }
+        match NumOrStr::deserialize(d)? {
+            NumOrStr::Num(n) => Ok(n),
+            NumOrStr::Str(s) if s.is_empty() => Ok(0),
+            NumOrStr::Str(s) => s.parse().map_err(serde::de::Error::custom),
+        }
+    }
+}
+
+/// Um anexo de rede do `VirtualMachineSpec`. Só `network` é enviado na criação;
+/// a leitura traz também `ipv4_address` (campos extra do contrato são ignorados).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmNetworkAttachment {
+    #[serde(default)]
+    pub network: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ipv4_address: String,
+}
+
+/// `VirtualMachineSpec` — usado na criação (enviar) e na leitura (receber).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmSpec {
+    #[serde(default)]
+    pub image: String,
+    #[serde(default)]
+    pub vcpus: i64,
+    #[serde(default, with = "i64_str")]
+    pub memory_bytes: i64,
+    #[serde(default, with = "i64_str")]
+    pub disk_bytes: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<VmNetworkAttachment>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+}
+
+/// `ResourceMeta` reduzido ao que a UI mostra (nome e namespace).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmMeta {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub namespace: String,
+}
+
+/// `VirtualMachineStatus`. `phase` é o nome do enum tal como o proto3 JSON o
+/// serializa (ex.: `VIRTUAL_MACHINE_PHASE_RUNNING`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmStatus {
+    #[serde(default)]
+    pub phase: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub ip_addresses: Vec<String>,
+    #[serde(default)]
+    pub ip_predicted: bool,
+}
+
+/// Uma VM do contrato (`GET .../virtualmachines/{name}`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Vm {
+    #[serde(default)]
+    pub meta: VmMeta,
+    #[serde(default)]
+    pub spec: VmSpec,
+    #[serde(default)]
+    pub status: VmStatus,
+}
+
+/// `ListVirtualMachinesResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmList {
+    #[serde(default)]
+    pub virtual_machines: Vec<Vm>,
+}
+
+/// Corpo de `CreateVirtualMachine` (body `*`). O `namespace` vem do caminho REST
+/// — por isso NÃO vai no corpo (um `namespace` no corpo que discorde do caminho
+/// é `INVALID_ARGUMENT`); só `name` e `spec` são enviados.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VmCreate {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub spec: VmSpec,
+}
+
+/// Um snapshot de VM (`Snapshot` do contrato).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Snapshot {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub includes_memory: bool,
+    #[serde(default)]
+    pub state: String,
+}
+
+/// `ListSnapshotsResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SnapshotList {
+    #[serde(default)]
+    pub snapshots: Vec<Snapshot>,
+}
+
+/// Uma `Operation` (as mutações de VM devolvem uma — ADR-0040). Reduzida aos
+/// campos que a UI mostra; o resto do envelope é tolerado e ignorado.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Operation {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub verb: String,
+    #[serde(default)]
+    pub progress_message: String,
+}
+
 /// Contagens por recurso para os cartões de métricas do Dashboard.
 ///
 /// Cada contagem é tolerante por desenho: `None` significa «indisponível»

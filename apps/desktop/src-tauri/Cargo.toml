@@ -16,10 +16,12 @@ edition = "2021"
 license = "Apache-2.0"
 description = "Delonix Desktop — ambiente de trabalho para Platform Engineering, SRE e DevOps sobre o Delonix Engine"
 
-# A app passou a falar com o engine pela ponte CLI própria (src/cli.rs, com
-# classificação de risco READ/SAFE_WRITE/DISRUPTIVE/DESTRUCTIVE) e por streams
-# (src/stream.rs) — já não depende de `crates/delonix-desktop-core`, que fica
-# órfão até à fase de consolidação.
+# A app fala com o engine por DOIS contratos: a ponte CLI própria (src/cli.rs,
+# com classificação READ/SAFE_WRITE/DISRUPTIVE/DESTRUCTIVE) + streams
+# (src/stream.rs) para containers/imagens/etc.; e o socket `delonix.node.v1`
+# (src/node.rs) para o lifecycle de VM, via `delonix-desktop-core::NodeClient`
+# (dependência de caminho — o crate core vive no workspace raiz, fora deste
+# sub-workspace).
 [lib]
 name = "delonix_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -34,6 +36,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "macros", "rt-multi-thread"] }
 which = "6"
 portable-pty = "0.9"
+delonix-desktop-core = { path = "../../../crates/delonix-desktop-core" }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
