@@ -1,0 +1,103 @@
+/* ============================================================
+   @delonix/design-system — tokens
+   ============================================================
+   DERIVADO de delonix-console/src/shared/ui/tokens.css (medido 2026-09-19,
+   que por sua vez converte o template `delonix-portal.html`). Mesma decisão
+   central: cada par claro/escuro escrito UMA vez com `light-dark()`, tema a
+   seguir `prefers-color-scheme` sem JavaScript; a escolha explícita do
+   utilizador ganha via `:root[data-theme=...]`.
+
+   Base de browser exigida: Chrome 123 / Firefox 120 / Safari 17.5 (2024).
+   No desktop isto é o webview do SO (WebKitGTK no Linux, WebView2 no Windows,
+   WKWebView no macOS) — ver docs/architecture/.
+
+   ADIÇÕES do desktop (não existem no console, que é cloud multi-tenant):
+   o bloco «estados de capability» no fim, que dá cor aos 6 estados do
+   catálogo do runtime (ADR-0050) para feature-gating honesto da UI.
+   ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 8px;
+
+  /* superfícies */
+  --bg: light-dark(#f2f2f5, #0d0d10);
+  --bg-sidebar: light-dark(#ffffff, #101014);
+  --bg-elev: light-dark(#ffffff, #15161a);
+  --card: light-dark(#ffffff, #17181c);
+  --card-2: light-dark(#f8f8fb, #1b1c21);
+  --card-3: light-dark(#ededf1, #1f2025);
+  --row-hover: light-dark(#f5f5f8, #1c1d22);
+  --border: light-dark(rgba(12, 12, 18, 0.09), rgba(255, 255, 255, 0.1));
+  --border-soft: light-dark(rgba(12, 12, 18, 0.06), rgba(255, 255, 255, 0.06));
+  --border-strong: light-dark(rgba(12, 12, 18, 0.16), rgba(255, 255, 255, 0.22));
+
+  /* texto */
+  --text: light-dark(#0d0d10, #f5f5f8);
+  --text-2: light-dark(#44444f, #b8b8c0);
+  --text-dim: light-dark(#5f5f68, #9a9aa2);
+  --text-faint: light-dark(#6b6b78, #9a9aa8);
+
+  /* acento (vermelho de marca Delonix) */
+  --accent: light-dark(#be1622, #e0202f);
+  --accent-2: light-dark(#a01019, #ff4a58);
+  --accent-dim: light-dark(rgba(190, 22, 34, 0.07), rgba(224, 32, 47, 0.13));
+  --accent-soft: light-dark(#fbe3e5, rgba(224, 32, 47, 0.18));
+  --on-accent: #fff;
+
+  /* estados genéricos (mesmos do console, já ajustados a WCAG 4.5:1) */
+  --green: light-dark(#1a9649, #38c172);
+  --green-bg: light-dark(rgba(26, 150, 73, 0.11), rgba(56, 193, 114, 0.12));
+  --red: light-dark(#c8252c, #f06464);
+  --red-bg: light-dark(rgba(200, 37, 44, 0.1), rgba(240, 100, 100, 0.12));
+  --amber-ink: light-dark(#8a5d0a, #e2a13a);
+  --amber-bg: light-dark(rgba(192, 130, 15, 0.13), rgba(226, 161, 58, 0.12));
+  --blue: light-dark(#1558c0, #5b9cf0);
+  --blue-bg: light-dark(rgba(21, 88, 192, 0.1), rgba(91, 156, 240, 0.12));
+  --violet: light-dark(#6d4fc4, #9b7ef0);
+  --violet-bg: light-dark(rgba(109, 79, 196, 0.11), rgba(155, 126, 240, 0.12));
+
+  /* código (escuro nos dois temas, de propósito — igual ao console) */
+  --code-bg: #0c0d11;
+  --code-border: #212230;
+  --code-text: #d6d9e0;
+  --r-code: 9px;
+
+  /* espaçamento e movimento */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --motion: 140ms ease;
+
+  /* ----- estados de capability (ADR-0050 do runtime) — ADIÇÃO do desktop -----
+     Mapeiam os 6 estados REAIS medidos ao vivo (ver reports/). Só `supported`
+     é "verde/accionável"; os outros são informativos ou bloqueados, nunca
+     comunicados só por cor (há sempre rótulo textual no componente). */
+  --cap-supported: var(--green);
+  --cap-supported-bg: var(--green-bg);
+  --cap-partial: var(--amber-ink);
+  --cap-partial-bg: var(--amber-bg);
+  --cap-not-implemented: var(--text-dim);
+  --cap-not-implemented-bg: var(--card-3);
+  --cap-unsupported: var(--red);
+  --cap-unsupported-bg: var(--red-bg);
+  --cap-requires-external: var(--blue);
+  --cap-requires-external-bg: var(--blue-bg);
+  --cap-unavailable-host: var(--violet);
+  --cap-unavailable-host-bg: var(--violet-bg);
+}
+
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion: 0ms; }
+}
