@@ -19,6 +19,15 @@ Método: condutor XTEST (python-xlib) para cliques/teclas; captura por `get_imag
 | **§6 paginação** | Imagens (25) → "Página 1 de 3 · 25 itens", 10 linhas; clique "›" → "Página 2 de 3" com 10 IDs DIFERENTES. Volumes (27) → "Página 1 de 3 · 27 itens", 10 linhas. Paginação client-side sobre dados reais. |
 | **§7 controlos de janela** | Clique no botão maximizar → geometria 1440×900 → **1920×1080** (ecrã inteiro); clique no botão fechar → app termina. Confirma que `capabilities/default.json` (restaurado na reconciliação) concede os controlos; sem ele os cliques seriam no-op. |
 | **§4 caminho de ação (escrita)** | No form "Criar volume" escrevi um nome e cliquei Criar → shim `delonix volume create zzliveproof` → o engine criou o volume (27→**28**) → limpeza via CLI (28→27). Caminho ponta-a-ponta form→CLI→engine provado. |
+| **§4 risco DESTRUCTIVE** | Clique no remover de um container → diálogo "destrutiva · Remover live-sh · `delonix workload rm -f live-sh`" (Cancelar/Remover); ao confirmar, o container foi mesmo removido (toast "feito", lista 2→1). Classificação de risco + confirmação + execução provadas ao vivo. |
+| **§6 (grande dataset)** | Capacidades: "Todas 515", filtro "Não funciona 312" → **"Página 1 de 32 · 312 itens"**, 10/página; aba "Resolúveis por mim 15" (feature do doctor restaurada) presente. |
+| **§5 UI de VM (detalhe)** | Detalhe da VM `pve92` renderiza com separador **Snapshots** e botões **Iniciar/Remover SEM Reiniciar** — confirma a UI da Frente D ao vivo (`vm restart` não existe no contrato). |
+| **§3 exec (motor)** | `delonix container exec live-sh echo` devolveu "DELONIX-EXEC-VIVO" — o exec subjacente que o PTY da app encapsula (`container exec -it`) funciona. |
+
+## Achados de UX da condução ao vivo
+- O **dock inferior "Terminal"** é um PLACEHOLDER ("Por ligar… precisa de PTY") — o terminal REAL (xterm da Frente B) está no separador Terminal do WorkloadDetail, não no dock global. Ligar o dock ou removê-lo.
+- O dock inferior "Logs" ESTÁ ligado (stream `container logs -f`, com seletor de workload).
+- Segurança: condução por clique XTEST **não é pixel-perfeita** e a janela MOVE-SE entre interações → é obrigatório LER a origem absoluta da janela antes de cada clique (fiz um condutor `xdo2.py` que o faz). Um offset stale causou um clique destrutivo acidental (removeu o container de teste; sem perda de dados do dono — volumes/imagens confirmados intactos).
 
 ## NÃO provado ao vivo (honesto)
 
