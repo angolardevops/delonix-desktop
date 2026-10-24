@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -20,6 +20,19 @@ export interface DelonixClient {
   backups(from?: string): Promise<BackupRow[]>;
   providers(): Promise<ProviderReport[]>;
   doctor(): Promise<DoctorItem[]>;
+  // --- Camada declarativa (§E) --------------------------------------------
+  // Stacks: leitura estruturada de `stack plan -o json` (o que um apply faria).
+  // O manifesto entra por caminho (-f); sem caminho usa o diretório do processo.
+  stackPlan(manifest?: string): Promise<StackPlanRow[]>;
+  // Clusters/Kubernetes: `cluster ls` é TEXTO (sem -o json no 5.1.1); parseado
+  // por nome de coluna. `all` inclui clusters totalmente parados (-A).
+  clusters(all?: boolean): Promise<ClusterRow[]>;
+  // Compose: `compose ps` é TEXTO (SERVICE NAME IMAGE STATUS); opera num ficheiro.
+  composePs(file?: string): Promise<ComposeService[]>;
+  // Comandos declarativos só-texto (stack describe/validate/history, compose
+  // config, cluster health/kubeconfig, cluster kube generate): a UI mostra o
+  // stdout cru num painel. Todos READ → correm sem confirmação.
+  readText(argv: Argv): Promise<CliResult>;
   risk(argv: Argv): Promise<RiskLevel | null>;
   run(argv: Argv, confirm: boolean): Promise<CliResult>;
   stream(id: string, argv: Argv, onLine: (line: string) => void): Promise<() => void>;

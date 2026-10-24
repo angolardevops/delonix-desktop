@@ -59,6 +59,22 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["secret", "inspect"], Risk::Read),
     (&["backup", "ls"], Risk::Read),
     (&["backup", "inspect"], Risk::Read),
+    // Camada declarativa — leitura (§E). TODOS verbos AGRUPADOS. `stack plan` e
+    // `stack history` têm `-o json`; `stack ls/describe/validate`, `compose
+    // ps/config`, `cluster ls/health/kubeconfig` e `cluster kube generate` são
+    // TEXTO (corridos por dlx_run, classificados READ). NÃO existe `cluster
+    // status` no 5.1.1 — a leitura de estado é `cluster health`.
+    (&["stack", "ls"], Risk::Read),
+    (&["stack", "describe"], Risk::Read),
+    (&["stack", "plan"], Risk::Read),
+    (&["stack", "validate"], Risk::Read),
+    (&["stack", "history"], Risk::Read),
+    (&["compose", "ps"], Risk::Read),
+    (&["compose", "config"], Risk::Read),
+    (&["cluster", "ls"], Risk::Read),
+    (&["cluster", "health"], Risk::Read),
+    (&["cluster", "kubeconfig"], Risk::Read),
+    (&["cluster", "kube"], Risk::Read),
     // Escrita segura
     (&["image", "pull"], Risk::SafeWrite),
     (&["container", "start"], Risk::SafeWrite),
@@ -71,6 +87,10 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["secret", "create"], Risk::SafeWrite),
     (&["secret", "rotate"], Risk::SafeWrite),
     (&["backup", "create"], Risk::SafeWrite),
+    // Camada declarativa — escrita segura (§E). `stack apply` converge a máquina
+    // para o manifesto (cria/atualiza); `compose up` cria/arranca os serviços.
+    (&["stack", "apply"], Risk::SafeWrite),
+    (&["compose", "up"], Risk::SafeWrite),
     // Disruptivas
     (&["workload", "stop"], Risk::Disruptive),
     (&["container", "stop"], Risk::Disruptive),
@@ -88,6 +108,12 @@ const RULES: &[(&[&str], Risk)] = &[
     // `secret rm` apaga o segredo; `backup remove` apaga o arquivo (§E).
     (&["secret", "rm"], Risk::Destructive),
     (&["backup", "remove"], Risk::Destructive),
+    // Camada declarativa — destrutivas (§E). Classificadas DESTRUCTIVE (e não
+    // apenas Disruptive) porque APAGAM recursos vivos: `stack destroy` remove
+    // tudo o que o stack possui; `compose down` remove os containers do projeto
+    // e, com `-v`, os volumes nomeados (perda de dados). Pede confirmação.
+    (&["stack", "destroy"], Risk::Destructive),
+    (&["compose", "down"], Risk::Destructive),
 ];
 
 pub fn classify(args: &[String]) -> Option<Risk> {
@@ -189,5 +215,45 @@ mod tests {
         assert_eq!(classify(&v("secret unset db-pass K")), None);
         assert_eq!(classify(&v("secret apply -f secrets.yaml")), None);
         assert_eq!(classify(&v("backup schedule container db")), None);
+    }
+
+    #[test]
+    fn declarative_verbs_are_classified() {
+        // Stacks — leitura (correm sem confirmação). plan/history com -o json;
+        // ls/describe/validate texto.
+        assert_eq!(classify(&v("stack plan -f prod.yaml -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("stack history -f prod.yaml -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("stack ls -f prod.yaml")), Some(Risk::Read));
+        assert_eq!(classify(&v("stack describe -f prod.yaml")), Some(Risk::Read));
+        assert_eq!(classify(&v("stack validate -f prod.yaml")), Some(Risk::Read));
+        // Compose — leitura.
+        assert_eq!(classify(&v("compose ps -f docker-compose.yml")), Some(Risk::Read));
+        assert_eq!(classify(&v("compose config -f docker-compose.yml")), Some(Risk::Read));
+        // Clusters/Kubernetes — leitura. `cluster kube generate` lê um container
+        // e imprime um Pod (não muta) → READ.
+        assert_eq!(classify(&v("cluster ls -A")), Some(Risk::Read));
+        assert_eq!(classify(&v("cluster health lab")), Some(Risk::Read));
+        assert_eq!(classify(&v("cluster kubeconfig dev")), Some(Risk::Read));
+        assert_eq!(classify(&v("cluster kube generate web")), Some(Risk::Read));
+        // Escrita segura — correm sem confirmação.
+        assert_eq!(classify(&v("stack apply -f prod.yaml")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("compose up -f docker-compose.yml -d")), Some(Risk::SafeWrite));
+        // Destrutivas — apagam recursos vivos, exigem confirmação.
+        assert!(classify(&v("stack destroy -f prod.yaml")).unwrap().requires_confirm());
+        assert!(classify(&v("compose down -f docker-compose.yml -v")).unwrap().requires_confirm());
+        assert_eq!(classify(&v("stack destroy -f prod.yaml")), Some(Risk::Destructive));
+        assert_eq!(classify(&v("compose down -v")), Some(Risk::Destructive));
+        // Fora da allowlist — falha fechada. `cluster apply`/`cluster create`/
+        // `cluster kubeadm` (provisionamento pesado) e `stack rollback`/`prune`
+        // NÃO são emitidos pela UI e não são permitidos.
+        assert_eq!(classify(&v("cluster apply -f prod.yaml")), None);
+        assert_eq!(classify(&v("cluster create --name dev")), None);
+        assert_eq!(classify(&v("cluster kubeadm --name lab")), None);
+        assert_eq!(classify(&v("cluster destroy dev")), None);
+        assert_eq!(classify(&v("stack rollback 3")), None);
+        assert_eq!(classify(&v("stack prune -f prod.yaml")), None);
+        assert_eq!(classify(&v("stack init -t fastapi")), None);
+        // `cluster status` não existe no 5.1.1 e não está na allowlist.
+        assert_eq!(classify(&v("cluster status")), None);
     }
 }

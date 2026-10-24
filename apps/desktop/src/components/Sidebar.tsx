@@ -20,6 +20,7 @@ export function Sidebar() {
       { route: { name: "volumes" }, icon: "volumes", label: "Volumes", count: dash?.volumes_total },
       { route: { name: "secrets" }, icon: "secrets", label: "Segredos", count: dash?.secrets_total },
       { route: { name: "backups" }, icon: "backups", label: "Backups" },
+      { route: { name: "declarative" }, icon: "declarative", label: "Declarativo" },
       { route: { name: "kubernetes" }, icon: "kubernetes", label: "Kubernetes" },
       { route: { name: "networks" }, icon: "networks", label: "Redes", count: dash?.networks_total },
       { route: { name: "registries" }, icon: "registries", label: "Registries" },

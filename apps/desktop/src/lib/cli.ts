@@ -7,6 +7,10 @@ export type Argv = string[];
 export const show = (argv: Argv) =>
   ["delonix", ...argv].map((a) => (/[\s"']/.test(a) ? JSON.stringify(a) : a)).join(" ");
 
+// Emite `-f <caminho>` quando há caminho; vazio caso contrário (o engine
+// recai no diretório de trabalho do processo). Partilhado por stack e compose.
+const fFlag = (path?: string): Argv => (path && path.trim() ? ["-f", path.trim()] : []);
+
 export const cmd = {
   dash: (): Argv => ["dashboard", "--json"],
   workloads: (): Argv => ["workload", "ls", "-o", "json"],
@@ -58,6 +62,38 @@ export const cmd = {
   ],
   backupRestore: (archive: string, from?: string): Argv => ["backup", "restore", archive, ...(from ? ["--from", from] : [])],
   backupRemove: (archive: string, from?: string): Argv => ["backup", "remove", archive, ...(from ? ["--from", from] : [])],
+
+  // --- Camada declarativa (§E): Stacks, Compose, Clusters. SÓ verbos ---------
+  // AGRUPADOS. Todos pedem CONTEXTO por CAMINHO (manifesto ou ficheiro compose),
+  // emitido como `-f <caminho>`; sem caminho, o engine usa o diretório de
+  // trabalho do processo. Confirmado por `--help` no delonix 5.1.1.
+  //
+  // Stacks: `ls`/`describe`/`validate` são TEXTO; só `plan`/`history` têm
+  // `-o json` (ADR-0005). Um "stack" não tem registo próprio no engine — é um
+  // manifesto; por isso não há "stack ls" global, lê-se sempre de um ficheiro.
+  stackPlan: (manifest?: string): Argv => ["stack", "plan", ...fFlag(manifest), "-o", "json"],
+  stackHistory: (manifest?: string): Argv => ["stack", "history", ...fFlag(manifest), "-o", "json"],
+  stackLs: (manifest?: string): Argv => ["stack", "ls", ...fFlag(manifest)],
+  stackDescribe: (manifest?: string): Argv => ["stack", "describe", ...fFlag(manifest)],
+  stackValidate: (manifest?: string): Argv => ["stack", "validate", ...fFlag(manifest)],
+  stackApply: (manifest?: string): Argv => ["stack", "apply", ...fFlag(manifest)],
+  stackDestroy: (manifest?: string): Argv => ["stack", "destroy", ...fFlag(manifest)],
+
+  // Compose: opera num ficheiro `docker-compose.yml` (`-f <ficheiro>`); sem `-f`
+  // procura no diretório do processo. NENHUM subcomando tem `-o json`.
+  // `up` leva `-d` (no-op de compatibilidade); `down -v` leva os volumes nomeados.
+  composePs: (file?: string): Argv => ["compose", "ps", ...fFlag(file)],
+  composeConfig: (file?: string): Argv => ["compose", "config", ...fFlag(file)],
+  composeUp: (file?: string): Argv => ["compose", "up", ...fFlag(file), "-d"],
+  composeDown: (file?: string, volumes?: boolean): Argv => ["compose", "down", ...fFlag(file), ...(volumes ? ["-v"] : [])],
+
+  // Clusters/Kubernetes: `ls` é TEXTO (sem `-o json` no 5.1.1 — `get clusters`
+  // recusa `-o json` explicitamente); `health`/`kubeconfig`/`kube generate`
+  // imprimem texto/YAML. NÃO há `cluster status` em 5.1.1 (usar `health`).
+  clustersLs: (all?: boolean): Argv => ["cluster", "ls", ...(all ? ["-A"] : [])],
+  clusterHealth: (name?: string): Argv => ["cluster", "health", ...(name ? [name] : [])],
+  clusterKubeconfig: (name?: string): Argv => ["cluster", "kubeconfig", ...(name ? [name] : [])],
+  clusterKubeGenerate: (name: string): Argv => ["cluster", "kube", "generate", name],
 
   run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string }): Argv => [
     "container", "run", "-d", "--name", o.name,

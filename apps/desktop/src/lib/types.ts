@@ -173,6 +173,42 @@ export interface McpTool {
   risk: RiskLevel;
 }
 
+// --- Camada declarativa (§E) ------------------------------------------------
+// Uma linha de `stack plan -o json`: o que um `apply` FARIA, sem tocar na
+// máquina. `stack` não tem registo próprio no engine (é só um manifesto), por
+// isso a leitura estruturada da "estrutura" de um stack vem do plano. O `ls`
+// texto usa `drop_uninformative` (colunas variáveis) → o plano é mais robusto.
+// Fonte: `delonix stack plan -o json` (ADR-0005/ADR-0019) do engine 5.1.1.
+export interface StackPlanRow {
+  kind: string; // Network | Volume | Image | Vm | Container | Pod | …
+  name: string;
+  action: string; // create | update | delete | noop
+  changed: boolean; // true quando o apply mexeria neste recurso
+  diffs: number; // nº de campos que divergem (comprimento de diffs[])
+  planDigest: string; // digest do plano (para `apply --plan-digest`)
+}
+
+// Uma linha de `cluster ls` (TEXTO — não há `-o json` no 5.1.1). Colunas reais:
+// NAME MODE STATE CONTROL-PLANES WORKERS API PORT UPTIME LAST RESTART CRI SOCKET
+// K8S VERSION. O cliente parseia por NOME de coluna (resiste a reordenação).
+export interface ClusterRow {
+  name: string;
+  mode: string; // kind | vm
+  state: string; // "up" | "2/3 up"
+  controlPlanes: string;
+  workers: string;
+  apiPort: string;
+  k8sVersion: string;
+}
+
+// Um serviço de `compose ps` (TEXTO). Colunas: SERVICE NAME IMAGE STATUS.
+export interface ComposeService {
+  service: string;
+  name: string;
+  image: string;
+  status: string;
+}
+
 // --- Segredos (§E) ----------------------------------------------------------
 // SÓ metadados. O valor de um segredo NUNCA chega ao renderer: `secret ls -o
 // json` devolve o nome, o número de chaves e os NOMES das chaves (nunca os

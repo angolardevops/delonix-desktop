@@ -17,6 +17,7 @@ import { Events } from "./screens/Events";
 import { Images } from "./screens/Images";
 import { Networks } from "./screens/Networks";
 import { Backups } from "./screens/Backups";
+import { Declarativo } from "./screens/Declarativo";
 import { Overview } from "./screens/Overview";
 import { Secrets } from "./screens/Secrets";
 import { Extensions, Kubernetes, Registries, Workspaces } from "./screens/Platform";
@@ -89,6 +90,7 @@ export default function App() {
       case "volumes": return <Volumes />;
       case "secrets": return <Secrets />;
       case "backups": return <Backups />;
+      case "declarative": return <Declarativo />;
       case "kubernetes": return <Kubernetes />;
       case "networks": return <Networks />;
       case "registries": return <Registries />;

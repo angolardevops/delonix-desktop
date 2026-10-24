@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  BackupRow, CliResult, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -146,6 +146,35 @@ let backups: BackupRow[] = [
   { archive: "vm-fedora-kde-build-20260809-190000.tar.gz", kind: "vm", name: "fedora-kde-build", created: "09/08/26 19:00", size: "8,1 GB", host: "walter-dev" },
 ];
 
+// --- Camada declarativa (§E), simulada --------------------------------------
+// Plano simulado de `stack plan -o json`: mistura noop/update/create para a UI
+// mostrar os três estados. O `apply` no duplo local marca tudo como aplicado.
+let stackApplied = false;
+const mockPlan = (): StackPlanRow[] => stackApplied
+  ? [
+      { kind: "Network", name: "edge", action: "noop", changed: false, diffs: 0, planDigest: "a1b2c3d4" },
+      { kind: "Volume", name: "pgdata", action: "noop", changed: false, diffs: 0, planDigest: "e5f6a7b8" },
+      { kind: "Container", name: "web", action: "noop", changed: false, diffs: 0, planDigest: "c9d0e1f2" },
+      { kind: "Container", name: "api", action: "noop", changed: false, diffs: 0, planDigest: "33445566" },
+    ]
+  : [
+      { kind: "Network", name: "edge", action: "noop", changed: false, diffs: 0, planDigest: "a1b2c3d4" },
+      { kind: "Volume", name: "pgdata", action: "noop", changed: false, diffs: 0, planDigest: "e5f6a7b8" },
+      { kind: "Container", name: "web", action: "update", changed: true, diffs: 2, planDigest: "c9d0e1f2" },
+      { kind: "Container", name: "api", action: "create", changed: true, diffs: 0, planDigest: "33445566" },
+    ];
+
+const mockClusters: ClusterRow[] = [
+  { name: "dev", mode: "kind", state: "up", controlPlanes: "1", workers: "2", apiPort: "40219", k8sVersion: "v1.31.0" },
+  { name: "lab", mode: "vm", state: "2/3 up", controlPlanes: "3", workers: "1", apiPort: "6443", k8sVersion: "v1.31.2" },
+];
+
+const mockCompose: ComposeService[] = [
+  { service: "web", name: "shop-web-1", image: "docker.io/library/nginx:alpine", status: "Running" },
+  { service: "db", name: "shop-db-1", image: "docker.io/library/postgres:16", status: "Running" },
+  { service: "cache", name: "shop-cache-1", image: "docker.io/library/redis:7-alpine", status: "Running" },
+];
+
 // Espelha `delonix system doctor`: pré-requisitos ✓ e recursos DLX-RES-NNN.
 const doctorItems: DoctorItem[] = [
   { status: "ok", title: "cgroup2 delegation (--memory/--cpus/--pids-limit)", detail: "/sys/fs/cgroup/user.slice/…/app.slice", needsSudo: false },
@@ -162,6 +191,9 @@ const RISK: [string[], RiskLevel][] = [
   [["backup", "restore"], "DISRUPTIVE"],
   [["container", "start"], "SAFE_WRITE"], [["vm", "start"], "SAFE_WRITE"], [["image", "pull"], "SAFE_WRITE"], [["container", "run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"], [["network", "create"], "SAFE_WRITE"],
   [["secret", "create"], "SAFE_WRITE"], [["secret", "rotate"], "SAFE_WRITE"], [["backup", "create"], "SAFE_WRITE"],
+  // Camada declarativa (§E): apply/up escrevem; destroy/down apagam recursos vivos.
+  [["stack", "apply"], "SAFE_WRITE"], [["compose", "up"], "SAFE_WRITE"],
+  [["stack", "destroy"], "DESTRUCTIVE"], [["compose", "down"], "DESTRUCTIVE"],
 ];
 const riskOf = (argv: Argv) => RISK.find(([p]) => p.every((t, i) => argv[i] === t))?.[1] ?? null;
 
@@ -186,7 +218,25 @@ export class MockClient implements DelonixClient {
   backups = (_from?: string) => wait(backups);
   providers = () => wait(providers);
   doctor = () => wait(doctorItems);
+  stackPlan = (_manifest?: string) => wait(mockPlan());
+  clusters = (_all?: boolean) => wait(mockClusters);
+  composePs = (_file?: string) => wait(mockCompose);
   risk = (argv: Argv) => wait(riskOf(argv));
+
+  // Comandos declarativos só-texto: devolve stdout plausível conforme o argv.
+  async readText(argv: Argv): Promise<CliResult> {
+    const base = { argv: ["delonix", ...argv], ok: true, code: 0, stderr: "" };
+    const j = argv.join(" ");
+    let stdout = `duplo local — sem engine · ${show(argv)}\n`;
+    if (j.startsWith("stack validate")) stdout = "stack validate: OK — 4 document(s), all references resolved\n";
+    else if (j.startsWith("stack describe")) stdout = "KIND       NAME    PRESENT  STATUS\nNetwork    edge    yes      Up\nContainer  web     yes      Up 3d\nContainer  api     no       —\n";
+    else if (j.startsWith("stack history")) stdout = "[]\n";
+    else if (j.startsWith("compose config")) stdout = "name: shop\nservices:\n  web:\n    image: docker.io/library/nginx:alpine\n  db:\n    image: docker.io/library/postgres:16\n";
+    else if (j.startsWith("cluster health")) stdout = "control-plane: reachable\nnodes: 3/3 Ready\n";
+    else if (j.startsWith("cluster kubeconfig")) stdout = "apiVersion: v1\nkind: Config\nclusters:\n- name: dev\n  cluster:\n    server: https://127.0.0.1:40219\n";
+    else if (j.startsWith("cluster kube generate")) stdout = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: ${argv[3] ?? "web"}\nspec:\n  containers:\n  - name: ${argv[3] ?? "web"}\n    image: docker.io/library/nginx:alpine\n`;
+    return wait({ ...base, stdout });
+  }
 
   async run(argv: Argv, confirm: boolean): Promise<CliResult> {
     const risk = riskOf(argv);
@@ -221,6 +271,14 @@ export class MockClient implements DelonixClient {
         backups = backups.filter((b) => b.archive !== argv[2]);
       }
       return wait({ ...base, ok: true, code: 0, stdout: `${argv[2] ?? ""}\n` });
+    }
+    // Mutações declarativas (§E) no duplo local.
+    if (argv[0] === "stack") {
+      if (argv[1] === "apply") { stackApplied = true; return wait({ ...base, ok: true, code: 0, stdout: "stack apply: 2 created, 1 updated\n" }); }
+      if (argv[1] === "destroy") { stackApplied = false; return wait({ ...base, ok: true, code: 0, stdout: "stack destroy: removed 4 resource(s)\n" }); }
+    }
+    if (argv[0] === "compose") {
+      return wait({ ...base, ok: true, code: 0, stdout: argv[1] === "up" ? "compose up: 3 service(s) started\n" : "compose down: removed 3 container(s)\n" });
     }
     const name = argv[argv.length - 1];
     workloads = workloads.map((w) =>

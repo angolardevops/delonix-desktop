@@ -6,6 +6,7 @@ const PATHS: Record<string, string> = {
   images: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5",
   volumes: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
   kubernetes: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 3v6M12 15v6M3 12h6M15 12h6",
+  declarative: "M6 3h9l5 5v13H6zM14 3v5h5M9 13h7M9 17h7",
   networks: "M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 12h5M12 12l5-5M12 12l5 5",
   registries: "M3 4h18v6H3zM3 14h18v6H3zM7 7h.01M7 17h.01",
   secrets: "M15 7a4 4 0 1 0-3.9 5l.9.9 2 2-1.5 1.5 1.5 1.5-2 2-2-2V12.1A4 4 0 0 0 15 7zM15 7h.01",
