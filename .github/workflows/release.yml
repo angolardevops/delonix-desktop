@@ -1,0 +1,75 @@
+name: Release (installers)
+
+# Empacota o Delonix Desktop para os 3 sistemas, cada um no seu runner nativo
+# (Tauri NÃO faz cross-build funcional para macOS/Windows a partir de Linux).
+# Dispara ao empurrar uma tag `v*` (ex.: v0.1.0) ou manualmente.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS universal (Apple Silicon + Intel) → .dmg/.app
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          # Linux → .deb + AppImage (22.04 para glibc/webkit mais compatível)
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+          # Windows → .msi (WiX) + .exe (NSIS)
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Toolchain Rust (estável + alvos)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # Dependências de sistema do Tauri no Linux (webview + bundler).
+      - name: Dependências Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf build-essential curl wget file libxdo-dev libssl-dev
+
+      - name: Instalar dependências JS
+        run: npm ci
+
+      # Compila o frontend (beforeBuildCommand) + a app nativa + empacota, e
+      # publica os artefactos num GitHub Release (rascunho) para a tag.
+      - name: Build + bundle (tauri-action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-v{0}', github.run_number) }}
+          releaseName: "Delonix Desktop ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}"
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
