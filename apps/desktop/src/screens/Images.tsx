@@ -4,6 +4,7 @@ import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { DataTable, type Column } from "../components/DataTable";
 import { Drawer } from "../components/Drawer";
+import { ImageArtifacts } from "../components/ImageArtifacts";
 import { cmd } from "../lib/cli";
 import { useResource } from "../lib/hooks";
 import type { ImageRow } from "../lib/types";
@@ -16,6 +17,8 @@ export function Images() {
   const [f, setF] = useState<F>("all");
   const [ref, setRef] = useState("");
   const [pullOpen, setPullOpen] = useState(false);
+  // Imagem cujos artefactos (scan/SBOM/assinar/push/export) estão abertos.
+  const [artifacts, setArtifacts] = useState<string | null>(null);
   const rows = data ?? [];
   const unused = rows.filter((r) => r.usedBy.length === 0);
   const shown = f === "all" ? rows : f === "used" ? rows.filter((r) => r.usedBy.length) : unused;
@@ -49,9 +52,15 @@ export function Images() {
         searchText={(i) => `${i.ref} ${i.id} ${i.usedBy.join(" ")}`}
         empty="Sem imagens"
         actions={(i) => (
-          <button className="btn ico danger" type="button" aria-label={`Remover ${i.ref}`} onClick={() => void act(cmd.rmi(i.ref), `Remover ${i.ref}`).then(() => refresh())}><Icon name="trash" /></button>
+          <>
+            <button className="btn ico" type="button" aria-label={`Artefactos de ${i.ref}`} title="Artefactos (scan, SBOM, assinar, publicar, exportar)" onClick={() => setArtifacts(i.ref)}><Icon name="build" /></button>
+            <button className="btn ico danger" type="button" aria-label={`Remover ${i.ref}`} onClick={() => void act(cmd.rmi(i.ref), `Remover ${i.ref}`).then(() => refresh())}><Icon name="trash" /></button>
+          </>
         )}
       />
+      <Drawer open={artifacts != null} onClose={() => setArtifacts(null)} title="Artefactos da imagem" width={520}>
+        {artifacts && <ImageArtifacts image={artifacts} />}
+      </Drawer>
       <Drawer open={pullOpen} onClose={() => setPullOpen(false)} title="Puxar imagem">
         <section className="section">
           <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>

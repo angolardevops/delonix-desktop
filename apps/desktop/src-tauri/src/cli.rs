@@ -44,6 +44,16 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["workload", "describe"], Risk::Read),
     (&["container", "ps"], Risk::Read),
     (&["image", "ls"], Risk::Read),
+    // Artefactos da imagem — LEITURA (§ image). Nenhum tem `-o json` no 5.1.1:
+    // imprimem TEXTO e correm por `dlx_run`/readText (sem confirmação). `scan`
+    // (SBOM + CVE) e `sbom` leem as camadas do CAS — podem demorar, mas nada
+    // executam. `history` lista as camadas; `verify` confere a assinatura cosign
+    // de uma imagem local contra uma chave pública. Confirmados por
+    // `image <cmd> --help` no 5.1.1.
+    (&["image", "scan"], Risk::Read),
+    (&["image", "sbom"], Risk::Read),
+    (&["image", "history"], Risk::Read),
+    (&["image", "verify"], Risk::Read),
     (&["volume", "ls"], Risk::Read),
     (&["network", "ls"], Risk::Read),
     // Redes (§8.6): detalhe de uma rede, bloco legível (membros com IP) e
@@ -127,6 +137,18 @@ const RULES: &[(&[&str], Risk)] = &[
     // SafeWrite. O `image login` NÃO está aqui: a password entra por stdin e por
     // isso tem um comando dedicado (`dlx_login`), não passa por `dlx_run`.
     (&["image", "logout"], Risk::SafeWrite),
+    // Artefactos da imagem — ESCRITA SEGURA (§ image). Nenhum destrói recursos
+    // vivos → SafeWrite (correm sem confirmação, como `image pull`). `sign`
+    // assina com cosign (gera a chave privada no 1.º uso); `tag` dá outro nome
+    // (não copia nada); `push` publica no registry; `save` escreve um arquivo
+    // portátil num ficheiro (`-o`); `export` escreve um bundle OCI num diretório.
+    // O caminho de `save`/`export` vem sempre do diálogo NATIVO (o CLI é que
+    // escreve, não o webview). Confirmados por `image <cmd> --help` no 5.1.1.
+    (&["image", "sign"], Risk::SafeWrite),
+    (&["image", "tag"], Risk::SafeWrite),
+    (&["image", "push"], Risk::SafeWrite),
+    (&["image", "save"], Risk::SafeWrite),
+    (&["image", "export"], Risk::SafeWrite),
     // Segredos e backups — escrita segura (§E). `secret rotate` só gera um novo
     // valor aleatório para uma chave existente; não destrói nada.
     (&["secret", "create"], Risk::SafeWrite),
@@ -492,6 +514,39 @@ mod tests {
         // vida usa `workload stop/rm`; logs/exec/attach têm caminhos próprios).
         assert_eq!(classify(&v("pod exec web sh")), None);
         assert_eq!(classify(&v("pod rm web")), None);
+    }
+
+    #[test]
+    fn image_artifact_verbs_are_classified() {
+        // Artefactos da imagem (estúdio de build). Leitura — correm sem
+        // confirmação: scan/sbom/history/verify imprimem TEXTO (sem -o json).
+        assert_eq!(classify(&v("image scan postgres:16")), Some(Risk::Read));
+        assert_eq!(classify(&v("image scan --sbom nginx")), Some(Risk::Read));
+        assert_eq!(classify(&v("image sbom myapp:v1")), Some(Risk::Read));
+        assert_eq!(classify(&v("image history alpine:3.19")), Some(Risk::Read));
+        assert_eq!(classify(&v("image verify app:1.2.0 cosign.pub")), Some(Risk::Read));
+        for a in ["image scan postgres:16", "image sbom myapp:v1", "image history alpine:3.19", "image verify app c.pub"] {
+            assert!(!classify(&v(a)).unwrap().requires_confirm(), "leitura não devia pedir confirmação: {a}");
+        }
+        // Escrita segura — não destroem recursos vivos, correm sem confirmação.
+        assert_eq!(classify(&v("image sign kaeso-odoo:18")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("image sign kaeso-odoo:18 --force")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("image tag postgres:16 db:stable")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("image push ghcr.io/angolardevops/app:1.2.0")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("image save postgres:16 -o postgres-16.tar")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("image export alpine:latest /tmp/bundle --rootless")), Some(Risk::SafeWrite));
+        for a in ["image sign a:v1", "image tag a:v1 b:v1", "image push a:v1", "image save a:v1 -o a.tar", "image export a:v1 /tmp/b"] {
+            assert!(!classify(&v(a)).unwrap().requires_confirm(), "SafeWrite não devia pedir confirmação: {a}");
+        }
+        // `image remove` continua DESTRUCTIVE (apaga a imagem) — pede confirmação.
+        assert!(classify(&v("image remove nginx")).unwrap().requires_confirm());
+        // Subcomandos de imagem que a UI NÃO emite ficam fora — falha fechada.
+        // `apply`/`prune`/`load` mutam fora do fluxo do estúdio; `login` tem o seu
+        // próprio comando (stdin), nunca por argv.
+        assert_eq!(classify(&v("image apply -f img.yaml")), None);
+        assert_eq!(classify(&v("image prune")), None);
+        assert_eq!(classify(&v("image load -i app.tar")), None);
+        assert_eq!(classify(&v("image login ghcr.io -u user --password-stdin")), None);
     }
 
     #[test]

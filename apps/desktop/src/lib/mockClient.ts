@@ -135,7 +135,7 @@ const mockResources = (): SystemResources => ({
   },
 });
 
-const images: ImageRow[] = [
+let images: ImageRow[] = [
   { ref: "postgres:16", id: "b1a0c8e9f2d3", size: "432 MB", created: "há 3 sem", usedBy: ["postgres-dev"] },
   { ref: "odoo:16", id: "4e77d1a2b9c0", size: "1,62 GB", created: "há 1 mês", usedBy: ["odoo-16"] },
   { ref: "firecracker/ci:24.04", id: "90f3e2c1d7a8", size: "412 MB", created: "hoje", usedBy: ["fc-ci-runner-1", "fc-ci-runner-2"] },
@@ -287,6 +287,9 @@ const RISK: [string[], RiskLevel][] = [
   [["workload", "stop"], "DISRUPTIVE"], [["container", "stop"], "DISRUPTIVE"], [["vm", "stop"], "DISRUPTIVE"], [["container", "restart"], "DISRUPTIVE"], [["vm", "restart"], "DISRUPTIVE"],
   [["backup", "restore"], "DISRUPTIVE"],
   [["container", "start"], "SAFE_WRITE"], [["vm", "start"], "SAFE_WRITE"], [["image", "pull"], "SAFE_WRITE"], [["container", "run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"], [["network", "create"], "SAFE_WRITE"],
+  // Artefactos da imagem (§ image): assinar/marcar/publicar/guardar/exportar
+  // não destroem nada → SafeWrite (correm sem confirmação).
+  [["image", "sign"], "SAFE_WRITE"], [["image", "tag"], "SAFE_WRITE"], [["image", "push"], "SAFE_WRITE"], [["image", "save"], "SAFE_WRITE"], [["image", "export"], "SAFE_WRITE"],
   // Redes (§8.6): ligar a quente é reversível (SAFE_WRITE); desligar retira a
   // conectividade nessa rede (DISRUPTIVE).
   [["network", "connect"], "SAFE_WRITE"], [["network", "disconnect"], "DISRUPTIVE"],
@@ -373,6 +376,17 @@ export class MockClient implements DelonixClient {
     else if (j.startsWith("cluster kubeconfig")) stdout = "apiVersion: v1\nkind: Config\nclusters:\n- name: dev\n  cluster:\n    server: https://127.0.0.1:40219\n";
     else if (j.startsWith("cluster kube generate")) stdout = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: ${argv[3] ?? "web"}\nspec:\n  containers:\n  - name: ${argv[3] ?? "web"}\n    image: docker.io/library/nginx:alpine\n`;
     else if (j.startsWith("net flow")) stdout = "CONTAINER      IP           RX BYTES   TX BYTES\ntraefik        10.89.1.2    2.1 MiB    340.0 KiB\npostgres-dev   10.89.2.2    1.4 MiB    820.0 KiB\nredis          10.89.2.3    412.0 KiB  256.0 KiB\n";
+    // Artefactos da imagem — saídas plausíveis do duplo local (sem engine).
+    else if (j.startsWith("image scan") && argv.includes("--sbom"))
+      stdout = "Packages (SBOM) · duplo local\nNAME            VERSION\nca-certificates 20240203\nmusl            1.2.5-r0\nbusybox         1.36.1-r31\n";
+    else if (j.startsWith("image scan"))
+      stdout = "Vulnerability Scan · duplo local\n  SBOM: 14 package(s)   advisories: 5   vulnerabilities: 2\n  CRITICAL 0   HIGH 1   MEDIUM 1   LOW 0\nSEVERITY   PACKAGE   VERSION      FIXED    CVE\nHigh       busybox   1.36.1-r31   1.37.0   CVE-2022-48174\nMedium     musl      1.2.5-r0     1.2.5-r1 CVE-2025-00000\n";
+    else if (j.startsWith("image sbom"))
+      stdout = "{\n  \"spdxVersion\": \"SPDX-2.3\",\n  \"name\": \"duplo-local\",\n  \"packages\": [\n    { \"name\": \"busybox\", \"versionInfo\": \"1.36.1-r31\" },\n    { \"name\": \"musl\", \"versionInfo\": \"1.2.5-r0\" }\n  ]\n}\n";
+    else if (j.startsWith("image history"))
+      stdout = "#   LAYER                        SIZE\n0   sha256:17a39c0ba978cc2…   3.3 MiB\n1   sha256:abcdef0123456789…   1.1 MiB\n2   sha256:0f1e2d3c4b5a6978…   256.0 KiB\n";
+    else if (j.startsWith("image verify"))
+      stdout = "duplo local — assinatura cosign VÁLIDA para a imagem (chave pública conferida)\n";
     return wait({ ...base, stdout });
   }
 
@@ -534,11 +548,18 @@ export class MockClient implements DelonixClient {
     // Um `build` simulado: emite algumas linhas e TERMINA (dispara onEnd). Os
     // fluxos infinitos (logs/eventos) continuam a correr até se parar.
     if (argv[0] === "build") {
-      const steps = ["STEP 1/4 FROM alpine:3.20", "STEP 2/4 RUN apk add --no-cache ca-certificates", "STEP 3/4 COPY . /app", "STEP 4/4 CMD [\"/app/server\"]", "--> a escrever manifesto", "COMMIT (duplo local) — sem engine"];
+      // Tag do `-t <tag>` — a imagem resultante é registada em `images` no fim,
+      // para a tela de Build a encontrar (sinal de sucesso), como o engine faria.
+      const ti = argv.indexOf("-t");
+      const builtTag = ti >= 0 ? argv[ti + 1] : "minha-app:v1";
+      const steps = ["STEP 1/4 FROM alpine:3.20", "STEP 2/4 RUN apk add --no-cache ca-certificates", "STEP 3/4 COPY . /app", "STEP 4/4 CMD [\"/app/server\"]", "--> a escrever manifesto", `COMMIT ${builtTag} (duplo local) — sem engine`];
       let i = 0;
       const t = setInterval(() => {
         if (i < steps.length) { onLine(steps[i++]); return; }
         clearInterval(t);
+        if (!images.some((im) => im.ref === builtTag)) {
+          images = [{ ref: builtTag, id: Math.random().toString(16).slice(2, 14), size: "48 MB", created: "agora", usedBy: [] }, ...images];
+        }
         onEnd?.();
       }, 600);
       return () => clearInterval(t);

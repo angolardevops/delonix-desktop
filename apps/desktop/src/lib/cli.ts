@@ -55,14 +55,68 @@ export const cmd = {
   ],
 
   // --- Build de imagens (§ build). Fluxo por STREAM (logs demorados ao vivo):
-  // `build -t <tag> [--file <dockerfile>] [--build-arg K=V ...] [contexto]`. O
-  // contexto é posicional (default `.`); o Dockerfile default é `<contexto>/
-  // Dockerfile`. Confirmado por `--help` no 5.1.1.
-  build: (o: { tag: string; context?: string; dockerfile?: string; buildArgs?: string[] }): Argv => [
+  // `build -t <tag> [-f <dockerfile>] [--build-arg K=V ...] [--no-cache]
+  // [--target <stage>] [--platform linux/<arch>] [--secret id=…,src=…] [contexto]`.
+  // O contexto é posicional (default `.`); o Dockerfile default é `<contexto>/
+  // Dockerfile`. Opções e ordem confirmadas por `build --help` no 5.1.1.
+  build: (o: {
+    tag: string;
+    context?: string;
+    dockerfile?: string;
+    buildArgs?: string[];
+    noCache?: boolean;
+    target?: string;
+    platform?: string;
+    secrets?: string[];
+  }): Argv => [
     "build", "-t", o.tag,
     ...(o.dockerfile && o.dockerfile.trim() ? ["-f", o.dockerfile.trim()] : []),
     ...(o.buildArgs ?? []).flatMap((a) => ["--build-arg", a]),
+    ...(o.noCache ? ["--no-cache"] : []),
+    ...(o.target && o.target.trim() ? ["--target", o.target.trim()] : []),
+    ...(o.platform && o.platform.trim() ? ["--platform", o.platform.trim()] : []),
+    ...(o.secrets ?? []).filter((s) => s.trim()).flatMap((s) => ["--secret", s.trim()]),
     (o.context && o.context.trim()) || ".",
+  ],
+
+  // --- Artefactos da imagem (§ image). Verbos AGRUPADOS confirmados por
+  // `image <cmd> --help` no 5.1.1. NENHUM tem `-o json` — scan/sbom/history/
+  // verify imprimem TEXTO (corridos por `readText`/dlx_run, classe Read);
+  // sign/tag/push/save/export mutam (classe SafeWrite, correm por `act`).
+  //
+  // scan: SBOM + CVE scan de uma imagem (lê as camadas do CAS, nada corre).
+  // `--sbom` lista os pacotes em vez das vulnerabilidades. Demorado → loading.
+  imageScan: (image: string, o?: { sbom?: boolean }): Argv => [
+    "image", "scan", ...(o?.sbom ? ["--sbom"] : []), image,
+  ],
+  // sbom: o documento SPDX 2.3 (texto), não a tabela do `scan --sbom`.
+  imageSbom: (image: string): Argv => ["image", "sbom", image],
+  // history: camadas da imagem (digest + tamanho), da base ao topo.
+  imageHistory: (image: string): Argv => ["image", "history", image],
+  // verify: confere a assinatura cosign de uma imagem local contra a chave
+  // pública PEM (ambos posicionais: IMAGE PEM).
+  imageVerify: (image: string, pem: string): Argv => ["image", "verify", image, pem],
+  // sign: assina com ECDSA-P256 (cosign); a chave privada é gerada no 1.º uso.
+  // `--force` re-assina. Imprime o caminho da chave PÚBLICA.
+  imageSign: (image: string, o?: { key?: string; force?: boolean }): Argv => [
+    "image", "sign",
+    ...(o?.key && o.key.trim() ? ["--key", o.key.trim()] : []),
+    ...(o?.force ? ["--force"] : []),
+    image,
+  ],
+  // tag: dá outro nome/tag a uma imagem local (não copia nada). SOURCE TARGET.
+  imageTag: (source: string, target: string): Argv => ["image", "tag", source, target],
+  // push: publica no registry. Sem `target`, publica sob a própria referência.
+  imagePush: (name: string, target?: string): Argv => [
+    "image", "push", name, ...(target && target.trim() ? [target.trim()] : []),
+  ],
+  // save: arquivo portátil (`docker save`). Escreve o ficheiro em `-o <FILE>`
+  // (é o CLI que escreve, não o webview) — o caminho vem do save-dialog nativo.
+  imageSave: (image: string, output: string): Argv => ["image", "save", image, "-o", output],
+  // export: bundle OCI (rootfs + config.json) para runc/crun, num DIRETÓRIO.
+  // `--rootless` acrescenta o user namespace e os mapeamentos uid/gid do user.
+  imageExport: (image: string, dir: string, o?: { rootless?: boolean }): Argv => [
+    "image", "export", ...(o?.rootless ? ["--rootless"] : []), image, dir,
   ],
 
   // --- Registries (§ registries). `image login` tem comando backend dedicado
