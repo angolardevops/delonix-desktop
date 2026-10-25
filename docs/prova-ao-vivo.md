@@ -65,6 +65,17 @@ XGetImage passou a devolver tela uniforme escura embora o React continuasse VIVO
 memória), NÃO um crash. Capturar logo após o clique (sem esperar a transição) ou
 reiniciar o webview contorna-a.
 
+## Ronda 5 — programa de melhorias A/B/C/D (integra @ca581f8)
+
+| Eixo | Provado ao vivo |
+|---|---|
+| **B Dashboard SRE** | Overview rico: ALERTAS de `system resources advice[]` (DLX-RES-001 cgroup/--cpuset, DLX-RES-002 io delegation) com botão "Como resolver" (a `action` real); FROTA de `system metrics` (counts + storage POR CATEGORIA: Imagens 16 GiB · VM 11 GiB · Volumes 687 MiB · Containers 0 B); CAPACIDADE DO NÓ (20 CPUs · 84°C · disco/RAM/swap livres); **PRESSÃO PSI** (CPU/MEM/IO com medidores, a atualizar ao vivo); TOP CONSUMERS ordenáveis + tendência (pve92 "não medido (VM)" honesto). |
+| **A Menu nativo** | Menu "Ficheiro" da TitleBar abre dropdown FUNCIONAL (Novo workload Ctrl+N · Definições · Sair) — já não decorativo. Plugins notification/dialog/clipboard/window-state compilam (cargo build valida o ACL). |
+| **C+D Base/leveza** | Bundle de 576 kB→~206 kB inicial (26 chunks, code-split); camada de dados partilhada (PSI/métricas atualizam sem pollers duplicados); ErrorBoundary; sidebar em rail PERSISTIU entre reinícios. |
+
+Não conduzido visualmente: o diálogo de ficheiros nativo e as notificações do SO
+(validados por cargo build/ACL; precisam de um formulário/evento para disparar).
+
 ## Notas de reprodução
 - Condutor e capturas em `scratchpad/` (xdo.py, grab.py, shot_*.png, dlx-shim, dlx-calls.log).
 - Sessão Wayland → `GDK_BACKEND=x11` obrigatório para XTEST/XGetImage.
