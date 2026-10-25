@@ -3,6 +3,7 @@ import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, PageHead } from "../components/ui";
 import { cmd } from "../lib/cli";
+import { nativeDialogsAvailable, pickDirectory, pickFile } from "../lib/native";
 
 // Build de imagens (§ build). `delonix build` produz logs demorados em tempo
 // real, por isso o fluxo é por STREAM (não por `dlx_run`): cada linha chega por
@@ -43,11 +44,20 @@ export function Build() {
       .catch((e) => { setLines((p) => [...p, String(e)]); setRunning(false); });
   };
 
-  const fields: [string, string, (v: string) => void, string][] = [
-    ["Tag da imagem (repo:tag)", tag, setTag, "minha-app:v1"],
-    ["Contexto (diretório)", context, setContext, "."],
-    ["Dockerfile (opcional)", dockerfile, setDockerfile, "<contexto>/Dockerfile"],
+  // `browse`: contexto é um DIRETÓRIO, Dockerfile é um FICHEIRO; a tag não tem
+  // diálogo. O botão "Procurar…" abre o picker nativo e preenche o input.
+  const fields: [string, string, (v: string) => void, string, undefined | "dir" | "file"][] = [
+    ["Tag da imagem (repo:tag)", tag, setTag, "minha-app:v1", undefined],
+    ["Contexto (diretório)", context, setContext, ".", "dir"],
+    ["Dockerfile (opcional)", dockerfile, setDockerfile, "<contexto>/Dockerfile", "file"],
   ];
+
+  const browse = (kind: "dir" | "file", set: (v: string) => void) => {
+    const run = kind === "dir"
+      ? pickDirectory({ title: "Escolher diretório de contexto" })
+      : pickFile({ title: "Escolher Dockerfile" });
+    void run.then((p) => { if (p) set(p); });
+  };
 
   return (
     <>
@@ -55,10 +65,17 @@ export function Build() {
       <div className="split">
         <div className="primary" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-            {fields.map(([label, value, set, ph]) => (
+            {fields.map(([label, value, set, ph, kind]) => (
               <label key={label} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
                 {label}
-                <input className="input mono" value={value} placeholder={ph} onChange={(e) => set(e.target.value)} />
+                <span style={{ display: "flex", gap: 8 }}>
+                  <input className="input mono" value={value} placeholder={ph} onChange={(e) => set(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+                  {kind && nativeDialogsAvailable() && (
+                    <button className="btn" type="button" title={kind === "dir" ? "Escolher diretório" : "Escolher ficheiro"} onClick={() => browse(kind, set)}>
+                      <Icon name="declarative" size={13} />
+                    </button>
+                  )}
+                </span>
               </label>
             ))}
           </div>

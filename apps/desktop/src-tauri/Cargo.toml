@@ -38,5 +38,13 @@ which = "6"
 portable-pty = "0.9"
 delonix-desktop-core = { path = "../../../crates/delonix-desktop-core" }
 
+# Integração nativa com o SO (eixo A) — plugins OFICIAIS do Tauri 2.x, não
+# reinvenções. Notificações do SO em eventos críticos, diálogo de ficheiros
+# nativo, persistência de geometria da janela e clipboard do sistema.
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-window-state = "2"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

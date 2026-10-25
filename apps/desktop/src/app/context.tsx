@@ -37,6 +37,9 @@ export interface AppCtx {
   // Navegação colapsável (hamburger). Estado persistido em localStorage.
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  // Mensagem efémera no canto (reutilizada pelo menu da TitleBar, p.ex. para
+  // confirmar "Link copiado"). `ok` controla a cor da barra lateral do toast.
+  toast: (text: string, ok?: boolean) => void;
 }
 
 export interface HistoryEntry {

@@ -5,7 +5,24 @@ import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { DataTable, type Column } from "../components/DataTable";
 import { Drawer } from "../components/Drawer";
 import { cmd, type Argv } from "../lib/cli";
+import { nativeDialogsAvailable, pickFile, YAML_FILTERS } from "../lib/native";
 import type { ComposeService, StackPlanRow } from "../lib/types";
+
+// Botão "Procurar…" ao lado de um input de caminho: abre o diálogo de ficheiros
+// NATIVO do SO e preenche o input (que continua editável). Some fora do Tauri.
+function BrowseFile({ title, onPick }: { title: string; onPick: (path: string) => void }) {
+  if (!nativeDialogsAvailable()) return null;
+  return (
+    <button
+      className="btn"
+      type="button"
+      title="Escolher ficheiro no sistema"
+      onClick={() => void pickFile({ title, filters: YAML_FILTERS }).then((p) => { if (p) onPick(p); })}
+    >
+      <Icon name="declarative" size={13} /> Procurar…
+    </button>
+  );
+}
 
 // Camada declarativa (§E): Stacks e Compose. Ambos pedem CONTEXTO por CAMINHO
 // (manifesto / ficheiro docker-compose.yml) num CAMPO DE TEXTO — sem plugin de
@@ -106,6 +123,7 @@ function StacksPanel() {
           aria-label="Caminho do manifesto"
           style={{ flex: "1 1 360px", minWidth: 260 }}
         />
+        <BrowseFile title="Escolher manifesto da stack" onPick={setManifest} />
         <button className="btn pri" type="button" disabled={busy} onClick={() => void plan()}>
           <Icon name="overview" size={13} /> Planear
         </button>
@@ -220,6 +238,7 @@ function ComposePanel() {
           aria-label="Caminho do ficheiro compose"
           style={{ flex: "1 1 360px", minWidth: 260 }}
         />
+        <BrowseFile title="Escolher ficheiro docker-compose" onPick={setFile} />
         <button className="btn pri" type="button" disabled={busy} onClick={() => void refresh()}>
           <Icon name="restart" size={13} /> Ver serviços
         </button>

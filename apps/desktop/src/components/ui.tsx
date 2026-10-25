@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { RunState } from "../lib/hooks";
 import { Icon } from "./Icon";
 import { show, type Argv } from "../lib/cli";
+import { copyText } from "../lib/native";
 
 export function Chip({ tone, children, dot }: { tone: "ok" | "warn" | "bad" | "inf" | "neu"; children: ReactNode; dot?: boolean }) {
   return (
@@ -32,9 +33,11 @@ export function CliHint({ argv, compact }: { argv: Argv; compact?: boolean }) {
         className="btn sm"
         type="button"
         onClick={() => {
-          void navigator.clipboard?.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
+          void copyText(text).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          });
         }}
       >
         <Icon name="copy" size={12} />

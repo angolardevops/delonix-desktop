@@ -58,6 +58,15 @@ fn dlx_bin() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Plugins oficiais do SO (eixo A). O window-state restaura a geometria
+        // da janela ao arrancar e guarda-a ao sair (§7) — tem de entrar cedo
+        // para apanhar a criação da janela. Os restantes expõem comandos que o
+        // frontend invoca por `lib/native.ts`, autorizados em
+        // `capabilities/default.json`.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(stream::Streams::default())
         .manage(exec::Execs::default())
         .invoke_handler(tauri::generate_handler![

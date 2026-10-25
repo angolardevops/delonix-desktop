@@ -10,8 +10,9 @@ import { TitleBar } from "./components/TitleBar";
 import { isTauri, type DelonixClient } from "./lib/client";
 import { show, type Argv } from "./lib/cli";
 import { MockClient } from "./lib/mockClient";
+import { notify } from "./lib/native";
 import { TauriClient } from "./lib/tauriClient";
-import type { RiskLevel } from "./lib/types";
+import type { EngineEvent, RiskLevel } from "./lib/types";
 
 // Code-splitting por rota (eixo D): cada tela entra no seu próprio chunk,
 // carregado só quando se navega para ela. O bundle inicial deixa de levar as 15
@@ -46,6 +47,28 @@ function ScreenLoading() {
 
 type Pending = { argv: Argv; label: string; risk: RiskLevel; resolve: (ok: boolean) => void };
 
+// Eventos do engine que merecem uma notificação NATIVA: morte/OOM de workloads e
+// erros. `oom`/`oom-kill` e `error` são sempre críticos; `die` só quando saiu mal
+// (código != 0 no detalhe), para não notificar paragens normais.
+const CRITICAL_ACTIONS = new Set(["oom", "oom-kill", "error", "fail", "failed"]);
+function isCriticalEvent(e: EngineEvent): boolean {
+  const action = e.action.toLowerCase();
+  if (CRITICAL_ACTIONS.has(action)) return true;
+  if (action === "die" || action === "died" || action === "exited") {
+    // "exit code 0" / "exited (0)" = saída limpa → não notifica.
+    const d = (e.detail ?? "").toLowerCase();
+    return !/\b0\b/.test(d) || /oom|error|erro/.test(d);
+  }
+  return false;
+}
+
+function criticalTitle(e: EngineEvent): string {
+  const a = e.action.toLowerCase();
+  if (a.includes("oom")) return "Sem memória (OOM)";
+  if (a === "die" || a === "died" || a === "exited") return "Workload terminou";
+  return "Erro no engine";
+}
+
 export default function App() {
   const client: DelonixClient = useMemo(() => (isTauri() ? new TauriClient() : new MockClient()), []);
   const [route, setRoute] = useState<Route>({ name: "overview" });
@@ -60,6 +83,7 @@ export default function App() {
   });
 
   const openDock = useCallback((t: DockTab) => { setDockTab(t); setDockOpen(true); }, []);
+  const notifyToast = useCallback((text: string, ok = true) => setToast({ ok, text }), []);
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((c) => {
@@ -95,6 +119,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Notificações nativas do SO em eventos CRÍTICOS do stream do engine. Só sob
+  // runtime vivo (no duplo local os eventos são sintéticos). Dedup por recurso
+  // (30 s) e intervalo mínimo global (5 s) para não floodar o utilizador.
+  useEffect(() => {
+    if (!client.live) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    const lastPerKey = new Map<string, number>();
+    let lastAny = 0;
+    void client
+      .events((e) => {
+        if (!isCriticalEvent(e)) return;
+        const now = Date.now();
+        const key = `${e.kind}/${e.name}/${e.action.toLowerCase()}`;
+        if (now - (lastPerKey.get(key) ?? 0) < 30_000) return;
+        if (now - lastAny < 5_000) return;
+        lastPerKey.set(key, now);
+        lastAny = now;
+        void notify(`${criticalTitle(e)} · ${e.name || e.kind}`, e.detail || `${e.kind} ${e.action}`);
+      })
+      .then((s) => { if (cancelled) s(); else stop = s; });
+    return () => { cancelled = true; stop?.(); };
+  }, [client]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -107,7 +155,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
 
-  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar };
+  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast };
 
   const screen = (() => {
     switch (route.name) {

@@ -1,6 +1,11 @@
+import { useRef, useState } from "react";
 import { isTauri } from "../lib/client";
+import { aboutDialog, copyText } from "../lib/native";
 import { useApp } from "../app/context";
 import { Icon, Logo } from "./Icon";
+import { Popover } from "./Popover";
+
+const DOCS_URL = "https://github.com/angolardevops/delonix-desktop";
 
 async function win(action: "minimize" | "toggleMaximize" | "close") {
   if (!isTauri()) return;
@@ -8,8 +13,119 @@ async function win(action: "minimize" | "toggleMaximize" | "close") {
   await getCurrentWindow()[action]();
 }
 
+type MenuItem = { label: string; onClick: () => void; shortcut?: string; danger?: boolean } | { separator: true };
+
+// Um menu de topo (Ficheiro, Ver…) com dropdown próprio. Com `decorations:false`
+// não há menu nativo do SO, por isso montamos dropdowns acionáveis sobre o
+// Popover (foco preso, Escape/clique-fora fecham). Nada decorativo.
+function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        ref={ref}
+        className="mb"
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={ref} align="start" ariaLabel={`Menu ${label}`}>
+        <div role="menu" style={{ display: "flex", flexDirection: "column", padding: 4, minWidth: 216 }}>
+          {items.map((it, i) =>
+            "separator" in it ? (
+              <div key={`s${i}`} style={{ height: 1, background: "var(--line)", margin: "4px 6px" }} />
+            ) : (
+              <button
+                key={it.label}
+                role="menuitem"
+                type="button"
+                onClick={() => { setOpen(false); it.onClick(); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 16, justifyContent: "space-between",
+                  width: "100%", padding: "7px 10px", background: "transparent", border: 0,
+                  color: it.danger ? "var(--bad)" : "var(--tx)", cursor: "pointer", textAlign: "left",
+                  fontSize: 13, borderRadius: 4,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                onFocus={(e) => { e.currentTarget.style.background = "var(--bg)"; }}
+                onBlur={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span>{it.label}</span>
+                {it.shortcut && <span className="k" style={{ opacity: 0.6 }}>{it.shortcut}</span>}
+              </button>
+            ),
+          )}
+        </div>
+      </Popover>
+    </>
+  );
+}
+
 export function TitleBar() {
-  const { openPalette, sidebarCollapsed, toggleSidebar } = useApp();
+  const { openPalette, sidebarCollapsed, toggleSidebar, go, openDock, toast } = useApp();
+
+  // `document.execCommand` atua sobre o input/seleção com foco — é o caminho que
+  // o webview oferece para Copiar/Selecionar sem permissões extra de clipboard.
+  const edit = (cmd: "copy" | "cut" | "selectAll") => { try { document.execCommand(cmd); } catch { /* sem seleção */ } };
+
+  const copyDocs = () => void copyText(DOCS_URL).then((ok) => toast(ok ? "Link da documentação copiado" : "Não foi possível copiar", ok));
+  const about = () => void aboutDialog(
+    "Delonix Desktop 0.1.0\nAmbiente de trabalho para Platform Engineering, SRE e DevOps sobre o Delonix Engine.\n\n" + DOCS_URL,
+    "Sobre o Delonix Desktop",
+  );
+
+  const menus: { label: string; items: MenuItem[] }[] = [
+    { label: "Ficheiro", items: [
+      { label: "Novo workload", onClick: () => go({ name: "create" }), shortcut: "Ctrl N" },
+      { label: "Definições", onClick: () => go({ name: "settings" }) },
+      { separator: true },
+      { label: "Sair", onClick: () => void win("close"), danger: true },
+    ] },
+    { label: "Editar", items: [
+      { label: "Copiar", onClick: () => edit("copy") },
+      { label: "Selecionar tudo", onClick: () => edit("selectAll") },
+      { separator: true },
+      { label: "Pesquisar…", onClick: openPalette, shortcut: "Ctrl K" },
+    ] },
+    { label: "Ver", items: [
+      { label: "Visão geral", onClick: () => go({ name: "overview" }) },
+      { label: "Eventos", onClick: () => go({ name: "events" }) },
+      { label: "Capacidades", onClick: () => go({ name: "capabilities" }) },
+      { separator: true },
+      { label: "Terminal", onClick: () => openDock("terminal") },
+      { label: "Logs", onClick: () => openDock("logs") },
+      { separator: true },
+      { label: "Recarregar", onClick: () => window.location.reload() },
+    ] },
+    { label: "Workloads", items: [
+      { label: "Todos os workloads", onClick: () => go({ name: "workloads" }) },
+      { label: "Novo…", onClick: () => go({ name: "create" }), shortcut: "Ctrl N" },
+      { separator: true },
+      { label: "Imagens", onClick: () => go({ name: "images" }) },
+      { label: "Construir imagem", onClick: () => go({ name: "build" }) },
+      { label: "Volumes", onClick: () => go({ name: "volumes" }) },
+      { label: "Redes", onClick: () => go({ name: "networks" }) },
+    ] },
+    { label: "Janela", items: [
+      { label: "Minimizar", onClick: () => void win("minimize") },
+      { label: "Maximizar / restaurar", onClick: () => void win("toggleMaximize") },
+      { separator: true },
+      { label: "Fechar", onClick: () => void win("close"), danger: true },
+    ] },
+    { label: "Ajuda", items: [
+      { label: "Sobre o Delonix Desktop", onClick: about },
+      { label: "Copiar link da documentação", onClick: copyDocs },
+      { separator: true },
+      { label: "Paleta de comandos", onClick: openPalette, shortcut: "Ctrl K" },
+    ] },
+  ];
+
   return (
     <div className="titlebar" data-tauri-drag-region>
       <button
@@ -39,9 +155,9 @@ export function TitleBar() {
           <Icon name="chevron" size={12} />
         </button>
       </div>
-      <div role="menubar" aria-label="Menu da aplicação" style={{ display: "flex" }} data-tauri-drag-region>
-        {["Ficheiro", "Editar", "Ver", "Workloads", "Janela", "Ajuda"].map((m) => (
-          <button key={m} className="mb" type="button" role="menuitem">{m}</button>
+      <div role="menubar" aria-label="Menu da aplicação" style={{ display: "flex" }}>
+        {menus.map((m) => (
+          <Menu key={m.label} label={m.label} items={m.items} />
         ))}
       </div>
       <button className="search" type="button" onClick={openPalette}>

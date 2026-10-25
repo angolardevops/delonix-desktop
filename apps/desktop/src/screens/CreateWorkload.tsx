@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useApp } from "../app/context";
+import { Icon } from "../components/Icon";
 import { Chip, ErrorNote, PageHead } from "../components/ui";
 import { cmd, show } from "../lib/cli";
+import { nativeDialogsAvailable, pickFile, YAML_FILTERS } from "../lib/native";
 import { useResource } from "../lib/hooks";
 
 type Kind = "container" | "pod" | "vm";
@@ -93,7 +95,15 @@ export function CreateWorkload() {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
                 Caminho do manifesto (<span className="mono">kind: Pod</span>)
-                <input className="input mono" value={podManifest} onChange={(e) => setPodManifest(e.target.value)} placeholder="examples/pod-multi.yaml" aria-label="Caminho do manifesto do pod" />
+                <span style={{ display: "flex", gap: 8 }}>
+                  <input className="input mono" value={podManifest} onChange={(e) => setPodManifest(e.target.value)} placeholder="examples/pod-multi.yaml" aria-label="Caminho do manifesto do pod" style={{ flex: 1 }} />
+                  {nativeDialogsAvailable() && (
+                    <button className="btn" type="button" title="Escolher ficheiro no sistema"
+                      onClick={() => void pickFile({ title: "Escolher manifesto do pod", filters: YAML_FILTERS }).then((p) => { if (p) setPodManifest(p); })}>
+                      <Icon name="declarative" size={13} /> Procurar…
+                    </button>
+                  )}
+                </span>
               </label>
               <p className="muted" style={{ margin: 0, fontSize: 12 }}>
                 Um pod são N containers a partilhar o netns (um IP, alcançáveis entre si por <span className="mono">localhost</span>). Cria-se sempre de um ficheiro — não há flags soltas. Depois aparece em Workloads (tipo <span className="mono">pod</span>); parar/remover faz-se lá.
