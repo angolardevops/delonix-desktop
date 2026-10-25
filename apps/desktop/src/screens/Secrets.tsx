@@ -15,7 +15,7 @@ import type { SecretRow } from "../lib/types";
 // enviamo-lo ao engine por `--from-literal` e esquecemo-lo de imediato).
 export function Secrets() {
   const { client, act } = useApp();
-  const { data, error, refresh } = useResource(() => client.secrets(), 15000);
+  const { data, error, refresh } = useResource("secrets", () => client.secrets(), 15000);
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");

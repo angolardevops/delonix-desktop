@@ -5,7 +5,7 @@ import { cmd, show } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
-import { Terminal } from "./Terminal";
+import { LazyTerminal as Terminal } from "./LazyTerminal";
 import { Chip } from "./ui";
 
 export function BottomDock({ tab, open, setTab, setOpen }: { tab: DockTab; open: boolean; setTab: (t: DockTab) => void; setOpen: (o: boolean) => void }) {
@@ -51,7 +51,7 @@ export function BottomDock({ tab, open, setTab, setOpen }: { tab: DockTab; open:
 
 function LogsPanel() {
   const { client } = useApp();
-  const workloads = useResource(() => client.workloads(), 10000).data ?? [];
+  const workloads = useResource("workloads", () => client.workloads(), 10000).data ?? [];
   const containers = workloads.filter((w) => w.type === "container");
   const [name, setName] = useState<string>("");
   const [lines, setLines] = useState<string[]>([]);
@@ -101,7 +101,7 @@ function LogsPanel() {
 function TerminalPanel() {
   const { client } = useApp();
   // Só containers A CORRER: o exec interativo liga-se a um PTY no container vivo.
-  const running = (useResource(() => client.workloads(), 10000).data ?? []).filter(
+  const running = (useResource("workloads", () => client.workloads(), 10000).data ?? []).filter(
     (w) => w.type === "container" && runState(w.status) === "running",
   );
   const [name, setName] = useState<string>("");

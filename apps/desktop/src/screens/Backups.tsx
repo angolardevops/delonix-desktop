@@ -20,7 +20,7 @@ export function Backups() {
   // Diretório efetivo (committed) que alimenta backup ls --from.
   const [dir, setDir] = useState("");
   const [dirInput, setDirInput] = useState("");
-  const { data, error, refresh } = useResource(() => client.backups(dir || undefined), 20000);
+  const { data, error, refresh } = useResource(["backups", dir], () => client.backups(dir || undefined), 20000);
   const [kind, setKind] = useState<(typeof KINDS)[number]>("container");
   const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);

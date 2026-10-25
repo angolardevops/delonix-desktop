@@ -12,7 +12,7 @@ type F = "all" | "used" | "unused";
 
 export function Images() {
   const { client, act, go } = useApp();
-  const { data, error, refresh } = useResource(() => client.images(), 15000);
+  const { data, error, refresh } = useResource("images", () => client.images(), 15000);
   const [f, setF] = useState<F>("all");
   const [ref, setRef] = useState("");
   const [pullOpen, setPullOpen] = useState(false);

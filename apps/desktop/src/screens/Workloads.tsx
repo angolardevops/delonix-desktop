@@ -11,7 +11,7 @@ type TypeFilter = "all" | "container" | "pod" | "vm";
 
 export function Workloads() {
   const { client, go, act, openDock } = useApp();
-  const { data, error, refresh } = useResource(() => client.workloads(), 3000);
+  const { data, error, refresh } = useResource("workloads", () => client.workloads(), 3000);
   const [type, setType] = useState<TypeFilter>("all");
   const [state, setState] = useState<RunState | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());

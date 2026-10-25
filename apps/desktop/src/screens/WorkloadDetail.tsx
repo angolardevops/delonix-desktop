@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
-import { Terminal } from "../components/Terminal";
+import { LazyTerminal as Terminal } from "../components/LazyTerminal";
 import { CliHint, Chip, ErrorNote, Planned, StateChip, Tabs, TypeChip } from "../components/ui";
 import { cmd } from "../lib/cli";
-import { runState, useResource } from "../lib/hooks";
+import { runState, useDebounced, useResource } from "../lib/hooks";
 import { fmtBinBytes, fmtRate, latestRates, sampleFromRow, type Sample } from "../lib/metrics";
 import type { DashRow, WorkloadRow } from "../lib/types";
 
@@ -12,7 +12,7 @@ type T = "logs" | "terminal" | "inspect" | "stats" | "snapshots";
 
 export function WorkloadDetail({ id }: { id: string }) {
   const { client, go, act } = useApp();
-  const wl = useResource(() => client.workloads(), 3000);
+  const wl = useResource("workloads", () => client.workloads(), 3000);
   const w = wl.data?.find((x) => x.name === id);
   const [tab, setTab] = useState<T>("logs");
   const [lines, setLines] = useState<string[]>([]);
@@ -49,7 +49,9 @@ export function WorkloadDetail({ id }: { id: string }) {
   if (!w) return <p className="muted" style={{ padding: 24 }}>{wl.data ? `O workload ${id} já não existe.` : "A carregar…"}</p>;
 
   const st = runState(w.status);
-  const shown = filter ? lines.filter((l) => l.toLowerCase().includes(filter.toLowerCase())) : lines;
+  // O filtro de logs varre até 2000 linhas; debounce evita refiltrar a cada tecla.
+  const debouncedFilter = useDebounced(filter, 220);
+  const shown = debouncedFilter ? lines.filter((l) => l.toLowerCase().includes(debouncedFilter.toLowerCase())) : lines;
 
   return (
     <>
@@ -239,7 +241,7 @@ function Inspect({ name }: { name: string }) {
 // via VirtualMachineService (ListSnapshots/CreateSnapshot/RestoreSnapshot).
 function Snapshots({ name }: { name: string }) {
   const { client } = useApp();
-  const snaps = useResource(() => client.vmSnapshotList(name), 0);
+  const snaps = useResource(["vm-snapshots", name], () => client.vmSnapshotList(name), 0);
   const [snapName, setSnapName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

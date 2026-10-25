@@ -4,8 +4,8 @@ import { Chip } from "./ui";
 
 export function StatusBar() {
   const { client } = useApp();
-  const dash = useResource(() => client.dash(), 5000);
-  const bin = useResource(() => client.binary(), 0).data;
+  const dash = useResource("dashboard", () => client.dash(), 5000);
+  const bin = useResource("binary", () => client.binary(), 0).data;
   const d = dash.data;
   return (
     <footer className="statusbar">

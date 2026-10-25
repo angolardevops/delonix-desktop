@@ -9,7 +9,7 @@ type Opt = { group: string; icon: string; label: string; hint?: string; run: () 
 
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { client, go, act, openDock } = useApp();
-  const workloads = useResource(() => client.workloads(), 0).data ?? [];
+  const workloads = useResource("workloads", () => client.workloads(), 0).data ?? [];
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
 

@@ -16,7 +16,7 @@ const GIB = 1024 ** 3;
 
 export function CreateWorkload() {
   const { client, act, go } = useApp();
-  const providers = useResource(() => client.providers(), 0).data ?? [];
+  const providers = useResource("providers", () => client.providers(), 0).data ?? [];
   const [kind, setKind] = useState<Kind>("container");
   const [image, setImage] = useState("postgres:16");
   const [name, setName] = useState("postgres-staging");

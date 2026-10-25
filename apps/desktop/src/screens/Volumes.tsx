@@ -10,8 +10,8 @@ import type { VolumeRow } from "../lib/types";
 
 export function Volumes() {
   const { client, act, go } = useApp();
-  const { data, error, refresh } = useResource(() => client.volumes(), 15000);
-  const providers = useResource(() => client.providers(), 60000).data ?? [];
+  const { data, error, refresh } = useResource("volumes", () => client.volumes(), 15000);
+  const providers = useResource("providers", () => client.providers(), 60000).data ?? [];
   const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const rows = data ?? [];

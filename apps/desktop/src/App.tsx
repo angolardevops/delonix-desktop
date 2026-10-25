@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Ctx, type AppCtx, type DockTab, type HistoryEntry, type Route } from "./app/context";
 import { BottomDock } from "./components/BottomDock";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
@@ -11,21 +12,37 @@ import { show, type Argv } from "./lib/cli";
 import { MockClient } from "./lib/mockClient";
 import { TauriClient } from "./lib/tauriClient";
 import type { RiskLevel } from "./lib/types";
-import { Capabilities } from "./screens/Capabilities";
-import { CreateWorkload } from "./screens/CreateWorkload";
-import { Events } from "./screens/Events";
-import { Images } from "./screens/Images";
-import { Build } from "./screens/Build";
-import { Networks } from "./screens/Networks";
-import { Backups } from "./screens/Backups";
-import { Declarativo } from "./screens/Declarativo";
-import { Overview } from "./screens/Overview";
-import { Secrets } from "./screens/Secrets";
-import { Extensions, Kubernetes, Registries, Workspaces } from "./screens/Platform";
-import { Settings } from "./screens/Settings";
-import { Volumes } from "./screens/Volumes";
-import { WorkloadDetail } from "./screens/WorkloadDetail";
-import { Workloads } from "./screens/Workloads";
+
+// Code-splitting por rota (eixo D): cada tela entra no seu próprio chunk,
+// carregado só quando se navega para ela. O bundle inicial deixa de levar as 15
+// telas de uma vez. As telas são named exports, por isso mapeamos para `default`
+// (o que o React.lazy exige). Platform agrupa 4 telas num só chunk partilhado.
+const Overview = lazy(() => import("./screens/Overview").then((m) => ({ default: m.Overview })));
+const Workloads = lazy(() => import("./screens/Workloads").then((m) => ({ default: m.Workloads })));
+const WorkloadDetail = lazy(() => import("./screens/WorkloadDetail").then((m) => ({ default: m.WorkloadDetail })));
+const CreateWorkload = lazy(() => import("./screens/CreateWorkload").then((m) => ({ default: m.CreateWorkload })));
+const Images = lazy(() => import("./screens/Images").then((m) => ({ default: m.Images })));
+const Build = lazy(() => import("./screens/Build").then((m) => ({ default: m.Build })));
+const Volumes = lazy(() => import("./screens/Volumes").then((m) => ({ default: m.Volumes })));
+const Secrets = lazy(() => import("./screens/Secrets").then((m) => ({ default: m.Secrets })));
+const Backups = lazy(() => import("./screens/Backups").then((m) => ({ default: m.Backups })));
+const Declarativo = lazy(() => import("./screens/Declarativo").then((m) => ({ default: m.Declarativo })));
+const Networks = lazy(() => import("./screens/Networks").then((m) => ({ default: m.Networks })));
+const Events = lazy(() => import("./screens/Events").then((m) => ({ default: m.Events })));
+const Capabilities = lazy(() => import("./screens/Capabilities").then((m) => ({ default: m.Capabilities })));
+const Settings = lazy(() => import("./screens/Settings").then((m) => ({ default: m.Settings })));
+const Workspaces = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Workspaces })));
+const Kubernetes = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Kubernetes })));
+const Registries = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Registries })));
+const Extensions = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Extensions })));
+
+function ScreenLoading() {
+  return (
+    <div role="status" aria-live="polite" style={{ padding: 24, color: "var(--mut)", fontSize: 13 }}>
+      A carregar…
+    </div>
+  );
+}
 
 type Pending = { argv: Argv; label: string; risk: RiskLevel; resolve: (ok: boolean) => void };
 
@@ -126,7 +143,14 @@ export default function App() {
         )}
         <div className="body">
           <Sidebar />
-          <main className="main">{screen}</main>
+          <main className="main">
+            {/* Barreira por rota: um crash numa tela mostra um fallback
+                acionável em vez de tela branca; a chave reinicia a barreira ao
+                navegar. O Suspense cobre o carregamento do chunk lazy. */}
+            <ErrorBoundary key={route.name}>
+              <Suspense fallback={<ScreenLoading />}>{screen}</Suspense>
+            </ErrorBoundary>
+          </main>
         </div>
         <BottomDock tab={dockTab} open={dockOpen} setTab={setDockTab} setOpen={setDockOpen} />
         <StatusBar />

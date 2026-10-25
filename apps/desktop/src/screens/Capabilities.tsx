@@ -13,8 +13,8 @@ type F = "all" | Bucket | "fixable";
 
 export function Capabilities() {
   const { client } = useApp();
-  const { data, error, refresh } = useResource(() => client.providers(), 0);
-  const { data: doctor } = useResource(useCallback(() => client.doctor(), [client]), 0);
+  const { data, error, refresh } = useResource("providers", () => client.providers(), 0);
+  const { data: doctor } = useResource("doctor", useCallback(() => client.doctor(), [client]), 0);
   const fixes = fixableItems(doctor ?? []);
   const [f, setF] = useState<F>("all");
   const providers = data ?? [];

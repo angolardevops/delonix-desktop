@@ -8,8 +8,8 @@ import type { NetworkRow } from "../lib/types";
 
 export function Networks() {
   const { client, go } = useApp();
-  const { data, error } = useResource(() => client.networks(), 15000);
-  const workloads = useResource(() => client.workloads(), 10000).data ?? [];
+  const { data, error } = useResource("networks", () => client.networks(), 15000);
+  const workloads = useResource("workloads", () => client.workloads(), 10000).data ?? [];
   const status = (n: string) => runState(workloads.find((w) => w.name === n)?.status ?? "");
   const color = (n: string) => ({ running: "var(--ok)", error: "var(--bad)", stopped: "var(--mut)" })[status(n)];
   // Cada rede é 1 cartão na grelha. Pesquisa sobre o conjunto COMPLETO (nome,

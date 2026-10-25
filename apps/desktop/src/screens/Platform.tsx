@@ -12,7 +12,7 @@ import type { ClusterRow } from "../lib/types";
 
 export function Workspaces() {
   const { client } = useApp();
-  const wl = useResource(() => client.workloads(), 10000).data ?? [];
+  const wl = useResource("workloads", () => client.workloads(), 10000).data ?? [];
   const namespaces = [...new Set(wl.map((w) => w.namespace))];
   return (
     <>
@@ -139,7 +139,7 @@ export function Registries() {
 // (create/kubeadm/apply/destroy) fica fora da allowlist, de propósito.
 export function Kubernetes() {
   const { client } = useApp();
-  const { data, error, refresh } = useResource(() => client.clusters(true), 15000);
+  const { data, error, refresh } = useResource(["clusters", true], () => client.clusters(true), 15000);
   const [gen, setGen] = useState("");
   const [out, setOut] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);

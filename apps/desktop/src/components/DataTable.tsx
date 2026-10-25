@@ -1,4 +1,5 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useDebounced } from "../lib/hooks";
 import { orderBy, usePagination, type Pagination } from "../lib/pagination";
 import { Pager } from "./Pager";
 
@@ -37,7 +38,10 @@ export function useListView<T>(
   const [sort, setSort] = useState<SortState>(opts.defaultSort ?? null);
   const tie = tieBreak ?? getKey;
 
-  const needle = q.trim().toLowerCase();
+  // Debounce ~220ms: o <input> reflete `q` de imediato, mas o filtro (que varre
+  // o conjunto COMPLETO) só corre depois de a escrita estabilizar.
+  const debouncedQ = useDebounced(q, 220);
+  const needle = debouncedQ.trim().toLowerCase();
   const filtered = useMemo(() => {
     if (!needle) return [...rows];
     const text = searchText ?? ((r: T) => getKey(r));
@@ -52,6 +56,13 @@ export function useListView<T>(
   }, [filtered, sort]);
 
   const page = usePagination(sorted, size);
+
+  // Nova pesquisa volta à primeira página (evita ficar numa página vazia).
+  useEffect(() => {
+    page.setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needle]);
+
   const toggleSort = (key: string) =>
     setSort((s) => (s && s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 

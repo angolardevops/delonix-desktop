@@ -7,11 +7,11 @@ import { fmtBytes, isOom, runState, useResource } from "../lib/hooks";
 
 export function Overview() {
   const { client, go, act, openDock } = useApp();
-  const dash = useResource(() => client.dash(), 5000);
-  const wl = useResource(() => client.workloads(), 5000);
-  const prov = useResource(() => client.providers(), 60000);
-  const images = useResource(() => client.images(), 30000);
-  const volumes = useResource(() => client.volumes(), 30000);
+  const dash = useResource("dashboard", () => client.dash(), 5000);
+  const wl = useResource("workloads", () => client.workloads(), 5000);
+  const prov = useResource("providers", () => client.providers(), 60000);
+  const images = useResource("images", () => client.images(), 30000);
+  const volumes = useResource("volumes", () => client.volumes(), 30000);
 
   const d = dash.data;
   const workloads = wl.data ?? [];

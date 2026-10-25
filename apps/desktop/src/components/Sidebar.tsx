@@ -7,8 +7,8 @@ type Item = { route: Route; icon: string; label: string; count?: number | string
 
 export function Sidebar() {
   const { client, route, go, openDock, sidebarCollapsed } = useApp();
-  const dash = useResource(() => client.dash(), 10000).data;
-  const providers = useResource(() => client.providers(), 60000).data;
+  const dash = useResource("dashboard", () => client.dash(), 10000).data;
+  const providers = useResource("providers", () => client.providers(), 60000).data;
   const broken = providers?.flatMap((p) => p.capabilities).filter((c) => c.state !== "supported" && c.state !== "partial").length;
 
   const groups: { title: string; items: Item[] }[] = [
