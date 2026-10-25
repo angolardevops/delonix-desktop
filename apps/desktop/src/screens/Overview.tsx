@@ -4,9 +4,10 @@ import { FleetMetrics } from "../components/FleetMetrics";
 import { HealthPanel } from "../components/HealthPanel";
 import { TopConsumers } from "../components/TopConsumers";
 import { Icon } from "../components/Icon";
+import { AreaChart, Card, CardGrid, useTrail, type AreaSeries } from "../components/charts";
 import { bucketOf } from "../lib/capability";
 import { cmd } from "../lib/cli";
-import { isOom, runState, useResource } from "../lib/hooks";
+import { fmtBytes, isOom, runState, useResource } from "../lib/hooks";
 import { fmtBinBytes } from "../lib/metrics";
 import type { ResourceAdvice } from "../lib/types";
 
@@ -36,6 +37,23 @@ export function Overview() {
   const running = workloads.filter((w) => runState(w.status) === "running");
   // Memória instantânea por workload a correr (das rows do dashboard), quando medida.
   const memByName = new Map(rows.filter((r) => r.mem_bytes != null).map((r) => [r.name, r.mem_bytes as number]));
+
+  // Tendências de séries curtas (histórico acumulado entre polls do store).
+  // Memória usada do engine e pressão PSI (avg10) por recurso. Uma amostra por
+  // poll; só quando há dados (useTrail ignora nulos). Área num só eixo y.
+  const memTrail = useTrail(metrics.data, () => (m ? m.memory_bytes_used : null), 48);
+  const psiAvg = (name: string) => res?.pressure.find((p) => p.resource === name)?.avg10 ?? null;
+  const psiTrail = useTrail(
+    resources.data,
+    () => (res && res.pressure.length > 0 ? { cpu: psiAvg("cpu") ?? 0, memory: psiAvg("memory") ?? 0, io: psiAvg("io") ?? 0 } : null),
+    48,
+  );
+  const psiSeries: AreaSeries[] = [
+    { key: "cpu", label: "CPU", color: "var(--chart-1)", values: psiTrail.map((s) => s.cpu) },
+    { key: "memory", label: "Memória", color: "var(--chart-2)", values: psiTrail.map((s) => s.memory) },
+    { key: "io", label: "Disco (IO)", color: "var(--bar-ok)", values: psiTrail.map((s) => s.io) },
+  ];
+  const hasTrends = memTrail.length >= 2 || psiTrail.length >= 2;
 
   const subtitle = m
     ? `${m.containers_total + m.vms_total} workloads · ${m.containers_running + m.vms_running} a correr`
@@ -70,6 +88,23 @@ export function Overview() {
       />
 
       <FleetMetrics metrics={m ?? null} host={res?.host ?? null} pressure={res?.pressure ?? []} go={go} />
+
+      {hasTrends && (
+        <CardGrid>
+          <Card title="Tendência de memória">
+            <AreaChart
+              series={[{ key: "mem", label: "Memória usada", color: "var(--chart-1)", values: memTrail }]}
+              format={fmtBytes}
+              ariaLabel={`Tendência de memória usada do engine, ${memTrail.length} amostras`}
+            />
+          </Card>
+          {psiTrail.length >= 2 && (
+            <Card title="Tendência de pressão (PSI, 10 s)">
+              <AreaChart series={psiSeries} max={100} format={(n) => `${n.toFixed(1)}%`} ariaLabel="Tendência de pressão PSI por recurso" />
+            </Card>
+          )}
+        </CardGrid>
+      )}
 
       <TopConsumers rows={rows} go={go} />
 

@@ -2,19 +2,19 @@
 // (contadores ESTRUTURADOS, sem parsear as tiles humanas) + capacidade do nó e
 // pressão PSI de `system resources`.
 //
+// Apresentação GRÁFICA (não barras/texto):
 //  - tiles clicáveis: containers/VMs a correr vs total, imagens, volumes, redes,
-//    segredos;
-//  - memória usada/limite (barra);
-//  - rede rx/tx (cumulativa);
-//  - STORAGE por categoria (imagens+VM-images+volumes+containers) numa barra
-//    EMPILHADA com legenda e bytes por família;
-//  - capacidade do host (CPUs, temperatura, disco livre, swap) e PSI.
+//    segredos (números grandes, a forma certa para contagens);
+//  - cartões (Grafana-lite): gauge de memória do engine; DONUT do storage por
+//    categoria; gauges de capacidade do nó (RAM, temperatura, swap) + stats de
+//    CPUs e disco livre; e gauges de PRESSÃO (PSI, CPU/MEM/IO).
 import type { Route } from "../app/context";
 import { fmtBytes } from "../lib/hooks";
 import { fmtBinBytes, storageBreakdown, storageTotal } from "../lib/metrics";
 import type { PressureSample, ResourceHost, SystemMetrics } from "../lib/types";
+import { Card, CardGrid, Gauge, Donut, ZONES_LOAD, ZONES_PSI } from "./charts";
 
-const pct = (used: number, limit: number) => (limit > 0 ? Math.min(100, (100 * used) / limit) : 0);
+const PSI_LABEL: Record<string, string> = { cpu: "CPU", memory: "Memória", io: "Disco (IO)" };
 
 export interface FleetMetricsProps {
   metrics: SystemMetrics | null;
@@ -33,11 +33,17 @@ export function FleetMetrics({ metrics: m, host, pressure, go }: FleetMetricsPro
     { l: "Segredos", v: m?.secrets_total, s: "no cofre", r: { name: "secrets" } },
   ];
 
-  const segments = m ? storageBreakdown(m) : [];
+  const storage = m ? storageBreakdown(m) : [];
+  const segments = storage.map((s) => ({ key: s.key, label: s.label, value: s.bytes, color: s.color }));
   const total = m ? storageTotal(m) : 0;
+
+  // Capacidade do nó: RAM usada = total − disponível; swap usado/total.
+  const ramUsed = host?.memoryBytes != null && host.memoryAvailableBytes != null ? host.memoryBytes - host.memoryAvailableBytes : null;
+  const hasSwap = host?.swapBytes != null && host.swapBytes > 0;
 
   return (
     <>
+      {/* Frota — contagens (números grandes). */}
       <section aria-label="Frota" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", borderBottom: "1px solid var(--line)" }}>
         {tiles.map((k) => (
           <button key={k.l} type="button" onClick={() => go(k.r)} style={{ textAlign: "left", padding: "14px 24px", background: "transparent", border: 0, borderRight: "1px solid var(--line2)", color: "var(--tx)", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -48,69 +54,83 @@ export function FleetMetrics({ metrics: m, host, pressure, go }: FleetMetricsPro
         ))}
       </section>
 
-      <section style={{ padding: "16px 24px", borderBottom: "1px solid var(--line)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span>Memória</span><span className="mono">{m ? `${fmtBytes(m.memory_bytes_used)} de ${fmtBytes(m.memory_bytes_limit)}` : "—"}</span></div>
-          <div className="bar"><span style={{ width: m ? `${pct(m.memory_bytes_used, m.memory_bytes_limit)}%` : 0 }} /></div>
-          <span className="muted" style={{ fontSize: 12 }}>limite do slice do engine</span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span>Rede</span><span className="mono">{m?.network_rx_bytes != null ? `${fmtBytes(m.network_rx_bytes)} ↓ · ${fmtBytes(m.network_tx_bytes)} ↑` : "não medida"}</span></div>
-          <span className="muted" style={{ fontSize: 12 }}>{m && m.network_unmeasured_containers > 0 ? `${m.network_unmeasured_containers} container(s) sem rede medida` : "cumulativo (rx / tx)"}</span>
-        </div>
-
-        {/* Storage por categoria — barra empilhada. */}
-        <div style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span>Armazenamento</span><span className="mono">{m ? fmtBinBytes(total) : "—"}</span></div>
-          <div style={{ display: "flex", height: 8, gap: 2, background: "var(--track)" }} role="img" aria-label={segments.map((s) => `${s.label} ${fmtBinBytes(s.bytes)}`).join(", ")}>
-            {total > 0 && segments.filter((s) => s.bytes > 0).map((s) => (
-              <span key={s.key} style={{ flex: s.bytes, background: s.color }} title={`${s.label}: ${fmtBinBytes(s.bytes)}`} />
-            ))}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
-            {segments.map((s) => (
-              <span key={s.key} className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                <span style={{ width: 8, height: 8, background: s.color, display: "inline-block" }} />
-                {s.label} <span className="mono">{fmtBinBytes(s.bytes)}</span>
+      <CardGrid>
+        {/* Memória do engine (gauge) + rede. */}
+        <Card title="Memória do engine">
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <Gauge
+              value={m ? m.memory_bytes_used : null}
+              max={m ? m.memory_bytes_limit : 1}
+              label="Uso"
+              zones={ZONES_LOAD}
+              sub={m ? `${fmtBytes(m.memory_bytes_used)} de ${fmtBytes(m.memory_bytes_limit)}` : undefined}
+              ariaLabel={m ? `Memória do engine: ${fmtBytes(m.memory_bytes_used)} de ${fmtBytes(m.memory_bytes_limit)}` : "Memória do engine: sem dados"}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              <span className="lbl">Rede</span>
+              <span className="mono" style={{ fontSize: 13 }}>
+                {m?.network_rx_bytes != null ? `${fmtBytes(m.network_rx_bytes)} ↓` : "não medida"}
               </span>
-            ))}
+              <span className="mono" style={{ fontSize: 13 }}>
+                {m?.network_tx_bytes != null ? `${fmtBytes(m.network_tx_bytes)} ↑` : ""}
+              </span>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {m && m.network_unmeasured_containers > 0 ? `${m.network_unmeasured_containers} sem rede medida` : "cumulativo (rx / tx)"}
+              </span>
+            </div>
           </div>
-        </div>
-      </section>
+        </Card>
 
-      {(host || pressure.length > 0) && (
-        <section style={{ padding: "16px 24px", borderBottom: "1px solid var(--line)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
-          {host && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span className="lbl">Capacidade do nó</span>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 18px", fontSize: 12 }} className="mono">
-                {host.cpus != null && <span>{host.cpus} CPUs</span>}
-                {host.cpuTemperatureC != null && <span>{host.cpuTemperatureC} °C</span>}
-                {host.stateRootFreeBytes != null && <span>{fmtBytes(host.stateRootFreeBytes)} disco livre</span>}
-                {host.memoryAvailableBytes != null && <span>{fmtBytes(host.memoryAvailableBytes)} RAM livre</span>}
-                {host.swapBytes != null && host.swapBytes > 0 && <span>swap {fmtBytes(host.swapUsedBytes)}/{fmtBytes(host.swapBytes)}</span>}
+        {/* Armazenamento por categoria — DONUT. */}
+        <Card title="Armazenamento" action={<button className="btn sm" type="button" onClick={() => go({ name: "images" })}>Gerir</button>}>
+          {total > 0 ? (
+            <Donut segments={segments} centerLabel="Total" centerValue={fmtBinBytes(total)} format={fmtBinBytes} ariaLabel={`Armazenamento ${fmtBinBytes(total)}: ${segments.map((s) => `${s.label} ${fmtBinBytes(s.value)}`).join(", ")}`} />
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>Sem armazenamento a reportar.</span>
+          )}
+        </Card>
+
+        {/* Capacidade do nó — gauges + stats honestos (só onde há valor+máximo). */}
+        {host && (
+          <Card title="Capacidade do nó">
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              {ramUsed != null && host.memoryBytes != null && (
+                <Gauge value={ramUsed} max={host.memoryBytes} label="RAM" size={110} zones={ZONES_LOAD} sub={`${fmtBytes(host.memoryAvailableBytes)} livre`} ariaLabel={`RAM do nó: ${fmtBytes(ramUsed)} usados de ${fmtBytes(host.memoryBytes)}`} />
+              )}
+              {host.cpuTemperatureC != null && (
+                <Gauge value={host.cpuTemperatureC} max={100} label="Temp." size={110} display={`${Math.round(host.cpuTemperatureC)}°`} zones={ZONES_LOAD} sub="CPU °C" ariaLabel={`Temperatura da CPU: ${Math.round(host.cpuTemperatureC)} graus`} />
+              )}
+              {hasSwap && host.swapBytes != null && (
+                <Gauge value={host.swapUsedBytes} max={host.swapBytes} label="Swap" size={110} zones={ZONES_LOAD} sub={`${fmtBytes(host.swapUsedBytes)}/${fmtBytes(host.swapBytes)}`} ariaLabel={`Swap: ${fmtBytes(host.swapUsedBytes)} de ${fmtBytes(host.swapBytes)}`} />
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }} className="mono">
+                {host.cpus != null && <span><b style={{ fontSize: 18 }}>{host.cpus}</b> <span className="muted">CPUs</span></span>}
+                {host.stateRootFreeBytes != null && <span><b style={{ fontSize: 18 }}>{fmtBytes(host.stateRootFreeBytes)}</b> <span className="muted">disco livre</span></span>}
               </div>
             </div>
-          )}
-          {pressure.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span className="lbl">Pressão (PSI, 60 s)</span>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {pressure.map((p) => (
-                  <div key={p.resource} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ width: 64, fontSize: 12, textTransform: "uppercase" }} className="muted">{p.resource}</span>
-                    <div className="bar" style={{ flex: 1 }}>
-                      <span style={{ width: `${Math.min(100, p.avg60)}%`, background: p.avg60 >= 30 ? "var(--bar-bad)" : p.avg60 >= 10 ? "var(--bar-warn)" : "var(--bar-ok)" }} />
-                    </div>
-                    <span className="mono" style={{ width: 52, textAlign: "right", fontSize: 12 }}>{p.avg60.toFixed(1)}%</span>
-                  </div>
-                ))}
-              </div>
+          </Card>
+        )}
+
+        {/* Pressão PSI — um gauge por recurso (CPU/MEM/IO). */}
+        {pressure.length > 0 && (
+          <Card title="Pressão (PSI, 60 s)">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "space-around" }}>
+              {pressure.map((p) => (
+                <Gauge
+                  key={p.resource}
+                  value={p.avg60}
+                  max={100}
+                  label={PSI_LABEL[p.resource] ?? p.resource}
+                  size={108}
+                  display={`${p.avg60.toFixed(0)}%`}
+                  zones={ZONES_PSI}
+                  ariaLabel={`Pressão ${PSI_LABEL[p.resource] ?? p.resource}: ${p.avg60.toFixed(1)}% em 60 segundos`}
+                />
+              ))}
             </div>
-          )}
-        </section>
-      )}
+          </Card>
+        )}
+      </CardGrid>
     </>
   );
 }
