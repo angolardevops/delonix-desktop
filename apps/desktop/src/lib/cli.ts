@@ -23,6 +23,13 @@ export const cmd = {
     ["provider", "describe", id, ...(kind ? ["--kind", kind] : []), "-o", "json"],
   doctor: (): Argv => ["system", "doctor"],
   mcpTools: (): Argv => ["mcp", "capabilities"],
+  // Dashboard SRE (§B). `system metrics` são os contadores de frota ESTRUTURADOS
+  // (o mesmo coletor do dashboard e do Prometheus), SEM a formatação das tiles e
+  // com STORAGE por categoria. `system resources` traz os conselhos acionáveis
+  // (advice[] DLX-RES-NNN), o gargalo atual e a pressão PSI. Ambos `-o json`,
+  // ADR-0005, confirmados por `--help` no engine 5.1.1.
+  systemMetrics: (): Argv => ["system", "metrics", "-o", "json"],
+  systemResources: (): Argv => ["system", "resources", "-o", "json"],
 
   // start/restart não têm forma de raiz nem no grupo `workload`: despacham-se
   // por tipo (`vm …` para VMs, `container …` para o resto).

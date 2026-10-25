@@ -8,7 +8,7 @@
 //  - io_* / net_*: contadores CUMULATIVOS em bytes; a taxa é Δbytes/Δt.
 //  - Campos a null/ausentes quando não medível (rootless, ou VMs — as rows de
 //    VM NÃO preenchem cpu/mem; essas chegam aqui como null).
-import type { DashRow } from "./types";
+import type { DashRow, SystemMetrics } from "./types";
 
 // Uma amostra tirada num instante `t` (epoch em milissegundos).
 export interface Sample {
@@ -124,4 +124,30 @@ export function fmtBinBytes(n: number | null | undefined): string {
 // Taxa em bytes/s formatada ("1,5 MiB/s"); null → "—".
 export function fmtRate(bytesPerSec: number | null | undefined): string {
   return bytesPerSec == null ? "—" : `${fmtBinBytes(bytesPerSec)}/s`;
+}
+
+// --- Storage por categoria (§B, de `system metrics`) ------------------------
+// Um segmento do storage: rótulo, bytes e a cor do token do tema para a barra.
+export interface StorageSegment {
+  key: "images" | "volumes" | "vm_images" | "containers";
+  label: string;
+  bytes: number;
+  color: string;
+}
+
+// Decompõe o storage de `system metrics` nas suas 4 categorias, já com rótulo
+// pt-AO e cor de tema, para uma barra empilhada. Ordem estável (maior família
+// primeiro) para a legenda não saltar entre amostras.
+export function storageBreakdown(m: SystemMetrics): StorageSegment[] {
+  return [
+    { key: "images", label: "Imagens", bytes: m.storage_bytes_images, color: "var(--chart-1)" },
+    { key: "vm_images", label: "Imagens de VM", bytes: m.storage_bytes_vm_images, color: "var(--chart-2)" },
+    { key: "volumes", label: "Volumes", bytes: m.storage_bytes_volumes, color: "var(--bar-ok)" },
+    { key: "containers", label: "Containers", bytes: m.storage_bytes_containers, color: "var(--neu)" },
+  ];
+}
+
+// Total de storage = soma das 4 categorias (o `system metrics` não traz total).
+export function storageTotal(m: SystemMetrics): number {
+  return m.storage_bytes_images + m.storage_bytes_volumes + m.storage_bytes_vm_images + m.storage_bytes_containers;
 }

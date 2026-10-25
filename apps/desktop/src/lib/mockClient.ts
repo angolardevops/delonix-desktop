@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -86,6 +86,54 @@ const mockRows = (): DashRow[] => [
   unmeasured("fc-ci-runner-2", "vm", "running", "2 vCPU, 1G"),
   unmeasured("fedora-kde-build", "vm", "stopped", "8 vCPU, 8G"),
 ];
+
+// Problems do dashboard (§B), simulados: espelham o OOM do odoo-16.
+const mockProblems = (): string[] =>
+  workloads.some((w) => /\(137\)/.test(w.status))
+    ? ["container odoo-16 foi morto por falta de memória (código 137)"]
+    : [];
+
+// Métricas de frota estruturadas (§B), com STORAGE por categoria. Coerentes com
+// o dashBase (mesmas contagens/memória); somadas dão ~28,4 GiB de storage.
+const mockMetrics = (): SystemMetrics => ({
+  containers_running: dashBase.containers_running,
+  containers_total: dashBase.containers_total,
+  vms_running: dashBase.vms_running,
+  vms_total: dashBase.vms_total,
+  networks_total: dashBase.networks_total,
+  volumes_total: dashBase.volumes_total,
+  images_total: dashBase.images_total,
+  secrets_total: dashBase.secrets_total,
+  memory_bytes_used: dashBase.memory_bytes_used,
+  memory_bytes_limit: dashBase.memory_bytes_limit,
+  network_rx_bytes: dashBase.network_rx_bytes,
+  network_tx_bytes: dashBase.network_tx_bytes,
+  network_unmeasured_containers: 1,
+  storage_bytes_images: 16.1 * GB,
+  storage_bytes_volumes: 3.2 * GB,
+  storage_bytes_vm_images: 8.6 * GB,
+  storage_bytes_containers: 0.5 * GB,
+});
+
+// Saúde do nó (§B): um conselho blocking, um warn e um info; um gargalo de CPU;
+// pressão PSI plausível; capacidade do host.
+const mockResources = (): SystemResources => ({
+  advice: [
+    { id: "DLX-RES-001", subject: "cgroup", severity: "blocking", class: "config", finding: "1 flag(s) são aceites e silenciosamente ignoradas: --cpuset", action: "sudo delonix system setup --delegate, depois systemctl restart user@<uid>.service" },
+    { id: "DLX-RES-010", subject: "disk", severity: "warn", class: "capacity", finding: "o diretório de estado está a 86% — restam 9,1 GiB", action: "libertar espaço: delonix image prune / volume prune" },
+    { id: "DLX-RES-002", subject: "io", severity: "info", class: "config", finding: "--io-weight e as flags --device-* são recusadas aqui (exit 69): o io não está delegado", action: "sudo delonix system setup --delegate, depois systemctl restart user@<uid>.service" },
+  ],
+  bottleneck: { resource: "cpu", detail: "pressão de CPU a 32% nos últimos 60 s — um build está a saturar o nó", severity: "warn" },
+  pressure: [
+    { resource: "cpu", avg10: 2.35, avg60: 3.23, avg300: 4.04 },
+    { resource: "memory", avg10: 0, avg60: 0, avg300: 0 },
+    { resource: "io", avg10: 0.46, avg60: 0.4, avg300: 0.31 },
+  ],
+  host: {
+    cpus: 20, cpuTemperatureC: 61, memoryBytes: 67 * GB, memoryAvailableBytes: 22 * GB,
+    stateRootFreeBytes: 9.1 * GB, swapBytes: 8 * GB, swapUsedBytes: 1.2 * GB,
+  },
+});
 
 const images: ImageRow[] = [
   { ref: "postgres:16", id: "b1a0c8e9f2d3", size: "432 MB", created: "há 3 sem", usedBy: ["postgres-dev"] },
@@ -209,7 +257,9 @@ const LOG = [
 export class MockClient implements DelonixClient {
   readonly live = false;
   binary = () => wait("duplo local");
-  dash = () => wait({ ...dashBase, rows: mockRows() });
+  dash = () => wait({ ...dashBase, rows: mockRows(), problems: mockProblems() });
+  systemMetrics = () => wait(mockMetrics());
+  systemResources = () => wait(mockResources());
   workloads = () => wait(workloads);
   images = () => wait(images);
   volumes = () => wait(volumes);

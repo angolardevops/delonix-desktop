@@ -52,6 +52,11 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["system", "info"], Risk::Read),
     (&["system", "doctor"], Risk::Read),
     (&["system", "features"], Risk::Read),
+    // Dashboard SRE (§B): contadores de frota estruturados e saúde do nó. Ambos
+    // têm `-o json` (ADR-0005) e são só-leitura (`system resources` é Read-only
+    // por construção; `system metrics` é um snapshot do coletor do dashboard).
+    (&["system", "metrics"], Risk::Read),
+    (&["system", "resources"], Risk::Read),
     (&["mcp", "capabilities"], Risk::Read),
     (&["mcp", "doctor"], Risk::Read),
     (&["version"], Risk::Read),
@@ -245,6 +250,17 @@ mod tests {
         for a in ["run nginx", "ps", "images", "logs -f x", "pull x", "rmi x", "start x", "stop x", "restart x", "rm -f x"] {
             assert_eq!(classify(&v(a)), None, "alias de raiz não devia ser permitido: {a}");
         }
+    }
+
+    #[test]
+    fn sre_dashboard_verbs_are_read() {
+        // Dashboard SRE (§B): ambos só-leitura, correm sem confirmação.
+        assert_eq!(classify(&v("system metrics -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("system resources -o json")), Some(Risk::Read));
+        assert!(!classify(&v("system metrics -o json")).unwrap().requires_confirm());
+        assert!(!classify(&v("system resources -o json")).unwrap().requires_confirm());
+        // `system setup` (delega controladores — privilegiado) continua FORA.
+        assert_eq!(classify(&v("system setup --delegate")), None);
     }
 
     #[test]
