@@ -136,6 +136,8 @@ const mockResources = (): SystemResources => ({
 });
 
 let images: ImageRow[] = [
+  { ref: "ghcr.io/angolardevops/delonix-runtime:edge", id: "c0ffee112233", size: "96 MB", created: "hoje", usedBy: [] },
+  { ref: "ghcr.io/angolardevops/delonix-cloudshell:5.1.1", id: "a1b2c3d4e5f6", size: "410 MB", created: "há 1 sem", usedBy: [] },
   { ref: "postgres:16", id: "b1a0c8e9f2d3", size: "432 MB", created: "há 3 sem", usedBy: ["postgres-dev"] },
   { ref: "odoo:16", id: "4e77d1a2b9c0", size: "1,62 GB", created: "há 1 mês", usedBy: ["odoo-16"] },
   { ref: "firecracker/ci:24.04", id: "90f3e2c1d7a8", size: "412 MB", created: "hoje", usedBy: ["fc-ci-runner-1", "fc-ci-runner-2"] },

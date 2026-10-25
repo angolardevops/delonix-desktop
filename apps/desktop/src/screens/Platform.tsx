@@ -11,7 +11,8 @@ import { Select } from "../components/Select";
 import { Chip, CliHint, ErrorNote, PageHead, Planned } from "../components/ui";
 import { cmd, type Argv } from "../lib/cli";
 import { useResource } from "../lib/hooks";
-import type { ClusterRow } from "../lib/types";
+import { imageHost, readRegistryAuths, type RegistryReadResult } from "../lib/registries";
+import type { ClusterRow, ImageRow } from "../lib/types";
 
 export function Workspaces() {
   const { client } = useApp();
@@ -34,80 +35,186 @@ export function Workspaces() {
   );
 }
 
-// Registries (§ registries). Liga a `image login`/`image logout` (delonix-oci).
+// Registries (§ registries) — FUNCIONAL (anatomia Docker/Podman Desktop) dentro
+// do que o engine 5.1.1 permite. Em vez de listar só a sessão, a tela LÊ o
+// `auth.json` persistido (`<root>/delonix/auth.json`, formato docker/podman) e
+// mostra o estado REAL das credenciais por registry; depois de cada login/logout
+// relê o ficheiro. Por registry cruza com as imagens LOCAIS (`image ls`) desse
+// host e oferece pull/push.
+//
 // CONSTRANGIMENTO: a password do login só entra por STDIN, nunca por argv — por
-// isso o login passa por um comando backend dedicado (`dlx_login`), não por
-// `dlx_run`. O `image logout` é argv normal (SafeWrite). O engine 5.1.1 NÃO tem
-// `image login --list`, por isso a lista mostra os registries autenticados
-// NESTA sessão (mais os que o utilizador acrescentar), com essa nota.
+// isso o login passa por um comando backend dedicado (`dlx_login`). O `image
+// logout` é argv normal (SafeWrite). SEGURANÇA: a password nunca é lida, mostrada
+// nem registada — do auth.json só se extrai o utilizador.
+// LIMITE HONESTO: o engine 5.1.1 NÃO tem catálogo remoto (`image ls-remote`),
+// mirror/pull-through nem promoção — só credenciais + pull/push.
 export function Registries() {
   const { client, act } = useApp();
+  const { data: imagesData, refresh: refreshImages } = useResource("images", () => client.images(), 15000);
+  const images = imagesData ?? [];
+
+  // Credenciais PERSISTIDAS (auth.json). Relidas após cada login/logout.
+  const [reg, setReg] = useState<RegistryReadResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
+  const reload = async () => {
+    setLoading(true);
+    try {
+      setReg(await readRegistryAuths());
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void reload(); }, []);
+
+  const registries = reg?.registries ?? [];
+  const authedHosts = new Set(registries.map((r) => r.registry));
+  const imagesOf = (host: string) => images.filter((i) => imageHost(i.ref) === host);
+  // Hosts com imagens locais mas SEM credencial guardada (sugestão de login).
+  const unauthedHosts = [...new Set(images.map((i) => imageHost(i.ref)))].filter((h) => !authedHosts.has(h)).sort();
+
+  const [selected, setSelected] = useState<string | null>(null);
+  const selImages = selected ? imagesOf(selected) : [];
+
+  // Login (Drawer; password por stdin).
   const [registry, setRegistry] = useState("ghcr.io");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  // Registries autenticados nesta sessão (o engine não expõe uma listagem).
-  const [session, setSession] = useState<{ registry: string; username: string }[]>([]);
   const [loginOpen, setLoginOpen] = useState(false);
+  const openLogin = (prefill?: string) => { if (prefill) setRegistry(prefill); setErr(null); setLoginOpen(true); };
 
   const login = () => {
-    const reg = registry.trim();
+    const r = registry.trim();
     const user = username.trim();
-    if (!reg || !user || !password) return;
+    if (!r || !user || !password) return;
     setErr(null);
     setMsg(null);
     setBusy(true);
     void client
-      .login(reg, user, password)
-      .then((r) => {
-        if (!r.ok) { setErr(r.stderr.trim() || `login falhou (código ${r.code})`); return; }
-        setSession((s) => [{ registry: reg, username: user }, ...s.filter((x) => x.registry !== reg)]);
-        setMsg(`Autenticado em ${reg} como ${user}.`);
+      .login(r, user, password)
+      .then(async (res) => {
+        if (!res.ok) { setErr(res.stderr.trim() || `login falhou (código ${res.code})`); return; }
         setPassword(""); // a password nunca fica retida na UI após o login
+        setUsername("");
         setLoginOpen(false);
+        setMsg(`Autenticado em ${r}. Credencial guardada no auth.json.`);
+        await reload(); // a lista reflete o estado REAL persistido, não a memória
       })
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false));
   };
 
-  const logout = (reg: string) =>
-    void act(cmd.imageLogout(reg), `Terminar sessão em ${reg}`).then((ok) => {
-      if (ok) setSession((s) => s.filter((x) => x.registry !== reg));
+  const logout = (host: string) =>
+    void act(cmd.imageLogout(host), `Terminar sessão em ${host}`).then(async (ok) => {
+      if (!ok) return;
+      if (selected === host) setSelected(null);
+      setMsg(`Sessão terminada em ${host}.`);
+      await reload();
     });
+
+  // Pull (Drawer). A referência pré-preenche o host selecionado.
+  const [pullRef, setPullRef] = useState("");
+  const [pullOpen, setPullOpen] = useState(false);
+  const openPull = (host?: string) => { setPullRef(host && host !== "docker.io" ? `${host}/` : ""); setPullOpen(true); };
+
+  const imgColumns: Column<ImageRow>[] = [
+    { key: "ref", header: "Repositório : tag", truncate: true, width: 300, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "id", header: "ID", truncate: true, width: 120, cellClassName: "mono muted" },
+    { key: "size", header: "Tamanho", cellClassName: "mono" },
+    { key: "usedBy", header: "Usada por", truncate: true, width: 180, render: (i) => (i.usedBy.length ? i.usedBy.join(", ") : <Chip tone="warn">sem uso</Chip>) },
+  ];
+
+  const columns: Column<RegistryRow>[] = [
+    { key: "registry", header: "Registry", truncate: true, width: 220, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
+    { key: "username", header: "Utilizador", cellClassName: "mono muted", render: (r) => r.username || <span className="muted">—</span> },
+    { key: "images", header: "Imagens locais", cellClassName: "mono muted", sortable: true, sortValue: (r) => r.images, render: (r) => r.images || "—" },
+    { key: "state", header: "Estado", render: () => <Chip tone="ok" dot>autenticado</Chip> },
+  ];
+  const rows: RegistryRow[] = registries.map((r) => ({ ...r, images: imagesOf(r.registry).length }));
 
   return (
     <>
-      <PageHead title="Registries" subtitle="Autenticação em registries OCI · login (password por stdin) e logout">
-        <button className="btn pri" type="button" onClick={() => setLoginOpen(true)}><Icon name="plus" size={13} /> Autenticar</button>
+      <PageHead title="Registries" subtitle="Credenciais OCI persistidas (auth.json) · login/logout, pull e push por registry">
+        <button className="btn" type="button" onClick={() => void reload()}><Icon name="restart" size={13} /> Atualizar</button>
+        <button className="btn" type="button" onClick={() => openPull()}><Icon name="download" size={13} /> Puxar imagem</button>
+        <button className="btn pri" type="button" onClick={() => openLogin()}><Icon name="plus" size={13} /> Autenticar</button>
       </PageHead>
-      <Planned what="Regras de encaminhamento, mirror pull-through, promoção e modo offline" dependsOn="configuração de registries no engine; hoje só há credenciais por registry (`image login`/`logout`, delonix-oci)" />
       <div className="note">
-        <span>Registries autenticados <b>nesta sessão</b>. O engine 5.1.1 guarda as credenciais em <span className="mono">auth.json</span> mas não expõe uma listagem (<span className="mono">image login --list</span> não existe), por isso a app só mostra os que foram autenticados aqui.</span>
+        <Chip tone="neu" dot>Limite do engine 5.1.1</Chip>
+        <span style={{ flex: "1 1 360px" }}>
+          Gere credenciais reais + <span className="mono">pull</span>/<span className="mono">push</span>. Não há catálogo remoto (<span className="mono">image ls-remote</span>), mirror pull-through nem promoção — o engine só guarda credenciais por registry e transfere imagens.
+        </span>
       </div>
-      {err && <ErrorNote error={err} />}
-      {msg && <div className="note" style={{ background: "var(--okb, rgba(0,160,80,.08))" }}><span>{msg}</span></div>}
-      <div className="table-wrap" style={{ marginTop: 14 }}>
-        <table>
-          <thead><tr><th>Registry</th><th>Utilizador</th><th>Estado</th><th style={{ textAlign: "right" }}>Ações</th></tr></thead>
-          <tbody>
-            {session.length === 0 && (
-              <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 24 }}>Sem registries autenticados nesta sessão.</td></tr>
-            )}
-            {session.map((s) => (
-              <tr key={s.registry}>
-                <td className="mono" style={{ color: "var(--tx)", fontWeight: 500 }}>{s.registry}</td>
-                <td className="mono muted">{s.username}</td>
-                <td><Chip tone="ok" dot>autenticado</Chip></td>
-                <td style={{ textAlign: "right" }}>
-                  <button className="btn sm" type="button" onClick={() => logout(s.registry)}>Terminar sessão</button>
-                </td>
-              </tr>
+      {reg?.error && <ErrorNote error={`Não foi possível ler o auth.json: ${reg.error}`} />}
+      {msg && <div className="note" role="status" style={{ background: "var(--okb, rgba(0,160,80,.08))" }}><span>{msg}</span></div>}
+      {reg && (
+        <p className="muted" style={{ fontSize: 11, margin: "10px 0 0" }}>
+          {reg.available
+            ? <>Lido de <span className="mono">{reg.path}</span>{loading ? " · a atualizar…" : ""}</>
+            : <>Fora da app de secretária (Tauri) não há filesystem — a mostrar uma amostra de exemplo.</>}
+        </p>
+      )}
+      <DataTable<RegistryRow>
+        columns={columns}
+        rows={rows}
+        getKey={(r) => r.registry}
+        searchPlaceholder="Pesquisar registry ou utilizador…"
+        searchLabel="Pesquisar registries"
+        searchText={(r) => `${r.registry} ${r.username}`}
+        empty={loading ? "A ler o auth.json…" : <>Sem registries autenticados. Autentica num com <span className="mono">Autenticar</span>.</>}
+        onRowDoubleClick={(r) => setSelected(r.registry)}
+        actions={(r) => (
+          <>
+            <button className="btn sm" type="button" onClick={() => setSelected(r.registry === selected ? null : r.registry)} title="Ver imagens locais deste registry"><Icon name="images" size={12} /> Imagens</button>
+            <button className="btn sm" type="button" onClick={() => logout(r.registry)} title="Remover a credencial guardada">Terminar sessão</button>
+          </>
+        )}
+      />
+
+      {unauthedHosts.length > 0 && (
+        <section className="section" style={{ marginTop: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 13 }}>Hosts com imagens locais, sem credencial</h2>
+          <div className="row" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+            {unauthedHosts.map((h) => (
+              <button key={h} className="btn sm" type="button" onClick={() => openLogin(h)} title={`Autenticar em ${h}`}>
+                <span className="mono">{h}</span> <span className="muted">· {imagesOf(h).length} · autenticar</span>
+              </button>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </section>
+      )}
+
+      {selected && (
+        <section className="section" style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <h2 style={{ margin: 0 }}>Imagens locais de <span className="mono">{selected}</span> <span className="muted">({selImages.length})</span></h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn sm" type="button" onClick={() => openPull(selected)}><Icon name="download" size={12} /> Puxar</button>
+              <button className="btn sm" type="button" onClick={() => setSelected(null)}><Icon name="close" size={12} /> Fechar</button>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <DataTable<ImageRow>
+              columns={imgColumns}
+              rows={selImages}
+              getKey={(i) => i.ref + i.id}
+              tieBreak={(i) => i.ref + i.id}
+              search={false}
+              pageSize={10}
+              empty={<>Sem imagens locais de <span className="mono">{selected}</span>. Puxa uma com <span className="mono">Puxar</span>.</>}
+              actions={(i) => (
+                <button className="btn sm" type="button" title={`Publicar ${i.ref} no registry`} onClick={() => void act(cmd.imagePush(i.ref), `Publicar ${i.ref}`).then((ok) => { if (ok) setMsg(`Publicada ${i.ref}.`); })}>
+                  <Icon name="up" size={12} /> Publicar
+                </button>
+              )}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* Autenticar (login) — password por stdin */}
       <Drawer open={loginOpen} onClose={() => setLoginOpen(false)} title="Autenticar num registry">
         <section className="section">
           <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -123,16 +230,40 @@ export function Registries() {
             <input className="input mono" type="password" value={password} placeholder="••••••••" onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") login(); }} />
           </label>
+          {err && <ErrorNote error={err} />}
           <button className="btn pri" type="button" disabled={busy || !registry.trim() || !username.trim() || !password} onClick={login}>
             {busy ? "A autenticar…" : "Autenticar"}
           </button>
           <p className="muted" style={{ fontSize: 11, margin: 0 }}>
-            A password segue por <span className="mono">stdin</span> (nunca pela linha de comando) e não é guardada na app. Equivale a: <span className="mono">printf … | delonix image login {registry.trim() || "&lt;registry&gt;"} -u {username.trim() || "&lt;user&gt;"} --password-stdin</span>
+            A password segue por <span className="mono">stdin</span> (nunca pela linha de comando) e não é guardada na app. Equivale a: <span className="mono">printf … | delonix image login {registry.trim() || "<registry>"} -u {username.trim() || "<user>"} --password-stdin</span>
           </p>
+        </section>
+      </Drawer>
+
+      {/* Puxar imagem (pull) */}
+      <Drawer open={pullOpen} onClose={() => setPullOpen(false)} title="Puxar imagem">
+        <section className="section">
+          <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            Referência
+            <input className="input mono" value={pullRef} placeholder="ghcr.io/angolardevops/delonix-runtime:edge" onChange={(e) => setPullRef(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && pullRef.trim()) void act(cmd.pull(pullRef.trim()), `Puxar ${pullRef.trim()}`).then((ok) => { if (ok) { setPullOpen(false); void refreshImages(); } }); }} />
+          </label>
+          <button className="btn pri" type="button" disabled={!pullRef.trim()} onClick={() => void act(cmd.pull(pullRef.trim()), `Puxar ${pullRef.trim()}`).then((ok) => { if (ok) { setPullOpen(false); void refreshImages(); } })}>Puxar</button>
+          {pullRef.trim() && <CliHint argv={cmd.pull(pullRef.trim())} compact />}
+          <p className="muted" style={{ fontSize: 11, margin: 0 }}>Usa a credencial guardada do host da referência, se existir. Imagens privadas exigem login primeiro.</p>
         </section>
       </Drawer>
     </>
   );
+}
+
+// Linha da tabela de registries: a credencial persistida + a contagem de imagens
+// locais desse host (cruzamento com `image ls`).
+interface RegistryRow {
+  registry: string;
+  username: string;
+  hasCredential: boolean;
+  images: number;
 }
 
 // Kubernetes/Clusters (§E) — OPERÁVEL (anatomia Docker/Podman Desktop). Lista os
