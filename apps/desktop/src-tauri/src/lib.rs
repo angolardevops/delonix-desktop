@@ -49,6 +49,16 @@ fn dlx_risk(args: Vec<String>) -> Option<Risk> {
     cli::classify(&args)
 }
 
+/// kubectl de LEITURA contra o kubeconfig em cache de um cluster (ver nós, pods,
+/// namespaces, logs). O engine 5.1.1 não tem `cluster kubectl` passthrough, por
+/// isso corre o `kubectl` do sistema; o subcomando é REVALIDADO aqui como
+/// só-leitura (`cli::kubectl_read_only`), nunca entrando pela allowlist genérica
+/// do `dlx_run` (que permitiria kubectl destrutivo). Falha fechada.
+#[tauri::command]
+async fn dlx_kubectl(cluster: String, args: Vec<String>) -> Result<CliResult, String> {
+    cli::kubectl(&cluster, &args).await
+}
+
 /// Caminho do binário em uso, para a barra de estado.
 #[tauri::command]
 fn dlx_bin() -> String {
@@ -97,6 +107,7 @@ pub fn run() {
             dlx_run,
             dlx_login,
             dlx_risk,
+            dlx_kubectl,
             dlx_bin,
             dlx_home_dir,
             dlx_save_text,

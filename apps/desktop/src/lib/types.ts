@@ -301,6 +301,32 @@ export interface ClusterRow {
   k8sVersion: string;
 }
 
+// --- Recursos DENTRO de um cluster (kubectl READ) ---------------------------
+// O engine 5.1.1 não tem `cluster kubectl` passthrough, por isso estes vêm de
+// correr o `kubectl` do sistema contra o kubeconfig em cache (comando backend
+// `dlx_kubectl`, só-leitura). Formas NORMALIZADas a partir do `-o json` do
+// kubectl (`items[]`), tolerantes a campos em falta.
+
+// Um nó do cluster (`kubectl get nodes -o json`).
+export interface K8sNode {
+  name: string;
+  ready: boolean; // condição Ready == "True"
+  status: string; // "Ready" | "NotReady"
+  schedulable: boolean; // !spec.unschedulable (false = cordonado)
+  roles: string[]; // control-plane, worker… (das labels node-role.kubernetes.io/*)
+  version: string; // kubeletVersion (status.nodeInfo)
+}
+
+// Um pod do cluster (`kubectl get pods -A -o json`).
+export interface K8sPod {
+  namespace: string;
+  name: string;
+  phase: string; // Running | Pending | Succeeded | Failed | Unknown
+  ready: string; // "2/2" (containers prontos / total)
+  restarts: number; // soma dos restartCount dos containers
+  node: string; // spec.nodeName (onde está agendado)
+}
+
 // Um serviço de `compose ps` (TEXTO). Colunas: SERVICE NAME IMAGE STATUS.
 export interface ComposeService {
   service: string;

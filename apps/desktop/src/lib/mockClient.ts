@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -219,10 +219,52 @@ const mockPlan = (): StackPlanRow[] => stackApplied
       { kind: "Container", name: "api", action: "create", changed: true, diffs: 0, planDigest: "33445566" },
     ];
 
-const mockClusters: ClusterRow[] = [
+let mockClusters: ClusterRow[] = [
   { name: "dev", mode: "kind", state: "up", controlPlanes: "1", workers: "2", apiPort: "40219", k8sVersion: "v1.31.0" },
   { name: "lab", mode: "vm", state: "2/3 up", controlPlanes: "3", workers: "1", apiPort: "6443", k8sVersion: "v1.31.2" },
 ];
+
+// Nós cordonados no duplo local (drain/uncordon), por `${cluster}/${node}`.
+const drained = new Set<string>();
+
+// Nós de um cluster derivados das contagens CP/workers (os clusters criados no
+// duplo local também ganham nós). O 1º control-plane hospeda os pods de sistema.
+const mockNodes = (c: ClusterRow): K8sNode[] => {
+  const cp = Math.max(1, Number(c.controlPlanes) || 1);
+  const wk = Math.max(0, Number(c.workers) || 0);
+  const nodes: K8sNode[] = [];
+  for (let i = 0; i < cp; i++) {
+    const name = i === 0 ? `${c.name}-control-plane` : `${c.name}-control-plane${i + 1}`;
+    nodes.push({ name, ready: true, status: "Ready", schedulable: !drained.has(`${c.name}/${name}`), roles: ["control-plane"], version: c.k8sVersion });
+  }
+  for (let i = 0; i < wk; i++) {
+    const name = i === 0 ? `${c.name}-worker` : `${c.name}-worker${i + 1}`;
+    nodes.push({ name, ready: true, status: "Ready", schedulable: !drained.has(`${c.name}/${name}`), roles: ["<none>"], version: c.k8sVersion });
+  }
+  return nodes;
+};
+
+const K8S_NAMESPACES = ["default", "kube-system", "kube-public", "kube-node-lease", "local-path-storage"];
+
+// Pods de um cluster: os de sistema (kube-system) no 1º control-plane + uma app
+// no default. Filtra por namespace quando pedido.
+const mockPods = (c: ClusterRow, namespace?: string): K8sPod[] => {
+  const cpNode = `${c.name}-control-plane`;
+  const wkNode = Number(c.workers) > 0 ? `${c.name}-worker` : cpNode;
+  const all: K8sPod[] = [
+    { namespace: "kube-system", name: `coredns-5d78c9869d-abcde`, phase: "Running", ready: "1/1", restarts: 0, node: cpNode },
+    { namespace: "kube-system", name: `coredns-5d78c9869d-fghij`, phase: "Running", ready: "1/1", restarts: 0, node: cpNode },
+    { namespace: "kube-system", name: `etcd-${cpNode}`, phase: "Running", ready: "1/1", restarts: 0, node: cpNode },
+    { namespace: "kube-system", name: `kube-apiserver-${cpNode}`, phase: "Running", ready: "1/1", restarts: 0, node: cpNode },
+    { namespace: "kube-system", name: `kube-proxy-${c.name}-x7k2p`, phase: "Running", ready: "1/1", restarts: 1, node: wkNode },
+    { namespace: "local-path-storage", name: `local-path-provisioner-6bc4bddd6b-qr7st`, phase: "Running", ready: "1/1", restarts: 0, node: cpNode },
+    { namespace: "default", name: `nginx-7854ff8599-2m4kd`, phase: "Running", ready: "1/1", restarts: 0, node: wkNode },
+    { namespace: "default", name: `nginx-7854ff8599-9p8zx`, phase: "Pending", ready: "0/1", restarts: 0, node: "" },
+  ];
+  return namespace ? all.filter((p) => p.namespace === namespace) : all;
+};
+
+const findCluster = (name: string): ClusterRow | undefined => mockClusters.find((c) => c.name === name);
 
 const mockCompose: ComposeService[] = [
   { service: "web", name: "shop-web-1", image: "docker.io/library/nginx:alpine", status: "Running" },
@@ -252,6 +294,11 @@ const RISK: [string[], RiskLevel][] = [
   // Camada declarativa (§E): apply/up escrevem; destroy/down apagam recursos vivos.
   [["stack", "apply"], "SAFE_WRITE"], [["compose", "up"], "SAFE_WRITE"],
   [["stack", "destroy"], "DESTRUCTIVE"], [["compose", "down"], "DESTRUCTIVE"],
+  // Clusters/Kubernetes (kind-mode operável): create/start/load escrevem;
+  // stop/drain/uncordon interrompem carga viva; destroy apaga o cluster inteiro.
+  [["cluster", "create"], "SAFE_WRITE"], [["cluster", "start"], "SAFE_WRITE"], [["cluster", "load"], "SAFE_WRITE"],
+  [["cluster", "stop"], "DISRUPTIVE"], [["cluster", "drain"], "DISRUPTIVE"], [["cluster", "uncordon"], "DISRUPTIVE"],
+  [["cluster", "destroy"], "DESTRUCTIVE"],
 ];
 const riskOf = (argv: Argv) => RISK.find(([p]) => p.every((t, i) => argv[i] === t))?.[1] ?? null;
 
@@ -282,6 +329,32 @@ export class MockClient implements DelonixClient {
   doctor = () => wait(doctorItems);
   stackPlan = (_manifest?: string) => wait(mockPlan());
   clusters = (_all?: boolean) => wait(mockClusters);
+
+  // Recursos DENTRO de um cluster (kubectl READ), simulados.
+  async clusterNodes(cluster: string): Promise<K8sNode[]> {
+    const c = findCluster(cluster);
+    if (!c) throw new Error(`cluster ${cluster} não encontrado (duplo local)`);
+    return wait(mockNodes(c));
+  }
+  async clusterPods(cluster: string, namespace?: string): Promise<K8sPod[]> {
+    const c = findCluster(cluster);
+    if (!c) throw new Error(`cluster ${cluster} não encontrado (duplo local)`);
+    return wait(mockPods(c, namespace));
+  }
+  async clusterNamespaces(cluster: string): Promise<string[]> {
+    if (!findCluster(cluster)) throw new Error(`cluster ${cluster} não encontrado (duplo local)`);
+    return wait(K8S_NAMESPACES);
+  }
+  async clusterPodLogs(cluster: string, pod: string, namespace: string, _tail = 500): Promise<string> {
+    void _tail;
+    if (!findCluster(cluster)) throw new Error(`cluster ${cluster} não encontrado (duplo local)`);
+    return wait(
+      [
+        `duplo local — logs simulados de ${pod} (${namespace})`,
+        ...LOG,
+      ].join("\n") + "\n",
+    );
+  }
   composePs = (_file?: string) => wait(mockCompose);
   risk = (argv: Argv) => wait(riskOf(argv));
 
@@ -345,6 +418,42 @@ export class MockClient implements DelonixClient {
     if (argv[0] === "compose") {
       return wait({ ...base, ok: true, code: 0, stdout: argv[1] === "up" ? "compose up: 3 service(s) started\n" : "compose down: removed 3 container(s)\n" });
     }
+    // Operações de cluster (kind-mode) no duplo local.
+    if (argv[0] === "cluster") {
+      const sub = argv[1];
+      const flag = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+      if (sub === "create") {
+        const name = flag("--name") ?? `rei-${Math.random().toString(36).slice(2, 6)}`;
+        if (!mockClusters.some((c) => c.name === name)) {
+          mockClusters = [...mockClusters, {
+            name, mode: "kind", state: "up",
+            controlPlanes: flag("--control-planes") ?? "1",
+            workers: flag("--workers") ?? "0",
+            apiPort: flag("--api-port") ?? "6443",
+            k8sVersion: "v1.31.0",
+          }];
+        }
+        return wait({ ...base, ok: true, code: 0, stdout: `cluster ${name} criado\n` });
+      }
+      if (sub === "destroy") {
+        const name = argv[2] && !argv[2].startsWith("-") ? argv[2] : "";
+        mockClusters = mockClusters.filter((c) => c.name !== name);
+        return wait({ ...base, ok: true, code: 0, stdout: `cluster ${name} removido\n` });
+      }
+      if (sub === "start" || sub === "stop") {
+        const name = argv[2] && !argv[2].startsWith("-") ? argv[2] : "";
+        mockClusters = mockClusters.map((c) => (c.name === name ? { ...c, state: sub === "start" ? "up" : "stopped" } : c));
+        return wait({ ...base, ok: true, code: 0, stdout: `cluster ${name} ${sub === "start" ? "iniciado" : "parado"}\n` });
+      }
+      if (sub === "drain" || sub === "uncordon") {
+        const node = argv[2];
+        const cluster = flag("--name") ?? "";
+        const key = `${cluster}/${node}`;
+        if (sub === "drain") drained.add(key); else drained.delete(key);
+        return wait({ ...base, ok: true, code: 0, stdout: `node/${node} ${sub === "drain" ? "cordoned, evicted" : "uncordoned"}\n` });
+      }
+      if (sub === "load") return wait({ ...base, ok: true, code: 0, stdout: "imagem(ns) carregada(s) nos nós\n" });
+    }
     // Mutações de Redes (§8.6) no duplo local.
     if (argv[0] === "network") {
       const sub = argv[1];
@@ -391,6 +500,37 @@ export class MockClient implements DelonixClient {
   }
 
   async stream(_id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void) {
+    // `cluster create` simulado: emite o progresso do bootstrap e TERMINA,
+    // acrescentando o cluster à lista (como o engine faria ao concluir).
+    if (argv[0] === "cluster" && argv[1] === "create") {
+      const flag = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+      const name = flag("--name") ?? `rei-${Math.random().toString(36).slice(2, 6)}`;
+      const steps = [
+        `• a criar o cluster kind-mode '${name}' (sem Docker)`,
+        "• a arrancar o nó control-plane (kindest/node)",
+        "• kubeadm init — a escrever os certificados e o control-plane estático",
+        "• a instalar o CNI (kindnet)",
+        "• a juntar os nós worker",
+        "• a exportar o kubeconfig e a juntar a ~/.kube/config",
+        `✓ cluster '${name}' pronto — delonix cluster kubeconfig ${name}`,
+      ];
+      let i = 0;
+      const t = setInterval(() => {
+        if (i < steps.length) { onLine(steps[i++]); return; }
+        clearInterval(t);
+        if (!mockClusters.some((c) => c.name === name)) {
+          mockClusters = [...mockClusters, {
+            name, mode: "kind", state: "up",
+            controlPlanes: flag("--control-planes") ?? "1",
+            workers: flag("--workers") ?? "0",
+            apiPort: flag("--api-port") ?? "6443",
+            k8sVersion: "v1.31.0",
+          }];
+        }
+        onEnd?.();
+      }, 500);
+      return () => clearInterval(t);
+    }
     // Um `build` simulado: emite algumas linhas e TERMINA (dispara onEnd). Os
     // fluxos infinitos (logs/eventos) continuam a correr até se parar.
     if (argv[0] === "build") {

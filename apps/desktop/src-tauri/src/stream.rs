@@ -29,6 +29,10 @@ const STREAMABLE: &[&[&str]] = &[
     &["system", "events"],
     &["pod", "logs"],
     &["build"],
+    // `cluster create` arranca um cluster kind-mode (bootstrap kubeadm) e emite
+    // progresso demorado — a tela Kubernetes mostra-o ao vivo. Classificado
+    // SafeWrite em cli.rs (não destrói nada); aqui ganha a via de STREAM.
+    &["cluster", "create"],
 ];
 
 fn allowed(args: &[String]) -> bool {
@@ -51,17 +55,34 @@ pub async fn dlx_stream_start(
         .args(&args)
         .env("NO_COLOR", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        // stderr é CAPTURADO (não descartado): o progresso de `cluster create` e
+        // os erros de `build` saem por aí — a UI mostra tudo no mesmo painel.
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("não foi possível iniciar `delonix`: {e}"))?;
     let stdout = child.stdout.take().ok_or("o processo não tem stdout")?;
+    let stderr = child.stderr.take();
 
     {
         let mut map = streams.0.lock().map_err(|_| "estado dos fluxos corrompido")?;
         if let Some(mut old) = map.insert(id.clone(), child) {
             let _ = old.start_kill();
         }
+    }
+
+    // stderr corre numa task à parte, emitindo para o MESMO evento `dlx-stream`
+    // (linhas interleaved). Não emite `-end`: o fim é marcado quando o stdout
+    // fecha (o processo terminou).
+    if let Some(stderr) = stderr {
+        let app_err = app.clone();
+        let id_err = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = app_err.emit("dlx-stream", Line { id: id_err.clone(), line });
+            }
+        });
     }
 
     tauri::async_runtime::spawn(async move {
@@ -92,11 +113,12 @@ mod tests {
     }
 
     #[test]
-    fn streamable_allows_logs_events_pod_logs_and_build() {
+    fn streamable_allows_logs_events_pod_logs_build_and_cluster_create() {
         assert!(allowed(&v("container logs -f odoo-16")));
         assert!(allowed(&v("system events -f -o json")));
         assert!(allowed(&v("pod logs -f web")));
         assert!(allowed(&v("build -t app:v1 .")));
+        assert!(allowed(&v("cluster create --name dev --workers 2")));
     }
 
     #[test]

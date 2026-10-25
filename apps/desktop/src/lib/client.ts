@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -39,6 +39,13 @@ export interface DelonixClient {
   // Clusters/Kubernetes: `cluster ls` é TEXTO (sem -o json no 5.1.1); parseado
   // por nome de coluna. `all` inclui clusters totalmente parados (-A).
   clusters(all?: boolean): Promise<ClusterRow[]>;
+  // Recursos DENTRO de um cluster (kubectl READ, pela cache do kubeconfig). Só
+  // leitura: ver nós, pods, namespaces e logs — nunca mutações. O backend
+  // (`dlx_kubectl`) revalida cada subcomando como só-leitura.
+  clusterNodes(cluster: string): Promise<K8sNode[]>;
+  clusterPods(cluster: string, namespace?: string): Promise<K8sPod[]>;
+  clusterNamespaces(cluster: string): Promise<string[]>;
+  clusterPodLogs(cluster: string, pod: string, namespace: string, tail?: number): Promise<string>;
   // Compose: `compose ps` é TEXTO (SERVICE NAME IMAGE STATUS); opera num ficheiro.
   composePs(file?: string): Promise<ComposeService[]>;
   // Comandos declarativos só-texto (stack describe/validate/history, compose

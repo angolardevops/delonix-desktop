@@ -132,13 +132,58 @@ export const cmd = {
     "manifest", "validate", "-f", file, ...(strict ? ["--strict"] : []),
   ],
 
-  // Clusters/Kubernetes: `ls` é TEXTO (sem `-o json` no 5.1.1 — `get clusters`
-  // recusa `-o json` explicitamente); `health`/`kubeconfig`/`kube generate`
-  // imprimem texto/YAML. NÃO há `cluster status` em 5.1.1 (usar `health`).
+  // Clusters/Kubernetes: `ls` é TEXTO (sem `-o json` no 5.1.1 — recusa `-o`
+  // explicitamente); `health`/`kubeconfig`/`kube generate` imprimem texto/YAML.
+  // NÃO há `cluster status` em 5.1.1 (usar `health`). Verbos confirmados por
+  // `--help` no 5.1.1.
   clustersLs: (all?: boolean): Argv => ["cluster", "ls", ...(all ? ["-A"] : [])],
   clusterHealth: (name?: string): Argv => ["cluster", "health", ...(name ? [name] : [])],
   clusterKubeconfig: (name?: string): Argv => ["cluster", "kubeconfig", ...(name ? [name] : [])],
   clusterKubeGenerate: (name: string): Argv => ["cluster", "kube", "generate", name],
+
+  // --- Operar o cluster (kind-mode), como no Docker/Podman Desktop -----------
+  // `create` arranca um cluster SEM manifesto e SEM Docker (nós no engine +
+  // bootstrap kubeadm). Corre pela via de STREAM (logs ao vivo). Sem flags = 1
+  // control-plane pronto. `--workers 0` = control-plane não-tainted (agenda
+  // tudo). Confirmado por `cluster create --help` no 5.1.1.
+  clusterCreate: (o: {
+    name?: string;
+    apiPort?: string;
+    workers?: number;
+    controlPlanes?: number;
+    cni?: string; // "default" (kindnet) | "none"
+    podSubnet?: string;
+    serviceSubnet?: string;
+    image?: string;
+  }): Argv => [
+    "cluster", "create",
+    ...(o.name && o.name.trim() ? ["--name", o.name.trim()] : []),
+    ...(o.apiPort && o.apiPort.trim() ? ["--api-port", o.apiPort.trim()] : []),
+    ...(o.workers != null ? ["--workers", String(o.workers)] : []),
+    ...(o.controlPlanes != null ? ["--control-planes", String(o.controlPlanes)] : []),
+    ...(o.cni ? ["--cni", o.cni] : []),
+    ...(o.podSubnet && o.podSubnet.trim() ? ["--pod-subnet", o.podSubnet.trim()] : []),
+    ...(o.serviceSubnet && o.serviceSubnet.trim() ? ["--service-subnet", o.serviceSubnet.trim()] : []),
+    ...(o.image && o.image.trim() ? ["--image", o.image.trim()] : []),
+  ],
+  // `destroy` remove o cluster inteiro. `-f` salta o prompt do CLI (bloquearia
+  // sem TTY no backend) — a confirmação é a da app (Destructive).
+  clusterDestroy: (name: string): Argv => ["cluster", "destroy", name, "-f"],
+  clusterStart: (name?: string): Argv => ["cluster", "start", ...(name ? [name] : [])],
+  clusterStop: (name?: string): Argv => ["cluster", "stop", ...(name ? [name] : [])],
+  // `drain` cordona um nó e despeja os seus pods (API Kubernetes pura, pela
+  // cache do kubeconfig). `NODE` é o nome como em `kubectl get nodes`.
+  clusterDrain: (node: string, cluster: string, o?: { ignoreDaemonsets?: boolean; deleteEmptydirData?: boolean; force?: boolean }): Argv => [
+    "cluster", "drain", node, "--name", cluster,
+    ...(o?.ignoreDaemonsets ? ["--ignore-daemonsets"] : []),
+    ...(o?.deleteEmptydirData ? ["--delete-emptydir-data"] : []),
+    ...(o?.force ? ["--force"] : []),
+  ],
+  clusterUncordon: (node: string, cluster: string): Argv => ["cluster", "uncordon", node, "--name", cluster],
+  // `load` importa imagens locais para os nós (sem registry), estilo `kind load`.
+  clusterLoad: (images: string[], cluster?: string): Argv => [
+    "cluster", "load", ...images, ...(cluster ? ["--name", cluster] : []),
+  ],
 
   // --- Redes (§8.6). Verbos AGRUPADOS, confirmados por `--help` no 5.1.1.
   // `network ls -o json` já está em `networks()`. Aqui ficam o detalhe, o
@@ -181,5 +226,23 @@ export const cmd = {
     ...(o.cpus ? ["--cpus", o.cpus] : []),
     ...(o.restart ? ["--restart", o.restart] : []),
     o.image,
+  ],
+};
+
+// --- kubectl READ (recursos DENTRO de um cluster) ---------------------------
+// Argv do `kubectl` (NÃO do delonix) para o comando backend `dlx_kubectl`, que
+// corre o kubectl do sistema contra o kubeconfig em cache. SÓ verbos de LEITURA
+// são montados aqui — e o backend revalida (defesa em profundidade). Não passam
+// por `show()`/CliHint (que assumem o prefixo `delonix`).
+export const kubectl = {
+  getNodes: (): Argv => ["get", "nodes", "-o", "json"],
+  // Sem namespace = todos (-A); com namespace = só esse (-n).
+  getPods: (namespace?: string): Argv => [
+    "get", "pods", ...(namespace ? ["-n", namespace] : ["-A"]), "-o", "json",
+  ],
+  getNamespaces: (): Argv => ["get", "namespaces", "-o", "json"],
+  // Logs de um pod: últimas `tail` linhas (one-shot; a UI reatualiza a pedido).
+  logs: (pod: string, namespace: string, tail = 500): Argv => [
+    "logs", pod, "-n", namespace, "--tail", String(tail),
   ],
 };

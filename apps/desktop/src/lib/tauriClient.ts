@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DelonixClient, ExecSession } from "./client";
-import { cmd, type Argv } from "./cli";
+import { cmd, kubectl, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import { parseDescribeMembers } from "./network";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -156,6 +156,51 @@ const toVm = (o: Obj): VmDetail => {
     vcpus: num(spec, "vcpus") ?? 0,
     memoryBytes: num(spec, "memory_bytes") ?? 0,
     image: str(spec, "image"),
+  };
+};
+
+// --- Normalização do `-o json` do kubectl (items[]) ------------------------
+// Um nó: nome, condição Ready, agendável (!unschedulable), papéis (das labels
+// node-role.kubernetes.io/*) e versão do kubelet.
+const toK8sNode = (o: Obj): K8sNode => {
+  const meta = (pick(o, "metadata") ?? {}) as Obj;
+  const spec = (pick(o, "spec") ?? {}) as Obj;
+  const status = (pick(o, "status") ?? {}) as Obj;
+  const conds = asArray(pick(status, "conditions"));
+  const readyCond = conds.find((c) => str(c, "type") === "Ready");
+  const ready = str(readyCond ?? {}, "status") === "True";
+  const labels = (pick(meta, "labels") ?? {}) as Obj;
+  const roles = Object.keys(labels)
+    .map((k) => /^node-role\.kubernetes\.io\/(.+)$/.exec(k)?.[1])
+    .filter((r): r is string => Boolean(r));
+  const nodeInfo = (pick(status, "nodeInfo") ?? {}) as Obj;
+  const schedulable = !(bool(spec, "unschedulable") ?? false);
+  return {
+    name: str(meta, "name"),
+    ready,
+    status: ready ? "Ready" : "NotReady",
+    schedulable,
+    roles: roles.length ? roles : ["<none>"],
+    version: str(nodeInfo, "kubeletVersion"),
+  };
+};
+
+// Um pod: namespace/nome, fase, prontos/total, soma de restarts e nó agendado.
+const toK8sPod = (o: Obj): K8sPod => {
+  const meta = (pick(o, "metadata") ?? {}) as Obj;
+  const spec = (pick(o, "spec") ?? {}) as Obj;
+  const status = (pick(o, "status") ?? {}) as Obj;
+  const cs = asArray(pick(status, "containerStatuses"));
+  const total = cs.length;
+  const readyN = cs.filter((c) => bool(c, "ready") === true).length;
+  const restarts = cs.reduce((sum, c) => sum + (num(c, "restartCount") ?? 0), 0);
+  return {
+    namespace: str(meta, "namespace") || "default",
+    name: str(meta, "name"),
+    phase: str(status, "phase") || "Unknown",
+    ready: `${readyN}/${total}`,
+    restarts,
+    node: str(spec, "nodeName"),
   };
 };
 
@@ -448,6 +493,40 @@ export class TauriClient implements DelonixClient {
         k8sVersion: colOf(header, row, "K8S VERSION"),
       }))
       .filter((c) => c.name);
+  }
+
+  // --- Recursos DENTRO de um cluster (kubectl READ) -----------------------
+  // Corre o kubectl do sistema contra o kubeconfig em cache (backend
+  // `dlx_kubectl`, só-leitura). Lança com o stderr do kubectl quando falha.
+  private async kubectlJson(cluster: string, args: Argv): Promise<Obj> {
+    const r = await invoke<CliResult>("dlx_kubectl", { cluster, args });
+    if (!r.ok) throw new Error(r.stderr.trim() || `kubectl saiu com código ${r.code}`);
+    try {
+      return (JSON.parse(r.stdout) as Obj) ?? {};
+    } catch {
+      throw new Error(r.stderr.trim() || "kubectl: saída não-JSON");
+    }
+  }
+
+  async clusterNodes(cluster: string): Promise<K8sNode[]> {
+    const o = await this.kubectlJson(cluster, kubectl.getNodes());
+    return asArray(o.items).map(toK8sNode);
+  }
+
+  async clusterPods(cluster: string, namespace?: string): Promise<K8sPod[]> {
+    const o = await this.kubectlJson(cluster, kubectl.getPods(namespace));
+    return asArray(o.items).map(toK8sPod);
+  }
+
+  async clusterNamespaces(cluster: string): Promise<string[]> {
+    const o = await this.kubectlJson(cluster, kubectl.getNamespaces());
+    return asArray(o.items).map((n) => str((pick(n, "metadata") ?? {}) as Obj, "name")).filter(Boolean);
+  }
+
+  async clusterPodLogs(cluster: string, pod: string, namespace: string, tail = 500): Promise<string> {
+    const r = await invoke<CliResult>("dlx_kubectl", { cluster, args: kubectl.logs(pod, namespace, tail) });
+    if (!r.ok) throw new Error(r.stderr.trim() || `kubectl logs saiu com código ${r.code}`);
+    return r.stdout;
   }
 
   // `compose ps` é TEXTO: SERVICE NAME IMAGE STATUS.

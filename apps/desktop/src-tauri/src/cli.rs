@@ -108,6 +108,15 @@ const RULES: &[(&[&str], Risk)] = &[
     // reversível (basta `disconnect`) e não para nada → SafeWrite.
     (&["network", "connect"], Risk::SafeWrite),
     (&["container", "run"], Risk::SafeWrite),
+    // Clusters/Kubernetes — escrita segura (§E). `cluster create` arranca um
+    // cluster kind-mode (nós no próprio engine + bootstrap kubeadm) SEM destruir
+    // nada → SafeWrite; corre pela via de STREAM (stream.rs) para os logs ao
+    // vivo. `cluster start` religa um cluster parado. `cluster load` importa
+    // imagens locais para os nós (sem registry). Confirmados por `--help` no
+    // 5.1.1.
+    (&["cluster", "create"], Risk::SafeWrite),
+    (&["cluster", "start"], Risk::SafeWrite),
+    (&["cluster", "load"], Risk::SafeWrite),
     // Pods (§8): criar de um manifesto (`kind: Pod`). O pod aparece depois em
     // Workloads (type=pod); `workload stop/rm` já cobrem o ciclo de vida. NÃO há
     // flags soltas — é sempre por ficheiro (`pod create -f <manifesto>`). Criar
@@ -136,6 +145,13 @@ const RULES: &[(&[&str], Risk)] = &[
     // `network disconnect` retira a conectividade do container NAQUELA rede
     // (recusa na primária) — interrompe tráfego vivo → disruptiva (§8.6).
     (&["network", "disconnect"], Risk::Disruptive),
+    // Clusters/Kubernetes — disruptivas (§E). `cluster stop` pára todos os nós
+    // (sem rebuild, sem perder estado); `cluster drain` cordona um nó e despeja
+    // os seus pods; `cluster uncordon` mexe no agendamento do nó. Nenhuma apaga
+    // o cluster, mas todas interrompem/alteram carga viva → pedem confirmação.
+    (&["cluster", "stop"], Risk::Disruptive),
+    (&["cluster", "drain"], Risk::Disruptive),
+    (&["cluster", "uncordon"], Risk::Disruptive),
     // `backup restore` sobrepõe o estado vivo do recurso → disruptiva (§E).
     (&["backup", "restore"], Risk::Disruptive),
     // Destrutivas
@@ -153,6 +169,12 @@ const RULES: &[(&[&str], Risk)] = &[
     // e, com `-v`, os volumes nomeados (perda de dados). Pede confirmação.
     (&["stack", "destroy"], Risk::Destructive),
     (&["compose", "down"], Risk::Destructive),
+    // `cluster destroy` remove o cluster INTEIRO — nós, kubeconfig em cache,
+    // entrada em ~/.kube/config e (kind-mode / VM sem --network) a rede que ele
+    // próprio criou. É irreversível → Destructive, pede confirmação. A UI emite
+    // sempre `-f` (salta o prompt do próprio CLI, que bloquearia sem TTY): a
+    // confirmação é a da app (ConfirmDialog), não a do terminal.
+    (&["cluster", "destroy"], Risk::Destructive),
 ];
 
 pub fn classify(args: &[String]) -> Option<Risk> {
@@ -248,6 +270,142 @@ pub async fn login(registry: &str, username: &str, password: &str) -> Result<Cli
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         argv,
+    })
+}
+
+// --- kubectl READ passthrough (Kubernetes) ---------------------------------
+//
+// SEGURANÇA. O engine 5.1.1 NÃO tem um `cluster kubectl` passthrough (ver
+// `cluster --help`), por isso ver os recursos DENTRO de um cluster (nós, pods,
+// namespaces, logs) faz-se correndo o `kubectl` do SISTEMA contra o kubeconfig
+// em CACHE do cluster — exatamente o padrão que o próprio engine já usa em
+// `cluster drain`/`uncordon` ("nunca reinventar um cliente que já existe").
+//
+// O risco de um passthrough é deixar passar um verbo DESTRUTIVO (apply/delete/
+// edit/scale/patch/exec…). Fecha-se em DOIS pontos: o construtor em `cli.ts` só
+// monta verbos de leitura, E aqui o backend REVALIDA (defesa em profundidade) —
+// o primeiro token posicional tem de estar na allowlist de leitura, e nenhum
+// argumento pode redefinir a identidade/alvo (`--kubeconfig`, `--server`,
+// `--token`, `--as`, certificados), que nós fixamos. Falha fechada.
+const KUBECTL_READ_VERBS: &[&str] = &[
+    "get",
+    "describe",
+    "logs",
+    "top",
+    "version",
+    "api-resources",
+    "cluster-info",
+    "explain",
+    "events",
+];
+
+// Prefixos de argumento que NÃO podem vir do renderer: redefiniriam o alvo ou a
+// identidade que fixamos (o `--kubeconfig` da cache). Recusados por nome.
+const KUBECTL_FORBIDDEN_FLAGS: &[&str] = &[
+    "--kubeconfig",
+    "--server",
+    "--token",
+    "--as",
+    "--as-group",
+    "--client-certificate",
+    "--client-key",
+    "--username",
+    "--password",
+    "--insecure-skip-tls-verify",
+];
+
+/// O primeiro token posicional (o subcomando) é um verbo de LEITURA e nenhum
+/// argumento tenta redefinir identidade/alvo. Puro — isolado para ser testável.
+pub fn kubectl_read_only(args: &[String]) -> bool {
+    if args
+        .iter()
+        .any(|a| KUBECTL_FORBIDDEN_FLAGS.iter().any(|f| a == f || a.starts_with(&format!("{f}="))))
+    {
+        return false;
+    }
+    match args.iter().find(|a| !a.starts_with('-')) {
+        Some(sub) => KUBECTL_READ_VERBS.contains(&sub.as_str()),
+        None => false,
+    }
+}
+
+/// O binário `kubectl`: `$KUBECTL_BIN`, senão o que estiver no PATH.
+fn kubectl_bin() -> PathBuf {
+    std::env::var_os("KUBECTL_BIN")
+        .map(PathBuf::from)
+        .or_else(|| which::which("kubectl").ok())
+        .unwrap_or_else(|| PathBuf::from("kubectl"))
+}
+
+/// Corre um comando `kubectl` de LEITURA contra o kubeconfig EM CACHE do
+/// cluster. O kubeconfig vem de `delonix cluster kubeconfig <cluster>` (cache
+/// local, sem SSH), é escrito num ficheiro temporário 0600 e passado por
+/// `--kubeconfig`; o ficheiro é removido no fim. Os `args` são revalidados
+/// (`kubectl_read_only`) antes de correr — falha fechada.
+pub async fn kubectl(cluster: &str, args: &[String]) -> Result<CliResult, String> {
+    if !kubectl_read_only(args) {
+        return Err(format!(
+            "kubectl não permitido (só leitura): kubectl {}",
+            args.join(" ")
+        ));
+    }
+    // O kubeconfig vem do próprio engine (contrato estável), nunca de um caminho
+    // adivinhado. O nome do cluster é validado pelo engine.
+    let kc = exec(&[
+        "cluster".to_string(),
+        "kubeconfig".to_string(),
+        cluster.to_string(),
+    ])
+    .await?;
+    if !kc.ok {
+        return Err(if kc.stderr.trim().is_empty() {
+            format!("não foi possível obter o kubeconfig de '{cluster}' (código {})", kc.code)
+        } else {
+            kc.stderr
+        });
+    }
+
+    // Ficheiro temporário exclusivo com permissões 0600 (contém credenciais).
+    let mut path = std::env::temp_dir();
+    let unique = format!(
+        "delonix-kubeconfig-{}-{}.yaml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    path.push(unique);
+    tokio::fs::write(&path, kc.stdout.as_bytes())
+        .await
+        .map_err(|e| format!("não foi possível preparar o kubeconfig temporário: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
+    }
+
+    let mut argv: Vec<String> = vec!["--kubeconfig".to_string(), path.display().to_string()];
+    argv.extend(args.iter().cloned());
+    let out = Command::new(kubectl_bin())
+        .args(&argv)
+        .env("NO_COLOR", "1")
+        .output()
+        .await;
+    // Remove o kubeconfig temporário haja o que houver (sucesso ou erro).
+    let _ = tokio::fs::remove_file(&path).await;
+    let out = out.map_err(|e| {
+        format!("não foi possível executar `kubectl`: {e}. Instala o kubectl ou define KUBECTL_BIN.")
+    })?;
+
+    let mut shown = vec!["kubectl".to_string()];
+    shown.extend(args.iter().cloned());
+    Ok(CliResult {
+        ok: out.status.success(),
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        argv: shown,
     })
 }
 
@@ -372,18 +530,74 @@ mod tests {
         assert!(classify(&v("compose down -f docker-compose.yml -v")).unwrap().requires_confirm());
         assert_eq!(classify(&v("stack destroy -f prod.yaml")), Some(Risk::Destructive));
         assert_eq!(classify(&v("compose down -v")), Some(Risk::Destructive));
-        // Fora da allowlist — falha fechada. `cluster apply`/`cluster create`/
-        // `cluster kubeadm` (provisionamento pesado) e `stack rollback`/`prune`
-        // NÃO são emitidos pela UI e não são permitidos.
+        // Fora da allowlist — falha fechada. `cluster apply`/`cluster kubeadm`
+        // (provisionamento SSH/VM pesado) e `stack rollback`/`prune` NÃO são
+        // emitidos pela UI e não são permitidos. (O ciclo de vida kind-mode —
+        // create/destroy/start/stop/drain/uncordon/load — É permitido, ver
+        // `cluster_lifecycle_verbs_are_classified`.)
         assert_eq!(classify(&v("cluster apply -f prod.yaml")), None);
-        assert_eq!(classify(&v("cluster create --name dev")), None);
         assert_eq!(classify(&v("cluster kubeadm --name lab")), None);
-        assert_eq!(classify(&v("cluster destroy dev")), None);
+        assert_eq!(classify(&v("cluster upgrade --name lab")), None);
         assert_eq!(classify(&v("stack rollback 3")), None);
         assert_eq!(classify(&v("stack prune -f prod.yaml")), None);
         assert_eq!(classify(&v("stack init -t fastapi")), None);
         // `cluster status` não existe no 5.1.1 e não está na allowlist.
         assert_eq!(classify(&v("cluster status")), None);
+    }
+
+    #[test]
+    fn cluster_lifecycle_verbs_are_classified() {
+        // Operar o cluster no app como no Docker/Podman Desktop (kind-mode).
+        // Escrita segura — correm sem confirmação.
+        assert_eq!(classify(&v("cluster create --name dev --workers 2")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("cluster start lab")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("cluster load myapp:dev --name dev")), Some(Risk::SafeWrite));
+        assert!(!classify(&v("cluster create --name dev")).unwrap().requires_confirm());
+        // Disruptivas — pedem confirmação.
+        assert_eq!(classify(&v("cluster stop lab")), Some(Risk::Disruptive));
+        assert_eq!(classify(&v("cluster drain lab-w1 --name lab")), Some(Risk::Disruptive));
+        assert_eq!(classify(&v("cluster uncordon lab-w1 --name lab")), Some(Risk::Disruptive));
+        assert!(classify(&v("cluster stop lab")).unwrap().requires_confirm());
+        assert!(classify(&v("cluster drain lab-w1 --name lab")).unwrap().requires_confirm());
+        // Destrutiva — remove o cluster inteiro, pede confirmação. A UI emite -f
+        // (salta o prompt do CLI, que bloquearia sem TTY); o prefixo casa na mesma.
+        assert_eq!(classify(&v("cluster destroy dev -f")), Some(Risk::Destructive));
+        assert!(classify(&v("cluster destroy dev -f")).unwrap().requires_confirm());
+        // Provisionamento pesado continua FORA (não é kind-mode operável no app).
+        assert_eq!(classify(&v("cluster kubeadm --name lab")), None);
+        assert_eq!(classify(&v("cluster apply -f prod.yaml")), None);
+        assert_eq!(classify(&v("cluster prune dev")), None);
+    }
+
+    #[test]
+    fn kubectl_passthrough_is_read_only() {
+        // Só verbos de leitura passam (o backend REVALIDA o que o cli.ts monta).
+        assert!(kubectl_read_only(&v("get nodes -o json")));
+        assert!(kubectl_read_only(&v("get pods -A -o json")));
+        assert!(kubectl_read_only(&v("get pods -n teamA -o json")));
+        assert!(kubectl_read_only(&v("logs web -n default --tail 500")));
+        assert!(kubectl_read_only(&v("describe node lab-cp")));
+        assert!(kubectl_read_only(&v("top nodes")));
+        assert!(kubectl_read_only(&v("version -o json")));
+        // Verbos destrutivos/mutantes — recusados (falha fechada).
+        assert!(!kubectl_read_only(&v("delete pod web -n default")));
+        assert!(!kubectl_read_only(&v("apply -f manifest.yaml")));
+        assert!(!kubectl_read_only(&v("edit deploy web")));
+        assert!(!kubectl_read_only(&v("scale deploy web --replicas 3")));
+        assert!(!kubectl_read_only(&v("patch node lab-cp -p {}")));
+        assert!(!kubectl_read_only(&v("exec -it web -- sh")));
+        assert!(!kubectl_read_only(&v("cordon lab-w1")));
+        assert!(!kubectl_read_only(&v("drain lab-w1")));
+        assert!(!kubectl_read_only(&v("cp web:/x /tmp/x")));
+        assert!(!kubectl_read_only(&v("port-forward web 8080:80")));
+        // Nenhum argumento pode redefinir identidade/alvo (fixamos o kubeconfig).
+        assert!(!kubectl_read_only(&v("get pods --kubeconfig /etc/evil.yaml")));
+        assert!(!kubectl_read_only(&v("get pods --server https://evil")));
+        assert!(!kubectl_read_only(&v("get pods --token abc")));
+        assert!(!kubectl_read_only(&v("get pods --kubeconfig=/etc/evil.yaml")));
+        // Vazio / só flags — recusado (sem subcomando posicional de leitura).
+        assert!(!kubectl_read_only(&v("")));
+        assert!(!kubectl_read_only(&v("-o json")));
     }
 
     #[test]
