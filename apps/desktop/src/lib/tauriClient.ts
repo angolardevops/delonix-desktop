@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { DelonixClient, ExecSession } from "./client";
 import { cmd, kubectl, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
+import { fmtUnix } from "./format";
+import { crossRefUsedBy, parseImages } from "./images";
 import { parseDescribeMembers } from "./network";
 import type {
   BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
@@ -73,12 +75,6 @@ const toSeverity = (s: string): ResourceSeverity => {
   if (v === "blocking" || v === "critical" || v === "error") return "blocking";
   if (v === "warn" || v === "warning") return "warn";
   return "info";
-};
-
-// Formata um instante unix (segundos) numa data local curta; "" se não medido.
-const fmtUnix = (secs: number | null): string => {
-  if (secs == null || !Number.isFinite(secs)) return "";
-  return new Date(secs * 1000).toLocaleString("pt-AO", { dateStyle: "short", timeStyle: "short" });
 };
 
 // Parseia a tabela TEXTO do `backup ls` (sem -o json no 5.1.1). Colunas
@@ -316,19 +312,14 @@ export class TauriClient implements DelonixClient {
     return json<WorkloadRow[]>(cmd.workloads());
   }
 
+  // `image ls -o json` no 5.1.1 devolve {repo_tags[],id,created_unix,size_bytes,
+  // orphan} — ver lib/images.ts (parsing puro). `usedBy` vem do cruzamento com
+  // os workloads (quais correm cada imagem); o eixo "sem uso" usa `orphan`. Se
+  // os workloads não derem, as imagens ficam na mesma com `orphan` fiável.
   async images(): Promise<ImageRow[]> {
-    const rows = asArray(await json<unknown>(cmd.images()));
-    return rows.map((o) => {
-      const repo = str(o, "repository", "name", "ref", "reference");
-      const tag = str(o, "tag");
-      return {
-        ref: tag && !repo.includes(":") ? `${repo}:${tag}` : repo,
-        id: str(o, "id", "digest").replace(/^sha256:/, "").slice(0, 12),
-        size: str(o, "size_human", "size"),
-        created: str(o, "created_human", "created", "created_at"),
-        usedBy: list(o, "used_by", "containers"),
-      };
-    });
+    const imgs = parseImages(await json<unknown>(cmd.images()));
+    const workloads = await this.workloads().catch(() => [] as WorkloadRow[]);
+    return crossRefUsedBy(imgs, workloads);
   }
 
   async volumes(): Promise<VolumeRow[]> {
@@ -562,18 +553,25 @@ export class TauriClient implements DelonixClient {
     return invoke<CliResult>("dlx_login", { registry, username, password });
   }
 
-  async stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void) {
+  async stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void) {
     const un = await listen<{ id: string; line: string }>("dlx-stream", (e) => {
       if (e.payload.id === id) onLine(e.payload.line);
     });
-    // O backend emite `dlx-stream-end` com o id quando o processo termina
-    // (relevante para fluxos finitos como `build`).
+    // O backend emite `dlx-stream-exit {id, code}` com o CÓDIGO DE SAÍDA do
+    // processo mesmo antes do `-end`. Guardamo-lo para o entregar ao onEnd — é a
+    // forma FIÁVEL de distinguir sucesso de falha (build/pull), sem adivinhar.
+    let code: number | null = null;
+    const unExit = await listen<{ id: string; code: number | null }>("dlx-stream-exit", (e) => {
+      if (e.payload.id === id) code = e.payload.code;
+    });
+    // `dlx-stream-end` marca o fim (fluxos finitos como build/pull/cluster-create).
     const unEnd = await listen<string>("dlx-stream-end", (e) => {
-      if (e.payload === id) onEnd?.();
+      if (e.payload === id) onEnd?.(code);
     });
     await invoke("dlx_stream_start", { id, args: argv });
     return () => {
       un();
+      unExit();
       unEnd();
       void invoke("dlx_stream_stop", { id });
     };
@@ -662,12 +660,17 @@ export class TauriClient implements DelonixClient {
     return this.stream("engine-events", cmd.events(), (line) => {
       try {
         const o = JSON.parse(line) as Obj;
+        // Contrato real 5.1.1 (JSONL): {ts:epoch_s, kind, action, id, name, detail?}.
+        // `ts` é NÚMERO (epoch) — formata-se com fmtUnix para a coluna "Hora";
+        // o epoch cru fica em `ts` para a correlação ao segundo não se perder.
+        const ts = num(o, "ts", "time", "timestamp") ?? 0;
         onEvent({
-          time: str(o, "time", "timestamp", "ts"),
-          kind: str(o, "type", "kind", "resource"),
+          ts,
+          time: fmtUnix(ts) || String(ts),
+          kind: str(o, "kind", "type", "resource"),
           action: str(o, "action", "event", "status"),
           name: str(o, "name", "id", "actor"),
-          detail: str(o, "detail", "message"),
+          detail: str(o, "detail", "message") || undefined,
         });
       } catch {
         /* linha não-JSON: ignorar */

@@ -5,18 +5,30 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
-#[derive(Default)]
-pub struct Streams(pub Mutex<HashMap<String, Child>>);
+// O estado dos fluxos é um Arc partilhado: a task que lê o stdout precisa de
+// reclamar o Child no fim para o `wait()` (código de saída), por isso clona-se o
+// Arc para dentro dela em vez de depender do State (que não é 'static).
+#[derive(Default, Clone)]
+pub struct Streams(pub Arc<Mutex<HashMap<String, Child>>>);
 
 #[derive(Clone, Serialize)]
 struct Line {
     id: String,
     line: String,
+}
+
+// Evento final com o CÓDIGO DE SAÍDA do processo (None se o processo foi morto
+// por sinal ou já reclamado por um stop()). A UI usa-o para decidir
+// sucesso/falha de build e pull sem adivinhar pela existência da imagem.
+#[derive(Clone, Serialize)]
+struct Exit {
+    id: String,
+    code: Option<i32>,
 }
 
 // Fluxos permitidos. `build` produz logs demorados em tempo real; `pod logs`
@@ -29,6 +41,9 @@ const STREAMABLE: &[&[&str]] = &[
     &["system", "events"],
     &["pod", "logs"],
     &["build"],
+    // `image pull` corre por STREAM para dar progresso ao vivo (o engine emite
+    // linhas INFO no stderr e o digest no stdout) + código de saída acionável.
+    &["image", "pull"],
     // `cluster create` arranca um cluster kind-mode (bootstrap kubeadm) e emite
     // progresso demorado — a tela Kubernetes mostra-o ao vivo. Classificado
     // SafeWrite em cli.rs (não destrói nada); aqui ganha a via de STREAM.
@@ -85,11 +100,21 @@ pub async fn dlx_stream_start(
         });
     }
 
+    let store = streams.0.clone();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let _ = app.emit("dlx-stream", Line { id: id.clone(), line });
         }
+        // O stdout fechou → o processo terminou. Reclama o Child do mapa (sem
+        // manter o lock através do await) e colhe o código de saída. Se já não
+        // estiver no mapa foi um stop() explícito → code None.
+        let child = { store.lock().ok().and_then(|mut m| m.remove(&id)) };
+        let code = match child {
+            Some(mut c) => c.wait().await.ok().and_then(|s| s.code()),
+            None => None,
+        };
+        let _ = app.emit("dlx-stream-exit", Exit { id: id.clone(), code });
         let _ = app.emit("dlx-stream-end", id);
     });
     Ok(())
@@ -118,6 +143,7 @@ mod tests {
         assert!(allowed(&v("system events -f -o json")));
         assert!(allowed(&v("pod logs -f web")));
         assert!(allowed(&v("build -t app:v1 .")));
+        assert!(allowed(&v("image pull alpine:3.20")));
         assert!(allowed(&v("cluster create --name dev --workers 2")));
     }
 

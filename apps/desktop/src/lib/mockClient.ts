@@ -136,14 +136,14 @@ const mockResources = (): SystemResources => ({
 });
 
 let images: ImageRow[] = [
-  { ref: "ghcr.io/angolardevops/delonix-runtime:edge", id: "c0ffee112233", size: "96 MB", created: "hoje", usedBy: [] },
-  { ref: "ghcr.io/angolardevops/delonix-cloudshell:5.1.1", id: "a1b2c3d4e5f6", size: "410 MB", created: "há 1 sem", usedBy: [] },
-  { ref: "postgres:16", id: "b1a0c8e9f2d3", size: "432 MB", created: "há 3 sem", usedBy: ["postgres-dev"] },
-  { ref: "odoo:16", id: "4e77d1a2b9c0", size: "1,62 GB", created: "há 1 mês", usedBy: ["odoo-16"] },
-  { ref: "firecracker/ci:24.04", id: "90f3e2c1d7a8", size: "412 MB", created: "hoje", usedBy: ["fc-ci-runner-1", "fc-ci-runner-2"] },
-  { ref: "traefik:v3.1", id: "7a1e5b3c9d20", size: "178 MB", created: "há 2 sem", usedBy: ["traefik"] },
-  { ref: "node:20-bookworm", id: "3f8c2a7e1b90", size: "1,10 GB", created: "há 2 meses", usedBy: [] },
-  { ref: "rust:1.82", id: "e2b9a1c4d7f6", size: "1,48 GB", created: "há 6 sem", usedBy: [] },
+  { ref: "ghcr.io/angolardevops/delonix-runtime:edge", tags: ["ghcr.io/angolardevops/delonix-runtime:edge"], id: "c0ffee112233", size: "96,0 MiB", created: "hoje · há instantes", orphan: true, usedBy: [] },
+  { ref: "ghcr.io/angolardevops/delonix-cloudshell:5.1.1", tags: ["ghcr.io/angolardevops/delonix-cloudshell:5.1.1"], id: "a1b2c3d4e5f6", size: "410 MiB", created: "há 1 sem", orphan: true, usedBy: [] },
+  { ref: "postgres:16", tags: ["postgres:16"], id: "b1a0c8e9f2d3", size: "432 MiB", created: "há 3 sem", orphan: false, usedBy: ["postgres-dev"] },
+  { ref: "odoo:16", tags: ["odoo:16"], id: "4e77d1a2b9c0", size: "1,6 GiB", created: "há 1 mês", orphan: false, usedBy: ["odoo-16"] },
+  { ref: "firecracker/ci:24.04", tags: ["firecracker/ci:24.04"], id: "90f3e2c1d7a8", size: "412 MiB", created: "hoje · há 2 horas", orphan: false, usedBy: ["fc-ci-runner-1", "fc-ci-runner-2"] },
+  { ref: "traefik:v3.1", tags: ["traefik:v3.1"], id: "7a1e5b3c9d20", size: "178 MiB", created: "há 2 sem", orphan: false, usedBy: ["traefik"] },
+  { ref: "node:20-bookworm", tags: ["node:20-bookworm"], id: "3f8c2a7e1b90", size: "1,1 GiB", created: "há 2 meses", orphan: true, usedBy: [] },
+  { ref: "rust:1.82", tags: ["rust:1.82"], id: "e2b9a1c4d7f6", size: "1,5 GiB", created: "há 6 sem", orphan: true, usedBy: [] },
 ];
 
 const volumes: VolumeRow[] = [
@@ -515,7 +515,23 @@ export class MockClient implements DelonixClient {
     return wait({ ok: true, code: 0, stdout: `Login Succeeded (${username}@${registry})\n`, stderr: "", argv: ["delonix", "image", "login", registry, "-u", username, "--password-stdin"] });
   }
 
-  async stream(_id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void) {
+  async stream(_id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void) {
+    // `image pull` simulado: emite progresso e TERMINA com código 0 (sucesso),
+    // acrescentando a imagem à lista como o engine faria.
+    if (argv[0] === "image" && argv[1] === "pull") {
+      const refArg = argv[2] ?? "alpine:3.20";
+      const steps = [`pulling ${refArg}…`, "platform selected: linux/amd64", "copying blob sha256:… done", "copying config sha256:… done", `✓ ${refArg}`];
+      let i = 0;
+      const t = setInterval(() => {
+        if (i < steps.length) { onLine(steps[i++]); return; }
+        clearInterval(t);
+        if (!images.some((im) => im.ref === refArg)) {
+          images = [{ ref: refArg, tags: [refArg], id: Math.random().toString(16).slice(2, 14), size: "12,0 MiB", created: "agora · há instantes", orphan: true, usedBy: [] }, ...images];
+        }
+        onEnd?.(0);
+      }, 400);
+      return () => clearInterval(t);
+    }
     // `cluster create` simulado: emite o progresso do bootstrap e TERMINA,
     // acrescentando o cluster à lista (como o engine faria ao concluir).
     if (argv[0] === "cluster" && argv[1] === "create") {
@@ -543,7 +559,7 @@ export class MockClient implements DelonixClient {
             k8sVersion: "v1.31.0",
           }];
         }
-        onEnd?.();
+        onEnd?.(0);
       }, 500);
       return () => clearInterval(t);
     }
@@ -560,9 +576,9 @@ export class MockClient implements DelonixClient {
         if (i < steps.length) { onLine(steps[i++]); return; }
         clearInterval(t);
         if (!images.some((im) => im.ref === builtTag)) {
-          images = [{ ref: builtTag, id: Math.random().toString(16).slice(2, 14), size: "48 MB", created: "agora", usedBy: [] }, ...images];
+          images = [{ ref: builtTag, tags: [builtTag], id: Math.random().toString(16).slice(2, 14), size: "48,0 MiB", created: "agora · há instantes", orphan: true, usedBy: [] }, ...images];
         }
-        onEnd?.();
+        onEnd?.(0);
       }, 600);
       return () => clearInterval(t);
     }
@@ -641,11 +657,13 @@ export class MockClient implements DelonixClient {
   }
 
   async events(onEvent: (e: EngineEvent) => void) {
+    // `ts` em epoch (segundos); os dois eventos "15:06:03" partilham o MESMO ts
+    // para exercitar a correlação ao segundo. `time` é a hora já formatada.
     const seed: EngineEvent[] = [
-      { time: "15:02:10", kind: "container", action: "log", name: "odoo-16", detail: "A atualizar módulos: -u all" },
-      { time: "15:06:03", kind: "container", action: "oom", name: "odoo-16", detail: "morto pelo kernel · código 137" },
-      { time: "15:06:03", kind: "container", action: "error", name: "postgres-dev", detail: "ligação reiniciada pelo cliente 10.89.2.4" },
-      { time: "15:06:41", kind: "container", action: "warning", name: "postgres-dev", detail: "a terminar ligações" },
+      { ts: 1792935730, time: "15:02:10", kind: "container", action: "log", name: "odoo-16", detail: "A atualizar módulos: -u all" },
+      { ts: 1792935963, time: "15:06:03", kind: "container", action: "oom", name: "odoo-16", detail: "morto pelo kernel · código 137" },
+      { ts: 1792935963, time: "15:06:03", kind: "container", action: "error", name: "postgres-dev", detail: "ligação reiniciada pelo cliente 10.89.2.4" },
+      { ts: 1792936001, time: "15:06:41", kind: "container", action: "warning", name: "postgres-dev", detail: "a terminar ligações" },
     ];
     seed.forEach(onEvent);
     return () => {};

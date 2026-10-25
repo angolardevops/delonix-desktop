@@ -58,10 +58,11 @@ export interface DelonixClient {
   // stdin no backend (comando dedicado `dlx_login`), NUNCA pelo argv. O
   // resultado (ok/erro) não contém a password.
   login(registry: string, username: string, password: string): Promise<CliResult>;
-  // Fluxos longos (logs, eventos, build). `onLine` recebe cada linha; o `onEnd`
-  // opcional dispara quando o processo termina (ex.: um `build` acaba) — os
+  // Fluxos longos (logs, eventos, build, pull). `onLine` recebe cada linha; o
+  // `onEnd` opcional dispara quando o processo termina (ex.: um `build`/`pull`
+  // acaba) com o CÓDIGO DE SAÍDA real (0 = sucesso; null se indeterminado) — os
   // fluxos infinitos (`logs -f`) nunca o chamam.
-  stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: () => void): Promise<() => void>;
+  stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void): Promise<() => void>;
   events(onEvent: (e: EngineEvent) => void): Promise<() => void>;
   // Exec interativo (§3): abre um shell no container `name` por PTY. Os bytes
   // do PTY chegam por `onData`; o fim do processo por `onEnd`.

@@ -87,29 +87,32 @@ export function Build() {
     setHistory((h) => [rec, ...h].slice(0, 50));
 
     const onLine = (l: string) => { buf.current = [...buf.current.slice(-4999), l]; setLines((p) => [...p.slice(-4999), l]); };
-    const finalize = async () => {
+    // Sucesso decidido pelo CÓDIGO DE SAÍDA real do processo (stream.rs emite
+    // `dlx-stream-exit`), não por adivinhar pela existência da imagem — que era
+    // frágil (parser/timing). Quando ok, resolve-se a ref exata por `image ls`
+    // só para mostrar a forma legível; a falha NÃO depende disso.
+    const finalize = async (code: number | null) => {
       setRunning(false);
       const startedAt = Number(id.slice("build-".length));
       const durationMs = Date.now() - startedAt;
-      // A imagem resultante existe? É o sinal fiável de sucesso (o stream não
-      // traz código de saída). Tenta a tag tal-qual e com `:latest` implícito.
-      let ok = false;
-      let ref: string | null = null;
-      try {
-        const imgs = await client.images();
-        const cand = [buildTag, `${buildTag}:latest`];
-        const found = imgs.find((i) => cand.includes(i.ref) || i.ref.endsWith(`/${buildTag}`) || i.ref === buildTag);
-        ok = Boolean(found);
-        ref = found?.ref ?? (ok ? buildTag : null);
-      } catch { /* sem engine/erro: trata como indeterminado → falhou */ }
+      const ok = code === 0;
+      let ref: string | null = ok ? buildTag : null;
+      if (ok) {
+        try {
+          const imgs = await client.images();
+          const cand = [buildTag, `${buildTag}:latest`];
+          const found = imgs.find((i) => cand.includes(i.ref) || i.tags.some((t) => cand.includes(t)) || i.ref.endsWith(`/${buildTag}`));
+          if (found) ref = found.ref;
+        } catch { /* sem engine: fica com a tag tal-qual (o exit code já confirmou o sucesso) */ }
+      }
       setDone(ok ? "ok" : "fail");
-      setResultRef(ok ? (ref ?? buildTag) : null);
+      setResultRef(ref);
       setHistory((h) => h.map((r) => (r.id === id ? { ...r, state: ok ? "ok" : "fail", durationMs, lines: buf.current } : r)));
       if (ok) toast(`Build de ${buildTag} concluído`);
     };
 
     void client
-      .stream("build", buildArgv, onLine, () => { void finalize(); })
+      .stream("build", buildArgv, onLine, (code) => { void finalize(code); })
       .then((s) => (stop.current = s))
       .catch((e) => {
         onLine(String(e));

@@ -123,7 +123,7 @@ export function Registries() {
     { key: "ref", header: "Repositório : tag", truncate: true, width: 300, cellClassName: "mono", cellStyle: { color: "var(--tx)", fontWeight: 500 } },
     { key: "id", header: "ID", truncate: true, width: 120, cellClassName: "mono muted" },
     { key: "size", header: "Tamanho", cellClassName: "mono" },
-    { key: "usedBy", header: "Usada por", truncate: true, width: 180, render: (i) => (i.usedBy.length ? i.usedBy.join(", ") : <Chip tone="warn">sem uso</Chip>) },
+    { key: "usedBy", header: "Usada por", truncate: true, width: 180, render: (i) => (i.usedBy.length ? i.usedBy.join(", ") : i.orphan ? <Chip tone="warn">órfã</Chip> : <Chip tone="ok">em uso</Chip>) },
   ];
 
   const columns: Column<RegistryRow>[] = [

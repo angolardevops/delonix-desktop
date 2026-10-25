@@ -142,11 +142,13 @@ export interface WorkloadRow {
 }
 
 export interface ImageRow {
-  ref: string;
-  id: string;
-  size: string;
-  created: string;
-  usedBy: string[];
+  ref: string; // repo_tags[0] na forma CURTA (sem docker.io/library/); "<none>:<none>" se sem tags
+  tags: string[]; // todas as tags (curtas, deduplicadas) — a UI pode mostrar várias
+  id: string; // sha256 sem prefixo, 12 chars
+  size: string; // size_bytes humanizado (KiB/MiB/GiB)
+  created: string; // created_unix como data curta + relativo
+  orphan: boolean; // sinal AUTORITÁRIO do engine para "sem uso" (eixo/limpeza)
+  usedBy: string[]; // workloads que correm esta imagem (cruzamento best-effort)
 }
 
 export interface VolumeRow {
@@ -214,7 +216,8 @@ export interface ProviderReport {
 }
 
 export interface EngineEvent {
-  time: string;
+  ts: number; // epoch em SEGUNDOS (0 se desconhecido) — usado na correlação ao segundo
+  time: string; // hora local formatada (fmtUnix) — NUNCA o epoch cru
   kind: string; // container, vm, image…
   action: string; // create, start, die, oom, remove…
   name: string;

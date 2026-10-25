@@ -22,7 +22,9 @@ const ROW_H = 30;
 const EventRow = memo(function EventRow({ index, style, data }: ListChildComponentProps<EngineEvent[]>) {
   const events = data;
   const e = events[index];
-  const sameSecond = events[index - 1]?.time === e.time || events[index + 1]?.time === e.time;
+  // Correlação ao SEGUNDO pelo epoch (e.ts), não pela string de hora formatada
+  // (que tem precisão de minuto). `e.time` é só para mostrar.
+  const sameSecond = events[index - 1]?.ts === e.ts || events[index + 1]?.ts === e.ts;
   const hot = sameSecond && tone(e.action) === "bad";
   return (
     <div
