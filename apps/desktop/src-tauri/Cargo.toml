@@ -45,6 +45,11 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-window-state = "2"
+# Explorador de ficheiros (eixo A): leitura do filesystem para o DevOps navegar
+# e localizar manifestos. A ESCRITA não usa este plugin — grava-se pelo comando
+# dedicado `dlx_save_text` (caminho escolhido no save-dialog nativo), para NÃO
+# conceder escrita ampla ao webview. Ver capabilities/default.json (scope).
+tauri-plugin-fs = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

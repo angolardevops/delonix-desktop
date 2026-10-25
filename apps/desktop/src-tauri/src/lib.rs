@@ -55,6 +55,25 @@ fn dlx_bin() -> String {
     cli::bin().display().to_string()
 }
 
+/// Diretório HOME do utilizador, para o explorador começar aí (e o botão "ir
+/// para HOME"). Lê `$HOME` sem passar pelo plugin de path; cai em "/" se faltar.
+#[tauri::command]
+fn dlx_home_dir() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+}
+
+/// Grava TEXTO num caminho ESCOLHIDO pelo utilizador no diálogo de gravação
+/// nativo. É o ÚNICO caminho de escrita da app: o plugin `fs` só tem permissões
+/// de LEITURA (ver capabilities/default.json), por isso o webview não pode
+/// escrever em lado nenhum por conta própria. O caminho vem sempre de uma ação
+/// explícita do utilizador (save-dialog), nunca de dados não confiáveis.
+#[tauri::command]
+async fn dlx_save_text(path: String, content: String) -> Result<(), String> {
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|e| format!("não foi possível gravar em {path}: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -67,6 +86,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Explorador de ficheiros (eixo A): LEITURA do filesystem. O scope
+        // amplo (read-only) vive em capabilities/default.json; a escrita NÃO
+        // passa por aqui (ver `dlx_save_text`).
+        .plugin(tauri_plugin_fs::init())
         .manage(stream::Streams::default())
         .manage(exec::Execs::default())
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +98,8 @@ pub fn run() {
             dlx_login,
             dlx_risk,
             dlx_bin,
+            dlx_home_dir,
+            dlx_save_text,
             stream::dlx_stream_start,
             stream::dlx_stream_stop,
             exec::dlx_exec_start,

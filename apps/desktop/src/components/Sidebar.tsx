@@ -28,6 +28,7 @@ export function Sidebar() {
     ] },
     { title: "Operar", items: [
       { route: { name: "events" }, icon: "events", label: "Eventos e métricas" },
+      { route: { name: "files" }, icon: "files", label: "Ficheiros" },
       { route: route, icon: "assistant", label: "Assistente", dock: true },
     ] },
     { title: "Sistema", items: [
