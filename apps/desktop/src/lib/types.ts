@@ -156,11 +156,30 @@ export interface VolumeRow {
   usedBy: string[];
 }
 
+// Um membro de uma rede: o nome do workload e o seu IP nessa rede. O IP só é
+// conhecido no DETALHE (`network describe`), que é a única forma que o traz por
+// membro; na LISTA (`network ls -o json` → `used_by`) vem vazio.
+export interface NetworkMember {
+  name: string;
+  ip: string;
+}
+
 export interface NetworkRow {
   name: string;
   driver: string;
   subnet: string;
-  members: { name: string; ip: string }[];
+  bridge: string; // bridge do holder (dlxn…); "" nos drivers sem plano físico
+  gateway: string; // em vigor; só preenchido no detalhe (networkDetail)
+  members: NetworkMember[];
+}
+
+// Uma linha de `network diagnose -o json`: um facto do estado VIVO do nó, o seu
+// veredito e como o corrigir. status: "ok" | "warn" | "down".
+export interface NetDiagnoseFinding {
+  check: string;
+  status: string;
+  detail: string;
+  fix?: string;
 }
 
 export interface DoctorItem {

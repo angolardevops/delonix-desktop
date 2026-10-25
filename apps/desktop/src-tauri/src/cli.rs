@@ -46,6 +46,14 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["image", "ls"], Risk::Read),
     (&["volume", "ls"], Risk::Read),
     (&["network", "ls"], Risk::Read),
+    // Redes (§8.6): detalhe de uma rede, bloco legível (membros com IP) e
+    // diagnóstico do estado vivo do nó. `net flow` são os contadores de tráfego
+    // por container (eBPF; degrada a veth) — só-leitura. Todos confirmados por
+    // `--help` no 5.1.1.
+    (&["network", "inspect"], Risk::Read),
+    (&["network", "describe"], Risk::Read),
+    (&["network", "diagnose"], Risk::Read),
+    (&["net", "flow"], Risk::Read),
     (&["vm", "ls"], Risk::Read),
     (&["provider", "ls"], Risk::Read),
     (&["provider", "describe"], Risk::Read),
@@ -96,6 +104,9 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["vm", "start"], Risk::SafeWrite),
     (&["volume", "create"], Risk::SafeWrite),
     (&["network", "create"], Risk::SafeWrite),
+    // `network connect` multi-homeia um container A QUENTE numa rede extra: é
+    // reversível (basta `disconnect`) e não para nada → SafeWrite.
+    (&["network", "connect"], Risk::SafeWrite),
     (&["container", "run"], Risk::SafeWrite),
     // Pods (§8): criar de um manifesto (`kind: Pod`). O pod aparece depois em
     // Workloads (type=pod); `workload stop/rm` já cobrem o ciclo de vida. NÃO há
@@ -122,6 +133,9 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["vm", "stop"], Risk::Disruptive),
     (&["container", "restart"], Risk::Disruptive),
     (&["vm", "restart"], Risk::Disruptive),
+    // `network disconnect` retira a conectividade do container NAQUELA rede
+    // (recusa na primária) — interrompe tráfego vivo → disruptiva (§8.6).
+    (&["network", "disconnect"], Risk::Disruptive),
     // `backup restore` sobrepõe o estado vivo do recurso → disruptiva (§E).
     (&["backup", "restore"], Risk::Disruptive),
     // Destrutivas
@@ -370,6 +384,35 @@ mod tests {
         assert_eq!(classify(&v("stack init -t fastapi")), None);
         // `cluster status` não existe no 5.1.1 e não está na allowlist.
         assert_eq!(classify(&v("cluster status")), None);
+    }
+
+    #[test]
+    fn network_verbs_are_classified() {
+        // Leitura (§8.6): detalhe, bloco legível, diagnóstico e banda por
+        // container — correm sem confirmação.
+        assert_eq!(classify(&v("network inspect app -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("network describe app backend")), Some(Risk::Read));
+        assert_eq!(classify(&v("network diagnose -o json")), Some(Risk::Read));
+        assert_eq!(classify(&v("net flow")), Some(Risk::Read));
+        assert_eq!(classify(&v("net flow --iface vh3f2a91c4")), Some(Risk::Read));
+        assert!(!classify(&v("network diagnose -o json")).unwrap().requires_confirm());
+        // Operações: criar/ligar são SafeWrite (sem confirmação); desligar é
+        // disruptiva e remover é destrutiva (ambas pedem confirmação).
+        assert_eq!(classify(&v("network create app --driver bridge")), Some(Risk::SafeWrite));
+        assert_eq!(classify(&v("network connect backend web")), Some(Risk::SafeWrite));
+        assert!(!classify(&v("network connect backend web")).unwrap().requires_confirm());
+        assert_eq!(classify(&v("network disconnect backend web")), Some(Risk::Disruptive));
+        assert!(classify(&v("network disconnect backend web")).unwrap().requires_confirm());
+        assert_eq!(classify(&v("network rm app")), Some(Risk::Destructive));
+        assert!(classify(&v("network rm app")).unwrap().requires_confirm());
+        // Fora da allowlist — falha fechada. `network route`/`vlan`/`apply`/`ipam`
+        // e `net capture` (precisa de tcpdump/privilégios) NÃO são emitidos pela UI.
+        assert_eq!(classify(&v("network route a b")), None);
+        assert_eq!(classify(&v("network vlan eth0 100")), None);
+        assert_eq!(classify(&v("network apply -f net.yaml")), None);
+        assert_eq!(classify(&v("network ipam")), None);
+        assert_eq!(classify(&v("net capture web")), None);
+        assert_eq!(classify(&v("net tunnel expose 8080")), None);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -19,6 +19,13 @@ export interface DelonixClient {
   images(): Promise<ImageRow[]>;
   volumes(): Promise<VolumeRow[]>;
   networks(): Promise<NetworkRow[]>;
+  // Detalhe de UMA rede (§8.6): `network inspect -o json` (gateway/bridge) +
+  // `network describe` (membros COM IP — a única fonte por membro). Usado pela
+  // vista de topologia, que precisa dos IPs e do gateway.
+  networkDetail(name: string): Promise<NetworkRow>;
+  // Estado VIVO do nó de rede (`network diagnose -o json`): control plane,
+  // redes realizadas e registo de endereços. READ.
+  networkDiagnose(): Promise<NetDiagnoseFinding[]>;
   // Segredos (§E): SÓ metadados (nome/chaves/nomes-de-chaves/versão). Nunca valores.
   secrets(): Promise<SecretRow[]>;
   // Backups (§E): arquivos no diretório `from` (default: diretório atual do engine).
