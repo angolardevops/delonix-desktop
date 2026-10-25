@@ -140,6 +140,38 @@ export const cmd = {
   clusterKubeconfig: (name?: string): Argv => ["cluster", "kubeconfig", ...(name ? [name] : [])],
   clusterKubeGenerate: (name: string): Argv => ["cluster", "kube", "generate", name],
 
+  // --- Redes (§8.6). Verbos AGRUPADOS, confirmados por `--help` no 5.1.1.
+  // `network ls -o json` já está em `networks()`. Aqui ficam o detalhe, o
+  // diagnóstico e as OPERAÇÕES (criar/remover, ligar/desligar um workload).
+  //
+  // Leitura: `inspect -o json` (driver/bridge/subnet/gateway de UMA rede),
+  // `describe <nomes…>` (bloco legível, inclui os containers ligados com IP —
+  // é a ÚNICA forma textual com IP por membro) e `diagnose -o json` (estado
+  // vivo do nó: control plane, redes realizadas, registo de endereços).
+  networkInspect: (name: string): Argv => ["network", "inspect", name, "-o", "json"],
+  networkDescribe: (names: string[]): Argv => ["network", "describe", ...names],
+  networkDiagnose: (): Argv => ["network", "diagnose", "-o", "json"],
+  // Criar: NAME é posicional (último); `--driver` (bridge|macvlan|ipvlan|overlay)
+  // e `--subnet` (opcional no bridge — o engine escolhe uma /16 livre). SafeWrite.
+  networkCreate: (o: { name: string; driver?: string; subnet?: string }): Argv => [
+    "network", "create",
+    ...(o.driver ? ["--driver", o.driver] : []),
+    ...(o.subnet && o.subnet.trim() ? ["--subnet", o.subnet.trim()] : []),
+    o.name,
+  ],
+  // Remover (Destructive): `network rm <NAME>` — leva o registo e a bridge.
+  networkRm: (name: string): Argv => ["network", "rm", name],
+  // Ligar/desligar um container A QUENTE (ordem Docker: NETWORK CONTAINER).
+  // connect multi-homeia (adiciona uma rede extra, reversível) → SafeWrite;
+  // disconnect retira a conectividade nessa rede → Disruptive. Recusa a rede
+  // primária (essa só sai com o container).
+  networkConnect: (network: string, container: string): Argv => ["network", "connect", network, container],
+  networkDisconnect: (network: string, container: string): Argv => ["network", "disconnect", network, container],
+  // Banda ao vivo por container (eBPF; degrada a contadores veth). TEXTO (sem
+  // `-o json`): `net flow [--iface <veth>]`; `-w` redesenha de 2 em 2 s mas usa
+  // limpeza de ecrã ANSI (não é um fluxo por linha) — a UI corre o one-shot.
+  netFlow: (iface?: string): Argv => ["net", "flow", ...(iface ? ["--iface", iface] : [])],
+
   run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string }): Argv => [
     "container", "run", "-d", "--name", o.name,
     ...o.ports.flatMap((p) => ["-p", p]),

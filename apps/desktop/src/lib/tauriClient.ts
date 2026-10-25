@@ -3,8 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
+import { parseDescribeMembers } from "./network";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -295,16 +296,62 @@ export class TauriClient implements DelonixClient {
     }));
   }
 
+  // `network ls -o json` traz name/driver/bridge/subnet/`used_by` (NOMES dos
+  // containers ligados, sem IP). Os membros ficam com `ip: ""` na lista; o IP e
+  // o gateway só se obtêm no detalhe (networkDetail → `network describe`).
   async networks(): Promise<NetworkRow[]> {
     const rows = asArray(await json<unknown>(cmd.networks()));
     return rows.map((o) => ({
       name: str(o, "name"),
       driver: str(o, "driver", "kind"),
       subnet: str(o, "subnet", "cidr"),
-      members: asArray(pick(o, "members", "containers", "endpoints")).map((m) => ({
-        name: str(m, "name", "container"),
-        ip: str(m, "ip", "ipv4", "address"),
-      })),
+      bridge: str(o, "bridge"),
+      gateway: str(o, "gateway"),
+      members: list(o, "used_by", "members", "containers").map((name) => ({ name, ip: "" })),
+    }));
+  }
+
+  // Detalhe de UMA rede: `inspect -o json` dá gateway/bridge de forma estável;
+  // `describe` é a ÚNICA forma que lista os membros COM o IP por rede (bloco
+  // "Containers:" com linhas `nome (shortid) ip`). Juntam-se aqui. Se o describe
+  // falhar, devolve na mesma a rede com membros sem IP (a topologia degrada bem).
+  async networkDetail(name: string): Promise<NetworkRow> {
+    const arr = asArray(await json<unknown>(cmd.networkInspect(name)));
+    const o = arr[0] ?? {};
+    const base: NetworkRow = {
+      name: str(o, "name") || name,
+      driver: str(o, "driver", "kind"),
+      subnet: str(o, "subnet", "cidr"),
+      bridge: str(o, "bridge"),
+      gateway: str(o, "gateway"),
+      members: [],
+    };
+    const r = await invoke<CliResult>("dlx_run", { args: cmd.networkDescribe([name]), confirm: false }).catch(() => null);
+    if (r && r.ok) base.members = parseDescribeMembers(r.stdout);
+    return base;
+  }
+
+  // `network diagnose -o json` → [{check,status,detail,fix?}]. READ (corre sem
+  // confirmação). O `-o json` é saída pura, mas lemos por dlx_run e cortamos a
+  // partir do primeiro `[` por robustez (igual ao stackPlan).
+  async networkDiagnose(): Promise<NetDiagnoseFinding[]> {
+    const res = await invoke<CliResult>("dlx_run", { args: cmd.networkDiagnose(), confirm: false });
+    const start = res.stdout.indexOf("[");
+    if (start < 0) {
+      if (!res.ok) throw new Error(res.stderr.trim() || `network diagnose saiu com código ${res.code}`);
+      return [];
+    }
+    let arr: unknown;
+    try {
+      arr = JSON.parse(res.stdout.slice(start));
+    } catch {
+      throw new Error(res.stderr.trim() || "network diagnose: saída não-JSON");
+    }
+    return asArray(arr).map((o) => ({
+      check: str(o, "check"),
+      status: str(o, "status"),
+      detail: str(o, "detail"),
+      fix: str(o, "fix") || undefined,
     }));
   }
 

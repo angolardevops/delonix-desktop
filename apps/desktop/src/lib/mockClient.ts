@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -152,10 +152,17 @@ const volumes: VolumeRow[] = [
   { name: "keycloak-old", driver: "local", size: "288 MB", usedBy: [] },
 ];
 
-const networks: NetworkRow[] = [
-  { name: "edge", driver: "bridge", subnet: "10.89.1.0/24", members: [{ name: "traefik", ip: "10.89.1.2" }, { name: "odoo-16", ip: "10.89.1.5" }] },
-  { name: "odoo-net", driver: "bridge · interna", subnet: "10.89.2.0/24", members: [{ name: "odoo-16", ip: "10.89.2.4" }, { name: "postgres-dev", ip: "10.89.2.2" }, { name: "redis", ip: "10.89.2.3" }] },
-  { name: "delonix0", driver: "bridge · padrão", subnet: "10.88.0.0/16", members: [{ name: "minio", ip: "10.88.0.9" }] },
+let networks: NetworkRow[] = [
+  { name: "edge", driver: "bridge", subnet: "10.89.1.0/24", bridge: "dlxnedge01", gateway: "10.89.1.1", members: [{ name: "traefik", ip: "10.89.1.2" }, { name: "odoo-16", ip: "10.89.1.5" }] },
+  { name: "odoo-net", driver: "bridge", subnet: "10.89.2.0/24", bridge: "dlxnodoo02", gateway: "10.89.2.1", members: [{ name: "odoo-16", ip: "10.89.2.4" }, { name: "postgres-dev", ip: "10.89.2.2" }, { name: "redis", ip: "10.89.2.3" }] },
+  { name: "delonix0", driver: "bridge", subnet: "10.88.0.0/16", bridge: "dlxn0default", gateway: "10.88.0.1", members: [{ name: "minio", ip: "10.88.0.9" }] },
+];
+
+// Diagnóstico simulado de `network diagnose` (§8.6): o nó está coerente.
+const mockDiagnose = (): NetDiagnoseFinding[] => [
+  { check: "control plane", status: "ok", detail: "pin ativo, socket de controlo responde" },
+  { check: "networks", status: "ok", detail: `${networks.length} declaradas, todas realizadas` },
+  { check: "address registry", status: "ok", detail: "sem fugas de lease" },
 ];
 
 // Nomes REAIS do catálogo 1.4.0 (crates/contexts/delonix-compute/src/capability.rs).
@@ -238,6 +245,9 @@ const RISK: [string[], RiskLevel][] = [
   [["workload", "stop"], "DISRUPTIVE"], [["container", "stop"], "DISRUPTIVE"], [["vm", "stop"], "DISRUPTIVE"], [["container", "restart"], "DISRUPTIVE"], [["vm", "restart"], "DISRUPTIVE"],
   [["backup", "restore"], "DISRUPTIVE"],
   [["container", "start"], "SAFE_WRITE"], [["vm", "start"], "SAFE_WRITE"], [["image", "pull"], "SAFE_WRITE"], [["container", "run"], "SAFE_WRITE"], [["volume", "create"], "SAFE_WRITE"], [["network", "create"], "SAFE_WRITE"],
+  // Redes (§8.6): ligar a quente é reversível (SAFE_WRITE); desligar retira a
+  // conectividade nessa rede (DISRUPTIVE).
+  [["network", "connect"], "SAFE_WRITE"], [["network", "disconnect"], "DISRUPTIVE"],
   [["secret", "create"], "SAFE_WRITE"], [["secret", "rotate"], "SAFE_WRITE"], [["backup", "create"], "SAFE_WRITE"],
   // Camada declarativa (§E): apply/up escrevem; destroy/down apagam recursos vivos.
   [["stack", "apply"], "SAFE_WRITE"], [["compose", "up"], "SAFE_WRITE"],
@@ -264,6 +274,8 @@ export class MockClient implements DelonixClient {
   images = () => wait(images);
   volumes = () => wait(volumes);
   networks = () => wait(networks);
+  networkDetail = (name: string) => wait(networks.find((n) => n.name === name) ?? { name, driver: "bridge", subnet: "", bridge: "", gateway: "", members: [] });
+  networkDiagnose = () => wait(mockDiagnose());
   secrets = () => wait(secrets);
   backups = (_from?: string) => wait(backups);
   providers = () => wait(providers);
@@ -287,6 +299,7 @@ export class MockClient implements DelonixClient {
     else if (j.startsWith("cluster health")) stdout = "control-plane: reachable\nnodes: 3/3 Ready\n";
     else if (j.startsWith("cluster kubeconfig")) stdout = "apiVersion: v1\nkind: Config\nclusters:\n- name: dev\n  cluster:\n    server: https://127.0.0.1:40219\n";
     else if (j.startsWith("cluster kube generate")) stdout = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: ${argv[3] ?? "web"}\nspec:\n  containers:\n  - name: ${argv[3] ?? "web"}\n    image: docker.io/library/nginx:alpine\n`;
+    else if (j.startsWith("net flow")) stdout = "CONTAINER      IP           RX BYTES   TX BYTES\ntraefik        10.89.1.2    2.1 MiB    340.0 KiB\npostgres-dev   10.89.2.2    1.4 MiB    820.0 KiB\nredis          10.89.2.3    412.0 KiB  256.0 KiB\n";
     return wait({ ...base, stdout });
   }
 
@@ -331,6 +344,34 @@ export class MockClient implements DelonixClient {
     }
     if (argv[0] === "compose") {
       return wait({ ...base, ok: true, code: 0, stdout: argv[1] === "up" ? "compose up: 3 service(s) started\n" : "compose down: removed 3 container(s)\n" });
+    }
+    // Mutações de Redes (§8.6) no duplo local.
+    if (argv[0] === "network") {
+      const sub = argv[1];
+      if (sub === "create") {
+        const nname = argv[argv.length - 1];
+        const di = argv.indexOf("--driver");
+        const si = argv.indexOf("--subnet");
+        const driver = di >= 0 ? (argv[di + 1] ?? "bridge") : "bridge";
+        const subnet = si >= 0 ? (argv[si + 1] ?? "") : `10.${80 + networks.length}.0.0/16`;
+        if (!networks.some((n) => n.name === nname))
+          networks = [...networks, { name: nname, driver, subnet, bridge: `dlxn${nname.slice(0, 8)}`, gateway: subnet.replace(/\.0\.0\/\d+$|\.0\/\d+$/, ".0.1"), members: [] }];
+        return wait({ ...base, ok: true, code: 0, stdout: `${nname}\n` });
+      }
+      if (sub === "rm") {
+        networks = networks.filter((n) => n.name !== argv[2]);
+        return wait({ ...base, ok: true, code: 0, stdout: `${argv[2]}\n` });
+      }
+      if (sub === "connect" || sub === "disconnect") {
+        const [, , net, container] = argv;
+        networks = networks.map((n) => {
+          if (n.name !== net) return n;
+          if (sub === "connect")
+            return n.members.some((m) => m.name === container) ? n : { ...n, members: [...n.members, { name: container, ip: `${n.subnet.split(".").slice(0, 2).join(".")}.0.${90 + n.members.length}` }] };
+          return { ...n, members: n.members.filter((m) => m.name !== container) };
+        });
+        return wait({ ...base, ok: true, code: 0, stdout: `${container}\n` });
+      }
     }
     const name = argv[argv.length - 1];
     workloads = workloads.map((w) =>

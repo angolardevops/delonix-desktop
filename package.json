@@ -10,5 +10,8 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build:web": "npm run build -w apps/desktop"
+  },
+  "overrides": {
+    "@types/react": "18.3.31"
   }
 }
