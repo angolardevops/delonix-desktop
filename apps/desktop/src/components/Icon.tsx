@@ -18,6 +18,12 @@ const PATHS: Record<string, string> = {
   extensions: "M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5",
   settings: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM10 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM18 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
   search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5",
+  // Explorador de ficheiros e ícones por tipo de entrada.
+  files: "M3 6l2-2h5l2 2h7v13H3zM3 10h18",
+  folder: "M3 6l2-2h5l2 2h7v13H3z",
+  file: "M6 3h9l5 5v13H6zM14 3v5h5",
+  download: "M12 3v12M7 11l5 5 5-5M5 20h14",
+  up: "M12 20V6M6 12l6-6 6 6",
   terminal: "M5 7l5 5-5 5M12 18h7",
   logs: "M5 6h14M5 12h14M5 18h9",
   activity: "M12 4v11M7 10l5 5 5-5M5 20h14",

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões da janela principal: controlos de janela próprios (sem decorações do SO) e eventos.",
+  "description": "Permissões da janela principal: controlos de janela próprios (sem decorações do SO), eventos, diálogos/notificações/clipboard, e LEITURA ampla do filesystem para o explorador de ficheiros. Decisão de segurança: o explorador de DevOps precisa de ler a partir de '/' (e de $HOME) para navegar e localizar manifestos — por isso o scope de leitura é amplo. A ESCRITA é DELIBERADAMENTE excluída do plugin fs: o único caminho de gravação é o comando `dlx_save_text`, que grava num caminho escolhido pelo utilizador no save-dialog nativo. Assim o webview nunca pode escrever no filesystem por conta própria.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -11,6 +11,26 @@
     "core:window:allow-start-dragging",
     "notification:default",
     "dialog:default",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "/" }, { "path": "/**" }, { "path": "$HOME" }, { "path": "$HOME/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "/" }, { "path": "/**" }, { "path": "$HOME" }, { "path": "$HOME/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "/" }, { "path": "/**" }, { "path": "$HOME" }, { "path": "$HOME/**" }]
+    },
+    {
+      "identifier": "fs:allow-stat",
+      "allow": [{ "path": "/" }, { "path": "/**" }, { "path": "$HOME" }, { "path": "$HOME/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "/" }, { "path": "/**" }, { "path": "$HOME" }, { "path": "$HOME/**" }]
+    }
   ]
 }

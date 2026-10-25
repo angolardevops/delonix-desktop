@@ -78,6 +78,14 @@ const RULES: &[(&[&str], Risk)] = &[
     (&["stack", "history"], Risk::Read),
     (&["compose", "ps"], Risk::Read),
     (&["compose", "config"], Risk::Read),
+    // Manifestos / portabilidade (explorador de ficheiros). Ambos são
+    // HOST-FREE (não tocam na máquina) e só-leitura: `manifest render -f`
+    // imprime o manifesto COMPLETO (defaults preenchidos) para levar a outro
+    // PC; `manifest validate -f` verifica schema/referências/grafo. Confirmados
+    // por `--help` no engine 5.1.1. `manifest schema` (JSON Schema) fica fora:
+    // a UI não o emite.
+    (&["manifest", "render"], Risk::Read),
+    (&["manifest", "validate"], Risk::Read),
     (&["cluster", "ls"], Risk::Read),
     (&["cluster", "health"], Risk::Read),
     (&["cluster", "kubeconfig"], Risk::Read),
@@ -362,5 +370,19 @@ mod tests {
         assert_eq!(classify(&v("stack init -t fastapi")), None);
         // `cluster status` não existe no 5.1.1 e não está na allowlist.
         assert_eq!(classify(&v("cluster status")), None);
+    }
+
+    #[test]
+    fn manifest_verbs_are_read_only() {
+        // Portabilidade do explorador de ficheiros: render/validate são
+        // HOST-FREE e só-leitura → correm sem confirmação.
+        assert_eq!(classify(&v("manifest render -f delonix.yaml")), Some(Risk::Read));
+        assert_eq!(classify(&v("manifest validate -f delonix.yaml")), Some(Risk::Read));
+        assert_eq!(classify(&v("manifest validate -f delonix.yaml --strict")), Some(Risk::Read));
+        assert!(!classify(&v("manifest render -f delonix.yaml")).unwrap().requires_confirm());
+        // `manifest schema` e qualquer outro subcomando não emitido pela UI
+        // ficam fora — falha fechada.
+        assert_eq!(classify(&v("manifest schema")), None);
+        assert_eq!(classify(&v("manifest apply -f delonix.yaml")), None);
     }
 }

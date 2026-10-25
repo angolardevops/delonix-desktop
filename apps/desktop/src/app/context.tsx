@@ -18,6 +18,7 @@ export type Route =
   | { name: "networks" }
   | { name: "registries" }
   | { name: "events" }
+  | { name: "files" }
   | { name: "capabilities" }
   | { name: "extensions" }
   | { name: "settings"; section?: "general" | "resources" | "ai" };

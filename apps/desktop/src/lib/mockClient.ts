@@ -282,6 +282,8 @@ export class MockClient implements DelonixClient {
     else if (j.startsWith("stack describe")) stdout = "KIND       NAME    PRESENT  STATUS\nNetwork    edge    yes      Up\nContainer  web     yes      Up 3d\nContainer  api     no       —\n";
     else if (j.startsWith("stack history")) stdout = "[]\n";
     else if (j.startsWith("compose config")) stdout = "name: shop\nservices:\n  web:\n    image: docker.io/library/nginx:alpine\n  db:\n    image: docker.io/library/postgres:16\n";
+    else if (j.startsWith("manifest render")) stdout = "apiVersion: delonix.io/v1\nkind: Stack\nmetadata:\n  name: shop\nspec:\n  resources:\n  - kind: Network\n    name: edge\n    driver: bridge\n  - kind: Container\n    name: web\n    image: docker.io/library/nginx:alpine\n    restart: unless-stopped\n    ports:\n    - 8080:80\n";
+    else if (j.startsWith("manifest validate")) stdout = "manifest validate: OK — schema, references and graph resolved (4 document(s))\n";
     else if (j.startsWith("cluster health")) stdout = "control-plane: reachable\nnodes: 3/3 Ready\n";
     else if (j.startsWith("cluster kubeconfig")) stdout = "apiVersion: v1\nkind: Config\nclusters:\n- name: dev\n  cluster:\n    server: https://127.0.0.1:40219\n";
     else if (j.startsWith("cluster kube generate")) stdout = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: ${argv[3] ?? "web"}\nspec:\n  containers:\n  - name: ${argv[3] ?? "web"}\n    image: docker.io/library/nginx:alpine\n`;

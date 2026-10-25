@@ -30,6 +30,7 @@ const Backups = lazy(() => import("./screens/Backups").then((m) => ({ default: m
 const Declarativo = lazy(() => import("./screens/Declarativo").then((m) => ({ default: m.Declarativo })));
 const Networks = lazy(() => import("./screens/Networks").then((m) => ({ default: m.Networks })));
 const Events = lazy(() => import("./screens/Events").then((m) => ({ default: m.Events })));
+const Files = lazy(() => import("./screens/Files").then((m) => ({ default: m.Files })));
 const Capabilities = lazy(() => import("./screens/Capabilities").then((m) => ({ default: m.Capabilities })));
 const Settings = lazy(() => import("./screens/Settings").then((m) => ({ default: m.Settings })));
 const Workspaces = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Workspaces })));
@@ -174,6 +175,7 @@ export default function App() {
       case "networks": return <Networks />;
       case "registries": return <Registries />;
       case "events": return <Events />;
+      case "files": return <Files />;
       case "capabilities": return <Capabilities />;
       case "extensions": return <Extensions />;
       case "settings": return <Settings section={route.section} />;

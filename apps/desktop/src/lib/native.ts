@@ -80,6 +80,24 @@ export async function pickDirectory(opts?: { title?: string }): Promise<string |
   }
 }
 
+// Diálogo de GRAVAÇÃO nativo: devolve o caminho que o utilizador escolheu para
+// guardar (ou null se cancelou / não há Tauri). NÃO escreve nada — só obtém o
+// destino; a escrita faz-se depois pelo comando `dlx_save_text` (lib/fsx.ts).
+export async function pickSavePath(opts?: {
+  title?: string;
+  defaultPath?: string;
+  filters?: FileFilter[];
+}): Promise<string | null> {
+  if (!isTauri()) return null;
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const sel = await save({ title: opts?.title, defaultPath: opts?.defaultPath, filters: opts?.filters });
+    return typeof sel === "string" ? sel : null;
+  } catch {
+    return null;
+  }
+}
+
 // Filtros reutilizáveis para os caminhos que a app pede.
 export const YAML_FILTERS: FileFilter[] = [
   { name: "Manifesto / Compose (YAML)", extensions: ["yaml", "yml"] },

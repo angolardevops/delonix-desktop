@@ -121,6 +121,17 @@ export const cmd = {
   composeUp: (file?: string): Argv => ["compose", "up", ...fFlag(file), "-d"],
   composeDown: (file?: string, volumes?: boolean): Argv => ["compose", "down", ...fFlag(file), ...(volumes ? ["-v"] : [])],
 
+  // --- Manifestos / portabilidade (explorador de ficheiros). Ambos HOST-FREE
+  // (não tocam na máquina) e só-leitura. `manifest render -f` imprime o
+  // manifesto COMPLETO, com os defaults (`#[serde(default)]`) preenchidos — a
+  // forma aplicável noutro PC (segredos NÃO são resolvidos). `manifest validate
+  // -f [--strict]` verifica schema/referências/grafo. Confirmados por `--help`
+  // no delonix 5.1.1.
+  manifestRender: (file: string): Argv => ["manifest", "render", "-f", file],
+  manifestValidate: (file: string, strict?: boolean): Argv => [
+    "manifest", "validate", "-f", file, ...(strict ? ["--strict"] : []),
+  ],
+
   // Clusters/Kubernetes: `ls` é TEXTO (sem `-o json` no 5.1.1 — `get clusters`
   // recusa `-o json` explicitamente); `health`/`kubeconfig`/`kube generate`
   // imprimem texto/YAML. NÃO há `cluster status` em 5.1.1 (usar `health`).
