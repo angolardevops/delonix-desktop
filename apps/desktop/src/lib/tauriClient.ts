@@ -4,7 +4,7 @@ import type { DelonixClient, ExecSession } from "./client";
 import { cmd, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -60,6 +60,18 @@ const parseBytes = (s: string): number | null => {
   const m = /(-?[\d.]+)\s*([KMGT]?i?B)\b/i.exec(s);
   if (!m) return null;
   return Number(m[1]) * (BYTE_UNIT[m[2].toUpperCase().replace("IB", "B")] ?? 1);
+};
+
+// Normaliza uma entrada de `problems[]` (string crua ou objeto com mensagem).
+const toProblem = (p: unknown): string =>
+  typeof p === "string" ? p : str(p as Obj, "message", "detail", "finding", "text", "title");
+
+// Severidade de um conselho, tolerante a rótulos próximos; default "info".
+const toSeverity = (s: string): ResourceSeverity => {
+  const v = s.toLowerCase();
+  if (v === "blocking" || v === "critical" || v === "error") return "blocking";
+  if (v === "warn" || v === "warning") return "warn";
+  return "info";
 };
 
 // Formata um instante unix (segundos) numa data local curta; "" se não medido.
@@ -179,6 +191,78 @@ export class TauriClient implements DelonixClient {
       storage_bytes_total: parseBytes(str(by("STORAGE"), "value")),
       // Métricas numéricas por recurso: parseadas em paralelo às tiles humanas.
       rows: asArray(raw.rows).map(toRow),
+      // `problems[]`: alertas já formatados pelo engine (texto).
+      problems: asArray(raw.problems).map(toProblem).filter((p) => p.length > 0),
+    };
+  }
+
+  // --- Dashboard SRE (§B) -------------------------------------------------
+  // `system metrics -o json` é JSON PLANO (a DashStats crua); mapeado 1:1. O
+  // storage vem por categoria — o total calcula-se em lib/metrics.ts.
+  async systemMetrics(): Promise<SystemMetrics> {
+    const o = (await json<Obj>(cmd.systemMetrics())) ?? {};
+    return {
+      containers_running: num(o, "containers_running") ?? 0,
+      containers_total: num(o, "containers_total") ?? 0,
+      vms_running: num(o, "vms_running") ?? 0,
+      vms_total: num(o, "vms_total") ?? 0,
+      networks_total: num(o, "networks_total") ?? 0,
+      volumes_total: num(o, "volumes_total") ?? 0,
+      images_total: num(o, "images_total") ?? 0,
+      secrets_total: num(o, "secrets_total") ?? 0,
+      memory_bytes_used: num(o, "memory_bytes_used") ?? 0,
+      memory_bytes_limit: num(o, "memory_bytes_limit") ?? 0,
+      network_rx_bytes: num(o, "network_rx_bytes"),
+      network_tx_bytes: num(o, "network_tx_bytes"),
+      network_unmeasured_containers: num(o, "network_unmeasured_containers") ?? 0,
+      storage_bytes_images: num(o, "storage_bytes_images") ?? 0,
+      storage_bytes_volumes: num(o, "storage_bytes_volumes") ?? 0,
+      storage_bytes_vm_images: num(o, "storage_bytes_vm_images") ?? 0,
+      storage_bytes_containers: num(o, "storage_bytes_containers") ?? 0,
+    };
+  }
+
+  // `system resources -o json`: advice[] (conselhos acionáveis), bottleneck (o
+  // gargalo agora, pode ser null), pressure[] (PSI) e host (capacidade do nó).
+  async systemResources(): Promise<SystemResources> {
+    const o = (await json<Obj>(cmd.systemResources())) ?? {};
+    const advice: ResourceAdvice[] = asArray(o.advice).map((a) => ({
+      id: str(a, "id"),
+      subject: str(a, "subject"),
+      severity: toSeverity(str(a, "severity")),
+      finding: str(a, "finding"),
+      action: str(a, "action"),
+      class: str(a, "class"),
+    }));
+    const bRaw = pick(o, "bottleneck");
+    let bottleneck: ResourceBottleneck | null = null;
+    if (bRaw && typeof bRaw === "object") {
+      const b = bRaw as Obj;
+      bottleneck = {
+        resource: str(b, "resource", "subject", "kind"),
+        detail: str(b, "detail", "finding", "reason", "why"),
+        severity: pick(b, "severity") != null ? toSeverity(str(b, "severity")) : null,
+      };
+    }
+    const host = (pick(o, "host") ?? {}) as Obj;
+    return {
+      advice,
+      bottleneck,
+      pressure: asArray(o.pressure).map((p) => ({
+        resource: str(p, "resource"),
+        avg10: num(p, "avg10") ?? 0,
+        avg60: num(p, "avg60") ?? 0,
+        avg300: num(p, "avg300") ?? 0,
+      })),
+      host: {
+        cpus: num(host, "cpus"),
+        cpuTemperatureC: num(host, "cpu_temperature_c"),
+        memoryBytes: num(host, "memory_bytes"),
+        memoryAvailableBytes: num(host, "memory_available_bytes"),
+        stateRootFreeBytes: num(host, "state_root_free_bytes"),
+        swapBytes: num(host, "swap_bytes"),
+        swapUsedBytes: num(host, "swap_used_bytes"),
+      },
     };
   }
 

@@ -27,6 +27,87 @@ export interface DashSummary {
   // às `tiles[]`; o tauriClient parseia-as aqui. Opcional porque um engine antigo
   // (ou o parsing só-tiles) pode não as trazer.
   rows?: DashRow[];
+  // `problems[]` do dashboard: alertas já formatados pelo engine (ex.: OOM, disco
+  // cheio). Vêm como texto; o cliente normaliza strings/objetos para string.
+  problems?: string[];
+}
+
+// --- Métricas de frota ESTRUTURADAS (`system metrics -o json`, §B) ----------
+// A MESMA `DashStats` que o dashboard e o endpoint Prometheus usam
+// (delonix-mgmt::dashstats::collect), SEM a formatação humana das tiles. Traz o
+// que as tiles não têm: STORAGE por categoria (imagens/volumes/vm-images/
+// containers) e o nº de containers com rede não medida. Fonte confirmada por
+// `--help` + `-o json` no engine 5.1.1.
+export interface SystemMetrics {
+  containers_running: number;
+  containers_total: number;
+  vms_running: number;
+  vms_total: number;
+  networks_total: number;
+  volumes_total: number;
+  images_total: number;
+  secrets_total: number;
+  memory_bytes_used: number;
+  memory_bytes_limit: number;
+  network_rx_bytes: number | null;
+  network_tx_bytes: number | null;
+  network_unmeasured_containers: number;
+  // Storage POR CATEGORIA (bytes). O total é a soma (ver lib/metrics.ts).
+  storage_bytes_images: number;
+  storage_bytes_volumes: number;
+  storage_bytes_vm_images: number;
+  storage_bytes_containers: number;
+}
+
+// --- Saúde do nó (`system resources -o json`, §B) ---------------------------
+// Severidade de um conselho: `blocking` (impede ou ignora silenciosamente algo),
+// `warn` (vale a pena rever), `info` (contexto). A UI ordena blocking primeiro.
+export type ResourceSeverity = "blocking" | "warn" | "info";
+
+// Um conselho acionável do nó. `id` é o código DLX-RES-NNN; `class` diz de que
+// tipo é (config/capacity/load); `action` é o comando/passo de correção.
+export interface ResourceAdvice {
+  id: string;
+  subject: string; // cgroup | io | disk | memory…
+  severity: ResourceSeverity;
+  finding: string; // o que foi observado
+  action: string; // como resolver
+  class: string; // config | capacity | load
+}
+
+// O gargalo do nó AGORA (pode ser null quando nada está sob pressão). Forma
+// NORMALIZADA e tolerante — o engine devolve null na folga, por isso os nomes de
+// campo são lidos defensivamente no cliente.
+export interface ResourceBottleneck {
+  resource: string; // cpu | memory | io | disk
+  detail: string;
+  severity: ResourceSeverity | null;
+}
+
+// Uma amostra de pressão PSI por recurso (médias de 10/60/300 s, em %).
+export interface PressureSample {
+  resource: string; // cpu | memory | io
+  avg10: number;
+  avg60: number;
+  avg300: number;
+}
+
+// Capacidade do host (o que ESTE nó tem). Campos a null quando não medíveis.
+export interface ResourceHost {
+  cpus: number | null;
+  cpuTemperatureC: number | null;
+  memoryBytes: number | null;
+  memoryAvailableBytes: number | null;
+  stateRootFreeBytes: number | null;
+  swapBytes: number | null;
+  swapUsedBytes: number | null;
+}
+
+export interface SystemResources {
+  advice: ResourceAdvice[];
+  bottleneck: ResourceBottleneck | null;
+  pressure: PressureSample[];
+  host: ResourceHost;
 }
 
 // Uma linha de métrica por recurso do `dashboard --json` (rows[]).

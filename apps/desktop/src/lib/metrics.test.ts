@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { byteRate, cpuRate, fmtBinBytes, fmtRate, latestRates, type Sample } from "./metrics";
+import { byteRate, cpuRate, fmtBinBytes, fmtRate, latestRates, storageBreakdown, storageTotal, type Sample } from "./metrics";
+import type { SystemMetrics } from "./types";
 
 // Amostra mínima: só os campos relevantes; o resto a null.
 const S = (t: number, over: Partial<Sample> = {}): Sample => ({
@@ -123,5 +124,26 @@ describe("fmtBinBytes / fmtRate (unidades binárias)", () => {
 
   it("taxa acrescenta /s", () => {
     expect(fmtRate(100 * 1024)).toBe("100 KiB/s");
+  });
+});
+
+describe("storage por categoria (§B)", () => {
+  const m: SystemMetrics = {
+    containers_running: 0, containers_total: 0, vms_running: 1, vms_total: 1,
+    networks_total: 7, volumes_total: 27, images_total: 25, secrets_total: 17,
+    memory_bytes_used: 217088, memory_bytes_limit: 56979812352,
+    network_rx_bytes: 0, network_tx_bytes: 0, network_unmeasured_containers: 0,
+    storage_bytes_images: 1000, storage_bytes_volumes: 200, storage_bytes_vm_images: 3000, storage_bytes_containers: 50,
+  };
+
+  it("total é a soma das 4 categorias", () => {
+    expect(storageTotal(m)).toBe(1000 + 200 + 3000 + 50);
+  });
+
+  it("decompõe em 4 segmentos com bytes e cor", () => {
+    const seg = storageBreakdown(m);
+    expect(seg.map((s) => s.key)).toEqual(["images", "vm_images", "volumes", "containers"]);
+    expect(seg.reduce((a, s) => a + s.bytes, 0)).toBe(storageTotal(m));
+    expect(seg.every((s) => s.color.startsWith("var("))).toBe(true);
   });
 });

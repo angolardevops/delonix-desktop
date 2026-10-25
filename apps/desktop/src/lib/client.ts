@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -10,6 +10,11 @@ export interface DelonixClient {
   readonly live: boolean;
   binary(): Promise<string>;
   dash(): Promise<DashSummary>;
+  // Dashboard SRE (§B). `systemMetrics` são os contadores de frota estruturados
+  // (storage por categoria incluído); `systemResources` traz os conselhos
+  // acionáveis (advice[]), o gargalo atual e a pressão PSI. Ambos READ.
+  systemMetrics(): Promise<SystemMetrics>;
+  systemResources(): Promise<SystemResources>;
   workloads(): Promise<WorkloadRow[]>;
   images(): Promise<ImageRow[]>;
   volumes(): Promise<VolumeRow[]>;
