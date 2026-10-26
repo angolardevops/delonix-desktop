@@ -221,12 +221,15 @@ export default function App() {
         <div className="body">
           <Sidebar />
           <main className="main">
-            {/* Barreira por rota: um crash numa tela mostra um fallback
+            {/* `.page` dá o gutter da janela, centra e limita a largura legível.
+                Barreira por rota: um crash numa tela mostra um fallback
                 acionável em vez de tela branca; a chave reinicia a barreira ao
                 navegar. O Suspense cobre o carregamento do chunk lazy. */}
-            <ErrorBoundary key={route.name}>
-              <Suspense fallback={<ScreenLoading />}>{screen}</Suspense>
-            </ErrorBoundary>
+            <div className="page">
+              <ErrorBoundary key={route.name}>
+                <Suspense fallback={<ScreenLoading />}>{screen}</Suspense>
+              </ErrorBoundary>
+            </div>
           </main>
         </div>
         <BottomDock tab={dockTab} open={dockOpen} setTab={setDockTab} setOpen={setDockOpen} />

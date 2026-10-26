@@ -16,7 +16,11 @@ button { font: inherit; }
 /* Estrutura da janela */
 .app { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--line); }
 .body { flex: 1; display: flex; min-height: 0; }
-.main { flex: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* Contentor do conteúdo da rota. As telas renderizam fragmentos diretamente
+   aqui; este wrapper dá-lhes o gutter da janela (deixam de colar às bordas),
+   centra-as e limita a largura em ecrãs largos (leitura), e é quem rola. */
+.page { flex: 1; min-width: 0; min-height: 0; width: 100%; max-width: var(--max-content); margin-inline: auto; padding: var(--gutter-y) var(--gutter-x); overflow: auto; display: flex; flex-direction: column; }
 
 /* Barra de título */
 .titlebar { display: flex; align-items: center; height: var(--h-titlebar); background: var(--side); border-bottom: 1px solid var(--line); user-select: none; }
@@ -77,15 +81,16 @@ button { font: inherit; }
 .k { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid var(--line); font: 500 var(--fs-xs) var(--font-mono); color: var(--tx2); white-space: nowrap; }
 
 /* Cabeçalho de página e separadores */
-.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px var(--pad-page); border-bottom: 1px solid var(--line); }
+.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 0 0 14px; border-bottom: 1px solid var(--line); }
 .page-head h1 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
 .page-head p { margin: 2px 0 0; color: var(--mut); }
 .page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-.tabs { display: flex; flex-wrap: wrap; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; flex-wrap: wrap; padding: 0; border-bottom: 1px solid var(--line); }
+.tab:first-child { padding-left: 0; }
 .tab { height: 36px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .tab:hover { color: var(--tx-strong); background: var(--side); }
 .tab.on { color: var(--tx-on); border-bottom-color: var(--acc); }
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px var(--pad-page); border-bottom: 1px solid var(--line); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .input { height: 28px; padding: 0 8px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); font: var(--fs-md) var(--font-ui); outline: none; }
 .input.mono { font-family: var(--font-mono); }
 
@@ -94,8 +99,9 @@ button { font: inherit; }
 table { border-collapse: collapse; width: 100%; }
 th { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; position: sticky; top: 0; }
 td { padding: 7px 12px; border-bottom: 1px solid var(--line2); color: var(--tx-cell); white-space: nowrap; }
-th:first-child, td:first-child { padding-left: var(--pad-page); }
-th:last-child, td:last-child { padding-right: var(--pad-page); }
+/* Primeira/última coluna alinham-se à caixa de conteúdo (gutter já no .page). */
+th:first-child, td:first-child { padding-left: 0; }
+th:last-child, td:last-child { padding-right: 0; }
 tr:hover td { background: var(--side); }
 tr.sel td { background: var(--sel); }
 .sub { display: block; font: var(--fs-xs) var(--font-mono); color: var(--mut); margin-top: 1px; }
@@ -147,10 +153,10 @@ th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
 .split > .aside { flex: 0 0 340px; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
 .section { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .section h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
-.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px var(--pad-page); border-top: 1px solid var(--line2); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line2); }
 .row:hover { background: var(--side); }
 pre.code, .log { margin: 0; padding: 10px 12px; background: var(--term); border: 1px solid var(--line2); font: 12px/1.7 var(--font-mono); color: var(--tx-term); white-space: pre-wrap; word-break: break-all; }
-.note { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px var(--pad-page) 0; padding: 10px 14px; background: var(--infb); border: 1px solid var(--sel-line); color: var(--sel-tx); }
+.note { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0 0; padding: 10px 14px; background: var(--infb); border: 1px solid var(--sel-line); color: var(--sel-tx); }
 .note.planned { background: var(--neub); border-color: var(--line); color: var(--tx2); }
 dl.kv { margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 7px 12px; }
 dl.kv dt { color: var(--mut); }
