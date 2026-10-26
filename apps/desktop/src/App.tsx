@@ -31,6 +31,8 @@ const Declarativo = lazy(() => import("./screens/Declarativo").then((m) => ({ de
 const Studio = lazy(() => import("./screens/Studio").then((m) => ({ default: m.Studio })));
 const Networks = lazy(() => import("./screens/Networks").then((m) => ({ default: m.Networks })));
 const Events = lazy(() => import("./screens/Events").then((m) => ({ default: m.Events })));
+// Explorador de logs unificado (§7): stream pesado por recurso num chunk próprio.
+const Logs = lazy(() => import("./screens/Logs").then((m) => ({ default: m.Logs })));
 const Files = lazy(() => import("./screens/Files").then((m) => ({ default: m.Files })));
 // IDE integrado (§10): carrega o Monaco (pesado) só quando se entra na tela —
 // o editor e os seus workers ficam num CHUNK PRÓPRIO, fora do bundle inicial.
@@ -187,6 +189,7 @@ export default function App() {
       case "networks": return <Networks />;
       case "registries": return <Registries />;
       case "events": return <Events />;
+      case "logs": return <Logs />;
       case "files": return <Files />;
       case "ide": return <Editor initialPath={route.path} />;
       case "capabilities": return <Capabilities />;

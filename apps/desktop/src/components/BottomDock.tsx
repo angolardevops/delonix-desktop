@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DockTab } from "../app/context";
 import { useApp } from "../app/context";
+import type { ExecMode } from "../lib/client";
 import { cmd, show } from "../lib/cli";
 import { runState, useResource } from "../lib/hooks";
 import { Icon } from "./Icon";
@@ -100,11 +101,14 @@ function LogsPanel() {
 
 function TerminalPanel() {
   const { client, namespace } = useApp();
-  // Só containers A CORRER: o exec interativo liga-se a um PTY no container vivo.
+  // Só containers A CORRER: exec/attach ligam-se a um PTY no container vivo.
   const running = (useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? []).filter(
     (w) => w.type === "container" && runState(w.status) === "running",
   );
   const [name, setName] = useState<string>("");
+  // Modo: "Shell novo (exec)" vs "Attach (processo principal)". O attach é só
+  // saída no 5.1.1 e fechá-lo NÃO mata o container.
+  const [mode, setMode] = useState<ExecMode>("container-exec");
   useEffect(() => {
     if (running.length && !running.some((c) => c.name === name)) setName(running[0].name);
   }, [running, name]);
@@ -117,9 +121,10 @@ function TerminalPanel() {
       </div>
     );
   }
+  const argv = mode === "container-attach" ? cmd.attach(name) : cmd.exec(name);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-      <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)" }}>
+      <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)", gap: 8 }}>
         <label className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
           Container
           <Select
@@ -132,9 +137,13 @@ function TerminalPanel() {
             style={{ minWidth: 180 }}
           />
         </label>
-        <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(cmd.exec(name))}</span>
+        <div role="tablist" aria-label="Tipo de sessão" style={{ display: "inline-flex", gap: 4 }}>
+          <button type="button" role="tab" aria-selected={mode === "container-exec"} className={`btn sm${mode === "container-exec" ? " pri" : ""}`} onClick={() => setMode("container-exec")}>Shell novo (exec)</button>
+          <button type="button" role="tab" aria-selected={mode === "container-attach"} className={`btn sm${mode === "container-attach" ? " pri" : ""}`} onClick={() => setMode("container-attach")}>Attach</button>
+        </div>
+        <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(argv)}</span>
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>{name && <Terminal key={name} name={name} />}</div>
+      <div style={{ flex: 1, minHeight: 0 }}>{name && <Terminal key={`${name}-${mode}`} name={name} mode={mode} />}</div>
     </div>
   );
 }

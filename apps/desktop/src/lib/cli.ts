@@ -54,7 +54,27 @@ export const cmd = {
   // `workload rm` é agnóstico ao tipo; -f força mesmo a correr.
   remove: (w: Pick<WorkloadRow, "name">): Argv => ["workload", "rm", "-f", w.name],
   logsFollow: (name: string): Argv => ["container", "logs", "-f", name],
+  // `container logs` RICO (explorador §7). `--timestamps` só existe para
+  // containers corridos com `--log-cri` (o formato simples é bytes crus sem
+  // carimbo por linha); o engine devolve um erro claro a nomear a flag quando
+  // não. Flags ANTES do ID (`container logs [OPTIONS] <ID>`), confirmado por
+  // `--help` no 5.1.1.
+  containerLogs: (name: string, o?: { follow?: boolean; timestamps?: boolean }): Argv => [
+    "container", "logs",
+    ...(o?.follow ? ["-f"] : []),
+    ...(o?.timestamps ? ["--timestamps"] : []),
+    name,
+  ],
+  // --- Sessões interativas (§6). Cada uma tem a sua semântica; o terminal
+  // distingue-as. `exec` abre um SHELL NOVO (processo filho); `attach` re-liga à
+  // saída do processo PRINCIPAL (output-only no 5.1.1 — o `-i` é recusado);
+  // `vmConsole` é a consola SÉRIE (Ctrl-D sai, não é shell autenticado);
+  // `podExec` é um shell num membro do pod (COMMAND obrigatório → sh).
+  // Confirmados por `--help` no engine 5.1.1.
   exec: (name: string): Argv => ["container", "exec", "-it", name],
+  attach: (name: string): Argv => ["container", "attach", name],
+  vmConsole: (name: string): Argv => ["vm", "console", name],
+  podExec: (pod: string): Argv => ["pod", "exec", "-it", pod, "sh"],
   events: (): Argv => ["system", "events", "-f", "-o", "json"],
 
   pull: (ref: string): Argv => ["image", "pull", ref],

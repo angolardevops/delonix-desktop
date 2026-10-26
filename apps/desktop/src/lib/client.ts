@@ -72,9 +72,11 @@ export interface DelonixClient {
   // fluxos infinitos (`logs -f`) nunca o chamam.
   stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void): Promise<() => void>;
   events(onEvent: (e: EngineEvent) => void): Promise<() => void>;
-  // Exec interativo (§3): abre um shell no container `name` por PTY. Os bytes
-  // do PTY chegam por `onData`; o fim do processo por `onEnd`.
-  exec(id: string, name: string, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession>;
+  // Sessão interativa por PTY (§3/§6). `mode` escolhe a semântica: `shell novo`
+  // (container exec), `attach` ao processo principal (output-only), `pod exec`
+  // (shell num membro) ou `consola série` de VM. Os bytes do PTY chegam por
+  // `onData`; o fim do processo por `onEnd`.
+  exec(id: string, name: string, mode: ExecMode, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession>;
   // VMs pelo contrato de socket node.v1 (§5). As ações e a criação passam pelo
   // socket (não pela CLI); a tabela de Workloads continua a vir de `workload ls`.
   vmList(): Promise<VmDetail[]>;
@@ -87,6 +89,11 @@ export interface DelonixClient {
   vmSnapshotCreate(name: string, snapshot: string): Promise<void>;
   vmSnapshotRestore(name: string, snapshot: string): Promise<void>;
 }
+
+// Os quatro modos de sessão interativa por PTY (§6). Têm de casar EXATAMENTE
+// com `parse_mode` no backend (exec.rs) — qualquer outra string é recusada
+// (falha fechada), tanto no renderer como no Rust.
+export type ExecMode = "container-exec" | "container-attach" | "pod-exec" | "vm-console";
 
 // Uma sessão de exec viva: escreve stdin, redimensiona e termina o PTY.
 export interface ExecSession {

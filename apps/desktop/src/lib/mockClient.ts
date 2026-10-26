@@ -1,6 +1,6 @@
 // Duplo local: os mesmos dados dos mockups, para desenvolver no browser sem
 // Tauri nem engine. A UI mostra sempre uma faixa "duplo local" neste modo.
-import type { DelonixClient, ExecSession } from "./client";
+import type { DelonixClient, ExecMode, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import type {
@@ -604,9 +604,22 @@ export class MockClient implements DelonixClient {
     return () => clearInterval(t);
   }
 
-  async exec(_id: string, name: string, onData: (data: string) => void, _onEnd: () => void): Promise<ExecSession> {
-    // Duplo local: um shell simulado que ecoa o que se escreve (sem engine).
-    onData(`\x1b[2mduplo local — shell simulado em ${name}\x1b[0m\r\n$ `);
+  async exec(_id: string, name: string, mode: ExecMode, onData: (data: string) => void, _onEnd: () => void): Promise<ExecSession> {
+    // Duplo local: cada modo tem a sua semântica simulada (sem engine).
+    // - attach/vm-console: OUTPUT-ONLY (não há eco de stdin; o attach do engine
+    //   recusa -i e a consola série não é um shell que ecoa aqui).
+    // - exec/pod-exec: um shell que ecoa o que se escreve.
+    if (mode === "container-attach" || mode === "vm-console") {
+      const banner = mode === "vm-console"
+        ? `\x1b[2mduplo local — consola série de ${name} (Ctrl-D sai; não é shell autenticado)\x1b[0m\r\n`
+        : `\x1b[2mduplo local — attach à saída do processo principal de ${name} (só saída; detach não mata o workload)\x1b[0m\r\n`;
+      onData(banner);
+      let i = 0;
+      const t = setInterval(() => onData(`${LOG[i++ % LOG.length]}\r\n`), 900);
+      return { write: () => {}, resize: () => {}, stop: () => clearInterval(t) };
+    }
+    const where = mode === "pod-exec" ? `membro do pod ${name}` : name;
+    onData(`\x1b[2mduplo local — shell simulado em ${where}\x1b[0m\r\n$ `);
     let line = "";
     return {
       write: (data: string) => {
