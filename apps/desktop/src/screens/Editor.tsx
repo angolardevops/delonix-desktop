@@ -19,11 +19,23 @@ import {
   type FsEntry,
 } from "../lib/fsx";
 import { isYamlFile, languageForFile } from "../lib/language";
-import { setupMonaco } from "../lib/monacoSetup";
+import {
+  isDelonixSchemaReady,
+  modelUriString,
+  setDelonixSchema,
+  setupMonaco,
+  updateYamlSchemas,
+} from "../lib/monacoSetup";
+import { classifyYaml, schemaKindLabel, schemasSignature, type YamlFile } from "../lib/yamlSchemas";
 
 // Embebe o Monaco LOCALMENTE (workers via Vite `?worker`, loader apontado ao
 // pacote empacotado) antes de qualquer render — a CSP do Tauri proíbe o CDN.
+// Isto também arranca o monaco-yaml (LSP de YAML por JSON Schema, §10).
 setupMonaco();
+
+// Severidade de uma marca → rótulo/tom (MarkerSeverity: 8=erro, 4=aviso, 2/1=info).
+const severityMeta = (sev: number): { label: string; tone: "bad" | "warn" | "neu" } =>
+  sev >= 8 ? { label: "erro", tone: "bad" } : sev >= 4 ? { label: "aviso", tone: "warn" } : { label: "info", tone: "neu" };
 
 // Tema dark alinhado ao Console9 (a app é dark-only, ver theme/tokens.css).
 const THEME = "delonix-dark";
@@ -64,6 +76,19 @@ export function Editor({ initialPath }: { initialPath?: string }) {
   const [diffOpen, setDiffOpen] = useState(false);
   const [output, setOutput] = useState<{ title: string; text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // --- Diagnósticos do schema (monaco-yaml) ---------------------------------
+  // Marcas do modelo ATIVO (sublinhado no editor + painel "Problemas"). Vêm do
+  // LSP de YAML por JSON Schema; recalculadas por `onDidChangeMarkers` e na troca
+  // de tab. `delonixReady` sobe quando o schema do engine chega (reassocia).
+  const [markers, setMarkers] = useState<MonacoNS.IMarker[]>([]);
+  const [delonixReady, setDelonixReady] = useState(isDelonixSchemaReady());
+  const editorRef = useRef<MonacoNS.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
+  const [markerTick, setMarkerTick] = useState(0);
+  // Assinatura da última associação ficheiro→schema aplicada (evita reenviar o
+  // schema grande do Delonix ao worker a cada tecla).
+  const schemaSigRef = useRef<string>("");
 
   const navigate = useCallback(
     async (to: string) => {
@@ -181,6 +206,8 @@ export function Editor({ initialPath }: { initialPath?: string }) {
   }, [available]);
 
   const onMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
     monaco.editor.defineTheme(THEME, {
       base: "vs-dark",
       inherit: true,
@@ -189,7 +216,55 @@ export function Editor({ initialPath }: { initialPath?: string }) {
     });
     monaco.editor.setTheme(THEME);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void saveRef.current());
+    // Qualquer mudança de marcas (o worker do monaco-yaml revalida em background)
+    // reavalia o painel de Problemas do modelo ativo.
+    monaco.editor.onDidChangeMarkers(() => setMarkerTick((t) => t + 1));
   }, []);
+
+  // Obtém o JSON Schema do manifesto Delonix do ENGINE (`manifest schema`) UMA
+  // vez e injeta-o no monaco-yaml. Best-effort: se o engine não responder ou a
+  // saída não for JSON, degrada em silêncio (a família Delonix fica sem schema,
+  // o resto do IDE funciona na mesma).
+  useEffect(() => {
+    if (isDelonixSchemaReady()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await client.readText(cmd.manifestSchema());
+        if (cancelled || !r.ok) return;
+        const start = r.stdout.indexOf("{");
+        if (start < 0) return;
+        const schema = JSON.parse(r.stdout.slice(start)) as object;
+        setDelonixSchema(schema);
+        if (!cancelled) setDelonixReady(true);
+      } catch {
+        /* sem schema do engine: a validação do manifesto Delonix fica indisponível */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [client]);
+
+  // Reassocia os schemas do monaco-yaml quando o conjunto de YAML abertos (ou a
+  // chegada do schema Delonix) muda a classificação. Só chama o worker quando a
+  // ASSINATURA muda — não a cada tecla.
+  useEffect(() => {
+    const files: YamlFile[] = tabs
+      .filter((t) => isYamlFile(t.name))
+      .map((t) => ({ uri: modelUriString(t.path), name: t.name, content: t.buffer }));
+    const sig = schemasSignature(files, delonixReady);
+    if (sig === schemaSigRef.current) return;
+    schemaSigRef.current = sig;
+    void updateYamlSchemas(files);
+  }, [tabs, delonixReady]);
+
+  // Recalcula as marcas do modelo ATIVO (na troca de tab e em cada mudança de
+  // marcas). Lê diretamente do Monaco por recurso — robusto à troca de modelo.
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco || !activePath) { setMarkers([]); return; }
+    const resource = monaco.Uri.parse(activePath);
+    setMarkers(monaco.editor.getModelMarkers({ resource }));
+  }, [activePath, markerTick, diffOpen]);
 
   // --- Ações de manifesto (só-leitura: Validar/Render) ----------------------
   // Correm SEMPRE contra a versão em DISCO (o CLI lê o ficheiro). Se o buffer
@@ -221,7 +296,19 @@ export function Editor({ initialPath }: { initialPath?: string }) {
     });
   }, [active, act]);
 
+  // Salta o cursor para a linha/coluna de uma marca (botão "ir para" no painel).
+  const goToMarker = useCallback((m: MonacoNS.IMarker) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.setPosition({ lineNumber: m.startLineNumber, column: m.startColumn });
+    ed.revealLineInCenter(m.startLineNumber);
+    ed.focus();
+  }, []);
+
   const yaml = active ? isYamlFile(active.name) : false;
+  // Família de schema do ficheiro ativo (para o chip informativo).
+  const schemaKind = active && yaml ? classifyYaml(active.name, active.buffer) : null;
+  const errorCount = markers.filter((m) => m.severity >= 8).length;
 
   if (!available) {
     return (
@@ -320,11 +407,17 @@ export function Editor({ initialPath }: { initialPath?: string }) {
                 <Icon name="declarative" size={13} /> Diff vs disco
               </button>
               <span style={{ flex: 1 }} />
+              {markers.length > 0 && (
+                <Chip tone={errorCount > 0 ? "bad" : "warn"} dot>
+                  {markers.length} problema{markers.length === 1 ? "" : "s"}
+                </Chip>
+              )}
+              {schemaKind && <Chip tone="ok" title="Validação por JSON Schema ativa neste ficheiro">schema: {schemaKindLabel(schemaKind)}</Chip>}
               <Chip tone="neu">{active.language}</Chip>
               {yaml && (
                 <>
                   <span style={{ width: 1, height: 20, background: "var(--line)" }} />
-                  <button className="btn" type="button" disabled={busy} onClick={() => void runText(cmd.manifestValidate(active.path), "manifest validate")}>Validar</button>
+                  <button className="btn" type="button" disabled={busy} onClick={() => void runText(cmd.manifestValidate(active.path), "manifest validate")} title="Validação AUTORITÁRIA pelo engine (schema + referências + grafo)">Validar</button>
                   <button className="btn" type="button" disabled={busy} onClick={() => void runText(cmd.manifestRender(active.path), "manifest render")}>Render</button>
                   <button className="btn danger" type="button" disabled={busy} onClick={applyManifest} title="Converge a infraestrutura para o manifesto (stack apply)">
                     <Icon name="play" size={13} /> Aplicar à infra…
@@ -364,11 +457,42 @@ export function Editor({ initialPath }: { initialPath?: string }) {
           </div>
 
           {/* Painel de PROBLEMAS / saída do CLI */}
-          {active && (output || (yaml && dirty)) && (
+          {active && (output || markers.length > 0 || (yaml && dirty)) && (
             <div style={{ borderTop: "1px solid var(--line)", background: "var(--panel)", maxHeight: 260, overflow: "auto", flex: "0 0 auto" }}>
               {yaml && dirty && (
-                <div style={{ padding: "6px 12px", fontSize: 12, color: "var(--warn, #e0a030)", borderBottom: output ? "1px solid var(--line2)" : "none" }}>
+                <div style={{ padding: "6px 12px", fontSize: 12, color: "var(--warn, #e0a030)", borderBottom: "1px solid var(--line2)" }}>
                   Atenção: Validar / Render / Aplicar usam a versão em DISCO. Guarda primeiro para avaliar as tuas alterações.
+                </div>
+              )}
+              {markers.length > 0 && (
+                <div style={{ padding: "8px 12px", borderBottom: output ? "1px solid var(--line2)" : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Icon name="declarative" size={13} />
+                    <b style={{ fontSize: 13 }}>Problemas</b>
+                    <Chip tone={errorCount > 0 ? "bad" : "warn"} dot>{markers.length}</Chip>
+                    <span style={{ fontSize: 11, color: "var(--mut)" }}>
+                      validação rápida por JSON Schema (o editor); &ldquo;Validar&rdquo; é a verdade do engine
+                    </span>
+                  </div>
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                    {markers.map((m, i) => {
+                      const meta = severityMeta(m.severity);
+                      return (
+                        <li key={`${m.startLineNumber}:${m.startColumn}:${i}`}>
+                          <button
+                            type="button"
+                            onClick={() => goToMarker(m)}
+                            title="Ir para a linha"
+                            style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "3px 6px", borderRadius: 4, color: "var(--tx)", fontSize: 12 }}
+                          >
+                            <Chip tone={meta.tone}>{meta.label}</Chip>
+                            <span className="mono" style={{ color: "var(--mut)", flex: "0 0 auto" }}>L{m.startLineNumber}:{m.startColumn}</span>
+                            <span style={{ color: "var(--tx2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.message}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               )}
               {output && (

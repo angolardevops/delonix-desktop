@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delonix-desktop://schemas/compose.json",
+  "title": "Compose (docker-compose) — subconjunto pragmático",
+  "description": "Schema EMBEBIDO localmente (a CSP do Tauri proíbe buscar da net). Cobre os campos mais usados de um ficheiro compose; não é a especificação Compose completa. Para a verdade autoritária usa o botão Validar (delonix compose config).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "description": "Versão do formato Compose (legado; o Compose moderno ignora-a).",
+      "type": ["string", "number"]
+    },
+    "name": {
+      "description": "Nome do projeto Compose.",
+      "type": "string"
+    },
+    "services": {
+      "description": "Os serviços (containers) do projeto, por nome.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/service" }
+    },
+    "volumes": {
+      "description": "Volumes nomeados partilhados entre serviços.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "networks": {
+      "description": "Redes do projeto.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "configs": { "type": "object", "additionalProperties": true },
+    "secrets": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "image": {
+          "description": "Referência da imagem a correr (ex.: docker.io/library/nginx:alpine).",
+          "type": "string"
+        },
+        "build": {
+          "description": "Constrói a imagem em vez de a puxar: caminho do contexto ou objeto { context, dockerfile, args }.",
+          "type": ["string", "object"]
+        },
+        "container_name": { "description": "Nome fixo do container.", "type": "string" },
+        "command": { "description": "Comando a correr (string ou lista).", "type": ["string", "array"] },
+        "entrypoint": { "type": ["string", "array"] },
+        "environment": {
+          "description": "Variáveis de ambiente: lista KEY=value ou mapa key: value.",
+          "type": ["object", "array"]
+        },
+        "env_file": { "description": "Ficheiro(s) .env a carregar.", "type": ["string", "array"] },
+        "ports": {
+          "description": "Mapeamentos de porta host:container (ex.: \"8080:80\").",
+          "type": "array",
+          "items": { "type": ["string", "number", "object"] }
+        },
+        "expose": { "type": "array", "items": { "type": ["string", "number"] } },
+        "volumes": {
+          "description": "Montagens de volume (ex.: \"./data:/var/lib/data\" ou nome:destino).",
+          "type": "array",
+          "items": { "type": ["string", "object"] }
+        },
+        "depends_on": {
+          "description": "Serviços que têm de arrancar antes deste.",
+          "type": ["array", "object"]
+        },
+        "networks": { "type": ["array", "object"] },
+        "restart": {
+          "description": "Política de reinício.",
+          "type": "string",
+          "enum": ["no", "always", "on-failure", "unless-stopped"]
+        },
+        "labels": { "type": ["object", "array"] },
+        "healthcheck": { "type": "object", "additionalProperties": true },
+        "deploy": { "type": "object", "additionalProperties": true },
+        "working_dir": { "type": "string" },
+        "user": { "type": "string" },
+        "mem_limit": { "type": ["string", "number"] },
+        "cpus": { "type": ["string", "number"] }
+      }
+    }
+  }
+}

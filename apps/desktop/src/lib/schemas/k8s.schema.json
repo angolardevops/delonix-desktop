@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delonix-desktop://schemas/k8s.json",
+  "title": "Kubernetes — subconjunto pragmático",
+  "description": "Schema EMBEBIDO localmente (a CSP do Tauri proíbe buscar da net). Valida a envelope comum de um objeto Kubernetes (apiVersion/kind/metadata/spec) e dá completação dos campos de metadata e dos tipos de workload mais comuns; NÃO é o schema completo de todas as APIs. Para validar contra o cluster usa o kubectl.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": {
+      "description": "Grupo/versão da API (ex.: v1, apps/v1, batch/v1, networking.k8s.io/v1).",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Tipo do objeto (ex.: Pod, Deployment, Service, ConfigMap).",
+      "type": "string"
+    },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "description": "Especificação desejada do objeto (a forma depende do kind).",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "status": { "type": "object", "additionalProperties": true },
+    "data": {
+      "description": "Dados chave→valor (ConfigMap/Secret).",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "stringData": { "type": "object", "additionalProperties": true },
+    "type": { "description": "Tipo do Secret (ex.: Opaque).", "type": "string" }
+  },
+  "$defs": {
+    "metadata": {
+      "description": "Metadados do objeto.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "description": "Nome do objeto (DNS-1123).", "type": "string" },
+        "namespace": { "description": "Namespace do objeto.", "type": "string" },
+        "labels": {
+          "description": "Etiquetas chave→valor.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "annotations": {
+          "description": "Anotações chave→valor.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}
