@@ -29,6 +29,7 @@ export function Sidebar() {
     { title: "Operar", items: [
       { route: { name: "events" }, icon: "events", label: "Eventos e métricas" },
       { route: { name: "files" }, icon: "files", label: "Ficheiros" },
+      { route: { name: "ide" }, icon: "code", label: "Editor" },
       { route: route, icon: "assistant", label: "Assistente", dock: true },
     ] },
     { title: "Sistema", items: [

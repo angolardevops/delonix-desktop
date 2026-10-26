@@ -31,6 +31,9 @@ const Declarativo = lazy(() => import("./screens/Declarativo").then((m) => ({ de
 const Networks = lazy(() => import("./screens/Networks").then((m) => ({ default: m.Networks })));
 const Events = lazy(() => import("./screens/Events").then((m) => ({ default: m.Events })));
 const Files = lazy(() => import("./screens/Files").then((m) => ({ default: m.Files })));
+// IDE integrado (§10): carrega o Monaco (pesado) só quando se entra na tela —
+// o editor e os seus workers ficam num CHUNK PRÓPRIO, fora do bundle inicial.
+const Editor = lazy(() => import("./screens/Editor").then((m) => ({ default: m.Editor })));
 const Capabilities = lazy(() => import("./screens/Capabilities").then((m) => ({ default: m.Capabilities })));
 const Settings = lazy(() => import("./screens/Settings").then((m) => ({ default: m.Settings })));
 const Workspaces = lazy(() => import("./screens/Platform").then((m) => ({ default: m.Workspaces })));
@@ -183,6 +186,7 @@ export default function App() {
       case "registries": return <Registries />;
       case "events": return <Events />;
       case "files": return <Files />;
+      case "ide": return <Editor initialPath={route.path} />;
       case "capabilities": return <Capabilities />;
       case "extensions": return <Extensions />;
       case "settings": return <Settings section={route.section} />;

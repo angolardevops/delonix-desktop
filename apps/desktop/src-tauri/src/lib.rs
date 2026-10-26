@@ -84,6 +84,28 @@ async fn dlx_save_text(path: String, content: String) -> Result<(), String> {
         .map_err(|e| format!("não foi possível gravar em {path}: {e}"))
 }
 
+/// Grava TEXTO no caminho de um ficheiro ABERTO no IDE integrado (§10). É o
+/// segundo (e último) caminho de escrita da app, a par de `dlx_save_text`: o
+/// plugin `fs` continua só-leitura, por isso o webview nunca escreve por conta
+/// própria. A diferença de intenção é o Ctrl+S / botão Guardar — o caminho não
+/// vem de um save-dialog mas do ficheiro que o utilizador abriu no explorador
+/// do editor, por isso VALIDAMOS: tem de ser ABSOLUTO e não-vazio (recusa
+/// caminhos relativos ou vazios, que poderiam resolver contra o cwd do engine).
+/// NÃO cria diretórios nem segue intenções implícitas: grava onde foi pedido.
+#[tauri::command]
+async fn dlx_write_text(path: String, content: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("caminho vazio: nada para gravar".to_string());
+    }
+    if !std::path::Path::new(trimmed).is_absolute() {
+        return Err(format!("caminho não é absoluto: {trimmed}"));
+    }
+    tokio::fs::write(trimmed, content)
+        .await
+        .map_err(|e| format!("não foi possível gravar em {trimmed}: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -111,6 +133,7 @@ pub fn run() {
             dlx_bin,
             dlx_home_dir,
             dlx_save_text,
+            dlx_write_text,
             stream::dlx_stream_start,
             stream::dlx_stream_stop,
             exec::dlx_exec_start,

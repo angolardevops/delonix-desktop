@@ -20,6 +20,8 @@ const PATHS: Record<string, string> = {
   search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5",
   // Explorador de ficheiros e ícones por tipo de entrada.
   files: "M3 6l2-2h5l2 2h7v13H3zM3 10h18",
+  // IDE/editor de código: chevrons "</>" — abrir/editar manifestos e configs.
+  code: "M8 8l-4 4 4 4M16 8l4 4-4 4M13 5l-2 14",
   folder: "M3 6l2-2h5l2 2h7v13H3z",
   file: "M6 3h9l5 5v13H6zM14 3v5h5",
   download: "M12 3v12M7 11l5 5 5-5M5 20h14",
