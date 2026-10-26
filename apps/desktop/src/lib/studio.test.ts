@@ -7,13 +7,33 @@ import {
   diffDesignVsLive,
   edgeLabel,
   emptyDesign,
+  manifestToDesign,
   parseDesign,
+  provisionActions,
   serializeDesign,
   STUDIO_TEMPLATES,
   toYaml,
   validateDesign,
   type StudioDesign,
 } from "./studio";
+
+// Assinatura SEMÂNTICA de um desenho: tipos+nomes dos nós com as suas
+// propriedades relevantes, e as arestas como pares não-orientados de nomes. É o
+// que o roundtrip design→YAML→design tem de preservar (ids/posições NÃO são
+// estruturais e podem mudar).
+function signature(d: StudioDesign) {
+  const byId = new Map(d.nodes.map((n) => [n.id, n]));
+  const nodes = d.nodes
+    .map((n) => ({ kind: n.kind, name: n.name.trim(), props: Object.fromEntries(Object.entries(n.props).filter(([, v]) => String(v).trim() !== "")) }))
+    .sort((a, b) => `${a.kind}/${a.name}`.localeCompare(`${b.kind}/${b.name}`));
+  const edges = d.edges
+    .map((e) => {
+      const s = byId.get(e.source)!, t = byId.get(e.target)!;
+      return [`${s.kind}/${s.name.trim()}`, `${t.kind}/${t.name.trim()}`].sort().join(" <-> ");
+    })
+    .sort();
+  return { nodes, edges };
+}
 
 // Desenho MÍNIMO exigido pelo prompt (§6): um container numa rede.
 const minimal: StudioDesign = {
@@ -221,5 +241,160 @@ describe("diffDesignVsLive — Plan", () => {
     expect(rows.find((r) => r.name === "web")?.action).toBe("keep");
     expect(rows.find((r) => r.name === "nginx")?.action).toBe("create");
     expect(rows.find((r) => r.name === "velho")?.action).toBe("remove");
+  });
+});
+
+describe("manifestToDesign — reimport YAML → desenho", () => {
+  it("reconstrói rede + container e a ligação a partir do manifesto mínimo", () => {
+    const { yaml } = designToManifest(minimal);
+    const { design } = manifestToDesign(yaml);
+    const net = design.nodes.find((n) => n.kind === "network");
+    const web = design.nodes.find((n) => n.kind === "container");
+    expect(net?.name).toBe("web");
+    expect(net?.props.subnet).toBe("10.89.7.0/24");
+    expect(web?.name).toBe("nginx");
+    expect(web?.props.image).toBe("nginx:latest");
+    expect(web?.props.ports).toBe("8080:80");
+    // A aresta network↔container foi reconstruída.
+    expect(design.edges).toHaveLength(1);
+    const byId = new Map(design.nodes.map((n) => [n.id, n]));
+    const e = design.edges[0];
+    expect(new Set([byId.get(e.source)!.kind, byId.get(e.target)!.kind])).toEqual(new Set(["network", "container"]));
+  });
+
+  it("recupera o ponto de montagem do volume e os segredos ligados (Web+BD)", () => {
+    const { yaml } = designToManifest(STUDIO_TEMPLATES[0].make());
+    const { design } = manifestToDesign(yaml);
+    const vol = design.nodes.find((n) => n.kind === "volume");
+    expect(vol?.name).toBe("pgdata");
+    expect(vol?.props.mount).toBe("/var/lib/postgresql/data");
+    const sec = design.nodes.find((n) => n.kind === "secret");
+    expect(sec?.props.keys).toBe("POSTGRES_PASSWORD");
+    // db liga-se à rede, ao volume e ao segredo → 2 containers + relações.
+    const db = design.nodes.find((n) => n.name === "db")!;
+    const touches = design.edges.filter((e) => e.source === db.id || e.target === db.id);
+    expect(touches.length).toBe(3); // rede + volume + segredo
+  });
+
+  it("rejeita YAML que não é um Stack e YAML malformado", () => {
+    expect(() => manifestToDesign("isto: [nao, fecha")).toThrow(/YAML inválido/);
+    expect(() => manifestToDesign("apiVersion: v1\nkind: ConfigMap\ndata: {}\n")).toThrow(/Stack/);
+  });
+
+  it("aceita o manifesto reimportado no engine sendo um Stack válido (forma)", () => {
+    // Prova de FORMA (sem engine): o reimport-reexport continua kind: Stack.
+    const { yaml } = designToManifest(STUDIO_TEMPLATES[2].make()); // vm-net
+    const { design } = manifestToDesign(yaml);
+    const re = designToManifest(design).yaml;
+    expect(re).toContain("kind: Stack");
+    expect(re).toContain("vms:");
+    expect(re).toContain("disk: ubuntu-22.04");
+  });
+});
+
+describe("roundtrip design ↔ YAML — preserva a estrutura", () => {
+  for (const t of STUDIO_TEMPLATES) {
+    it(`modelo ${t.id}: design → YAML → design preserva nós, propriedades e arestas`, () => {
+      const d = t.make();
+      const { design: back } = manifestToDesign(designToManifest(d).yaml);
+      expect(signature(back)).toEqual(signature(d));
+    });
+  }
+
+  it("é um ponto fixo: YAML → design → YAML é idempotente", () => {
+    const yaml1 = designToManifest(STUDIO_TEMPLATES[0].make()).yaml;
+    const yaml2 = designToManifest(manifestToDesign(yaml1).design).yaml;
+    const yaml3 = designToManifest(manifestToDesign(yaml2).design).yaml;
+    expect(yaml3).toBe(yaml2);
+  });
+});
+
+describe("manifestToDesign — preserva campos não representados (extra)", () => {
+  const external = [
+    "apiVersion: core.delonix.io/v1alpha1",
+    "kind: Stack",
+    "metadata:",
+    "  name: ext",
+    "annotations:", // chave de topo desconhecida
+    "  owner: equipa-a",
+    "spec:",
+    "  containers:",
+    "    - name: api",
+    "      spec:",
+    "        image: \"caddy:2\"",
+    "        restartPolicy: Always", // campo de container desconhecido
+    "        healthcheck:",
+    "          test: curl localhost",
+    "  queues:", // bucket de spec desconhecido
+    "    - name: jobs",
+    "",
+  ].join("\n");
+
+  it("guarda os campos desconhecidos em node.extra / design.extra e avisa", () => {
+    const { design, warnings } = manifestToDesign(external);
+    const api = design.nodes.find((n) => n.name === "api")!;
+    expect(api.extra).toBeTruthy();
+    expect(api.extra).toHaveProperty("restartPolicy", "Always");
+    expect(api.extra).toHaveProperty("healthcheck");
+    expect(design.extra?.spec).toHaveProperty("queues");
+    expect(design.extra?.doc).toHaveProperty("annotations");
+    // Nenhum silêncio: há avisos a nomear o que foi preservado.
+    expect(warnings.some((w) => /não representad/i.test(w))).toBe(true);
+  });
+
+  it("re-emite os campos preservados no export (nada se perde no roundtrip)", () => {
+    const { design } = manifestToDesign(external);
+    const out = designToManifest(design).yaml;
+    expect(out).toContain("restartPolicy: Always");
+    expect(out).toContain("healthcheck:");
+    expect(out).toContain('test: "curl localhost"'); // o emissor cita o escalar com espaço
+    expect(out).toContain("queues:");
+    expect(out).toContain("annotations:");
+    expect(out).toContain("owner: equipa-a");
+    // E o reimport do reexport volta a ver o extra (ponto fixo do extra).
+    const again = manifestToDesign(out).design;
+    expect(again.nodes.find((n) => n.name === "api")!.extra).toHaveProperty("restartPolicy", "Always");
+  });
+});
+
+describe("provisionActions — gateway/cluster → comandos do engine", () => {
+  it("gateway → `net tunnel expose` com porta e provider", () => {
+    const d = emptyDesign("mix");
+    d.nodes.push({ id: "g", kind: "gateway", name: "edge", x: 0, y: 0, props: { provider: "cloudflare", port: "8080" } });
+    const acts = provisionActions(d);
+    expect(acts).toHaveLength(1);
+    expect(acts[0].kind).toBe("gateway");
+    expect(acts[0].available).toBe(true);
+    expect(acts[0].argv).toEqual(["net", "tunnel", "expose", "8080", "--provider", "cloudflare", "--name", "edge"]);
+  });
+
+  it("gateway sem porta fica indisponível, mas dá nota e comando parcial", () => {
+    const d = emptyDesign("mix");
+    d.nodes.push({ id: "g", kind: "gateway", name: "edge", x: 0, y: 0, props: { provider: "pinggy", port: "" } });
+    const a = provisionActions(d)[0];
+    expect(a.available).toBe(false);
+    expect(a.note).toMatch(/porta/i);
+    expect(a.argv.slice(0, 3)).toEqual(["net", "tunnel", "expose"]);
+  });
+
+  it("cluster → `cluster create` com control-planes/workers/cni", () => {
+    const d = emptyDesign("mix");
+    d.nodes.push({ id: "k", kind: "cluster", name: "lab", x: 0, y: 0, props: { controlPlanes: "3", workers: "2", cni: "none" } });
+    const a = provisionActions(d)[0];
+    expect(a.kind).toBe("cluster");
+    expect(a.available).toBe(true);
+    expect(a.argv).toEqual(["cluster", "create", "--name", "lab", "--workers", "2", "--control-planes", "3", "--cni", "none"]);
+  });
+
+  it("cluster com cni=default omite a flag (é o default do engine)", () => {
+    const d = emptyDesign("mix");
+    d.nodes.push({ id: "k", kind: "cluster", name: "dev", x: 0, y: 0, props: { controlPlanes: "1", workers: "0", cni: "default" } });
+    const a = provisionActions(d)[0];
+    expect(a.argv).not.toContain("--cni");
+    expect(a.argv).toEqual(["cluster", "create", "--name", "dev", "--workers", "0", "--control-planes", "1"]);
+  });
+
+  it("um desenho sem tipos de desenho não gera passos de provisão", () => {
+    expect(provisionActions(minimal)).toHaveLength(0);
   });
 });

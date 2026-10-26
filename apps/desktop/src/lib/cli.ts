@@ -316,6 +316,17 @@ export const cmd = {
   // `-o json`): `net flow [--iface <veth>]`; `-w` redesenha de 2 em 2 s mas usa
   // limpeza de ecrã ANSI (não é um fluxo por linha) — a UI corre o one-shot.
   netFlow: (iface?: string): Argv => ["net", "flow", ...(iface ? ["--iface", iface] : [])],
+  // --- Gateway / túnel (§11). `net tunnel expose <LOCAL_PORT> [-p provider]
+  // [-n name]` expõe UMA porta local ao público (kind: Gateway) via
+  // pinggy/ngrok/cloudflare. PORT é posicional; provider ∈ {pinggy, ngrok,
+  // cloudflare} (default pinggy). Abre um túnel VIVO (fluxo por stream). Ordem e
+  // flags confirmadas por `net tunnel expose --help` no 5.1.1. É o mapeamento do
+  // nó "gateway" do Architecture Studio, provisionado À PARTE do stack apply.
+  tunnelExpose: (o: { port: string; provider?: string; name?: string }): Argv => [
+    "net", "tunnel", "expose", o.port.trim(),
+    ...(o.provider && o.provider.trim() ? ["--provider", o.provider.trim()] : []),
+    ...(o.name && o.name.trim() ? ["--name", o.name.trim()] : []),
+  ],
 
   // `--log-cri` grava o log do container no FORMATO CRI (carimbo + stream por
   // linha, como o kubelet/`crictl logs`). É o que torna `container logs

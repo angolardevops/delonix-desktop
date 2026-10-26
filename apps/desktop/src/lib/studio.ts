@@ -6,9 +6,14 @@
 // stack (YAML) que o `delonix stack apply -f` / `manifest validate -f` aceitam.
 //
 // O desenho (StudioDesign) é a fonte canónica, redonda em JSON. O manifesto é
-// derivado SÓ num sentido (design → YAML); por isso guardar/carregar usa o JSON
-// e não há reimportação de YAML (ver NOTA de limitação em designToManifest).
+// derivado de design → YAML (designToManifest) e, DESDE §11, reimportado de
+// YAML → design (manifestToDesign), fechando o ciclo nos dois sentidos. Campos
+// de um manifesto externo que o modelo não representa são PRESERVADOS num
+// `extra` (por nó e ao nível do documento) e re-emitidos tal e qual no export,
+// para que o roundtrip não perca informação em silêncio.
 
+import { parseAllDocuments } from "yaml";
+import { cmd, type Argv } from "./cli";
 import type { NetworkRow, VmDetail, WorkloadRow } from "./types";
 
 // --- Modelo -----------------------------------------------------------------
@@ -34,6 +39,13 @@ export interface StudioNode {
   y: number;
   /** Propriedades editáveis (chave→valor), específicas do tipo. */
   props: Record<string, string>;
+  /**
+   * Campos do `spec` de um manifesto reimportado que o modelo NÃO representa.
+   * Guardados em cru e re-emitidos tal e qual no export (designToManifest), para
+   * o roundtrip YAML→design→YAML não perder informação. Ausente nos nós criados
+   * no estúdio.
+   */
+  extra?: Record<string, unknown>;
 }
 
 export interface StudioEdge {
@@ -48,6 +60,13 @@ export interface StudioDesign {
   namespace: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
+  /**
+   * Partes de um manifesto reimportado que não pertencem a nenhum nó: chaves do
+   * documento de topo além de apiVersion/kind/metadata/spec (`doc`) e secções do
+   * `spec` que não são dos seis buckets conhecidos (`spec`). Re-emitidas no
+   * export. Ausente num desenho criado no estúdio.
+   */
+  extra?: { doc?: Record<string, unknown>; spec?: Record<string, unknown> };
 }
 
 export function emptyDesign(name = "nova-arquitetura"): StudioDesign {
@@ -406,6 +425,17 @@ function csv(s?: string): string[] {
   return (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 }
 
+// Funde campos "extra" (preservados de uma reimportação) num objeto de spec, SEM
+// sobrepor as chaves que o mapeamento conhecido já produziu. Puro.
+function mergeExtra<T extends Record<string, Yaml>>(spec: T, extra?: Record<string, unknown>): T {
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (!(k in spec)) (spec as Record<string, Yaml>)[k] = v as Yaml;
+    }
+  }
+  return spec;
+}
+
 export interface ManifestResult {
   yaml: string;
   warnings: string[];
@@ -414,12 +444,10 @@ export interface ManifestResult {
 // Converte o desenho num manifesto `kind: Stack`. Resolve as arestas:
 // container→rede (spec.network), container/pod→volume (spec.volumes com o ponto
 // de montagem do volume), container→segredo (spec.secret). Tipos de DESENHO
-// (gateway, cluster) NÃO entram no stack — geram um aviso honesto.
-//
-// NOTA (limitação consciente): a geração é só num sentido (desenho → YAML). O
-// desenho (.json) é a fonte canónica e redonda; não há reimportação de YAML
-// (o renderer não embebe um parser YAML), por isso campos de um manifesto
-// externo não são preservados — guardar/carregar faz-se pelo .json do desenho.
+// (gateway, cluster) NÃO entram no stack — geram um aviso honesto e provisionam-
+// se à parte (ver provisionActions). Campos preservados de uma reimportação
+// (node.extra / design.extra) são re-emitidos tal e qual, fechando o roundtrip
+// com manifestToDesign (ver abaixo).
 export function designToManifest(d: StudioDesign): ManifestResult {
   const warnings: string[] = [];
   const byId = new Map(d.nodes.map((n) => [n.id, n]));
@@ -449,6 +477,7 @@ export function designToManifest(d: StudioDesign): ManifestResult {
       case "network": {
         const s: Record<string, Yaml> = { driver: n.props.driver?.trim() || "bridge" };
         if (n.props.subnet?.trim()) s.subnet = n.props.subnet.trim();
+        mergeExtra(s, n.extra);
         push("networks", { name, spec: s });
         break;
       }
@@ -456,13 +485,17 @@ export function designToManifest(d: StudioDesign): ManifestResult {
         const s: Record<string, Yaml> = {};
         if (n.props.size?.trim()) s.size = n.props.size.trim();
         if (n.props.driver?.trim() && n.props.driver.trim() !== "local") s.driver = n.props.driver.trim();
-        push("volumes", { name, spec: Object.keys(s).length ? s : {} });
+        mergeExtra(s, n.extra);
+        push("volumes", { name, spec: s });
         break;
       }
       case "secret": {
         const stringData: Record<string, Yaml> = {};
         for (const k of csv(n.props.keys)) stringData[k] = "";
-        push("secrets", { name, spec: Object.keys(stringData).length ? { stringData } : {} });
+        const ss: Record<string, Yaml> = {};
+        if (Object.keys(stringData).length) ss.stringData = stringData;
+        mergeExtra(ss, n.extra);
+        push("secrets", { name, spec: ss });
         break;
       }
       case "container": {
@@ -479,6 +512,7 @@ export function designToManifest(d: StudioDesign): ManifestResult {
         if (vols.length) s.volumes = vols;
         const secs = neighborsOf(n.id, "secret").map((x) => x.name.trim());
         if (secs.length) s.secret = secs;
+        mergeExtra(s, n.extra);
         push("containers", { name, spec: s });
         break;
       }
@@ -489,7 +523,13 @@ export function designToManifest(d: StudioDesign): ManifestResult {
           .filter((p) => Number.isInteger(p) && p > 0)
           .map((p) => ({ containerPort: p }));
         if (pports.length) c.ports = pports;
-        push("pods", { name, spec: { containers: [c] } });
+        const ps: Record<string, Yaml> = {};
+        const pnets = neighborsOf(n.id, "network");
+        if (pnets[0]) ps.network = pnets[0].name.trim();
+        if (pnets.length > 1) warnings.push(`Pod "${name}" ligado a ${pnets.length} redes — o manifesto usa a primeira ("${pnets[0].name}").`);
+        ps.containers = [c];
+        mergeExtra(ps, n.extra);
+        push("pods", { name, spec: ps });
         break;
       }
       case "vm": {
@@ -497,13 +537,20 @@ export function designToManifest(d: StudioDesign): ManifestResult {
         if (n.props.disk?.trim()) s.disk = n.props.disk.trim();
         if (n.props.vcpus?.trim()) s.vcpus = Number(n.props.vcpus) || n.props.vcpus.trim();
         if (n.props.memory?.trim()) s.memory = n.props.memory.trim();
-        push("vms", { name, spec: Object.keys(s).length ? s : {} });
+        const vnets = neighborsOf(n.id, "network");
+        if (vnets[0]) s.network = vnets[0].name.trim();
+        if (vnets.length > 1) warnings.push(`VM "${name}" ligada a ${vnets.length} redes — o manifesto usa a primeira ("${vnets[0].name}").`);
+        mergeExtra(s, n.extra);
+        push("vms", { name, spec: s });
         break;
       }
       default:
         break;
     }
   }
+
+  // Secções de spec preservadas de uma reimportação (buckets desconhecidos).
+  mergeExtra(spec, d.extra?.spec);
 
   const doc: Record<string, Yaml> = {
     apiVersion: "core.delonix.io/v1alpha1",
@@ -514,7 +561,180 @@ export function designToManifest(d: StudioDesign): ManifestResult {
     spec,
   };
 
+  // Chaves de topo preservadas de uma reimportação (além das quatro canónicas).
+  mergeExtra(doc, d.extra?.doc);
+
   return { yaml: toYaml(doc) + "\n", warnings };
+}
+
+// --- Reimportação (YAML → desenho) ------------------------------------------
+// Inverso de designToManifest: lê um manifesto `kind: Stack` e reconstrói o
+// grafo (nós + arestas) para o canvas. Mapeia spec.{networks,volumes,secrets,
+// containers,pods,vms} em nós; container.spec.{network,volumes,secret} em
+// arestas (rede, volume montado, segredo). Campos que o modelo não representa
+// são PRESERVADOS (por nó, em `extra`; buckets/chaves de topo desconhecidos no
+// `extra` do desenho) e re-emitidos tal e qual no export — nunca se perdem em
+// silêncio; cada preservação deixa um aviso. As posições (x/y) são atribuídas
+// numa grelha simples (rede em cima, workloads no meio, dados em baixo).
+
+export interface ImportResult {
+  design: StudioDesign;
+  warnings: string[];
+}
+
+const KNOWN_SPEC_BUCKETS = ["networks", "volumes", "secrets", "containers", "pods", "vms"] as const;
+const DOC_TOP_KEYS = ["apiVersion", "kind", "metadata", "spec"];
+
+function asObjArray(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? (v.filter((x) => x && typeof x === "object") as Record<string, unknown>[]) : [];
+}
+function str(v: unknown): string {
+  return v == null ? "" : String(v);
+}
+// Junta uma lista YAML (ou um escalar) numa string "a, b, c" — inverso de csv().
+function joinList(v: unknown): string {
+  return Array.isArray(v) ? v.map((x) => str(x)).join(", ") : str(v);
+}
+// Separa as chaves CONHECIDAS de um spec das desconhecidas (preservadas em extra).
+function splitExtra(spec: Record<string, unknown>, known: string[]): Record<string, unknown> {
+  const extra: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(spec)) if (!known.includes(k)) extra[k] = val;
+  return extra;
+}
+function asSpec(item: Record<string, unknown>): Record<string, unknown> {
+  return item.spec && typeof item.spec === "object" ? (item.spec as Record<string, unknown>) : {};
+}
+
+export function manifestToDesign(text: string): ImportResult {
+  const warnings: string[] = [];
+  let parsedDocs;
+  try {
+    parsedDocs = parseAllDocuments(text, { prettyErrors: true });
+  } catch (e) {
+    throw new Error(`YAML inválido: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const parsed: Record<string, unknown>[] = [];
+  for (const d of parsedDocs) {
+    if (d.errors && d.errors.length) throw new Error(`YAML inválido: ${d.errors[0].message}`);
+    const js = d.toJS();
+    if (js && typeof js === "object" && !Array.isArray(js)) parsed.push(js as Record<string, unknown>);
+  }
+  if (parsed.length === 0) throw new Error("Manifesto vazio: nenhum documento YAML com conteúdo.");
+
+  const stacks = parsed.filter((d) => str(d.kind).toLowerCase() === "stack");
+  let doc: Record<string, unknown>;
+  if (stacks.length > 0) {
+    doc = stacks[0];
+    if (parsed.length > 1) warnings.push(`O ficheiro tem ${parsed.length} documentos; importei o primeiro \`kind: Stack\` e ignorei os restantes ${parsed.length - 1}.`);
+  } else {
+    const cand = parsed.find((d) => d.spec && typeof d.spec === "object" && KNOWN_SPEC_BUCKETS.some((b) => (d.spec as Record<string, unknown>)[b] != null));
+    if (!cand) throw new Error("Não é um manifesto `kind: Stack` (nem tem um `spec` reconhecível).");
+    doc = cand;
+    warnings.push("O documento não declara `kind: Stack`; importei-o pelo `spec` reconhecido.");
+  }
+
+  const spec = (doc.spec && typeof doc.spec === "object" ? doc.spec : {}) as Record<string, unknown>;
+  const meta = (doc.metadata && typeof doc.metadata === "object" ? doc.metadata : {}) as Record<string, unknown>;
+
+  const nodes: StudioNode[] = [];
+  const edges: StudioEdge[] = [];
+  let eseq = 0;
+  const byKindName = new Map<string, StudioNode>();
+  const add = (n: StudioNode, extra: Record<string, unknown>) => {
+    if (Object.keys(extra).length) n.extra = extra;
+    nodes.push(n);
+    byKindName.set(`${n.kind}/${n.name}`, n);
+  };
+  const col = { net: 0, work: 0, store: 0 };
+  const place = (row: "net" | "work" | "store") => ({ x: 60 + col[row]++ * 230, y: row === "net" ? 40 : row === "work" ? 280 : 520 });
+
+  for (const item of asObjArray(spec.networks)) {
+    const name = str(item.name), s = asSpec(item), p = place("net");
+    add({ id: `imp:network:${name}`, kind: "network", name, x: p.x, y: p.y, props: { driver: str(s.driver) || "bridge", subnet: str(s.subnet) } }, splitExtra(s, ["driver", "subnet"]));
+  }
+  for (const item of asObjArray(spec.volumes)) {
+    const name = str(item.name), s = asSpec(item), p = place("store");
+    add({ id: `imp:volume:${name}`, kind: "volume", name, x: p.x, y: p.y, props: { size: str(s.size), driver: str(s.driver) || "local", mount: "" } }, splitExtra(s, ["size", "driver"]));
+  }
+  for (const item of asObjArray(spec.secrets)) {
+    const name = str(item.name), s = asSpec(item), p = place("store");
+    const sd = (s.stringData && typeof s.stringData === "object" ? s.stringData : {}) as Record<string, unknown>;
+    add({ id: `imp:secret:${name}`, kind: "secret", name, x: p.x, y: p.y, props: { keys: Object.keys(sd).join(", ") } }, splitExtra(s, ["stringData"]));
+  }
+  const containerItems: { node: StudioNode; s: Record<string, unknown> }[] = [];
+  for (const item of asObjArray(spec.containers)) {
+    const name = str(item.name), s = asSpec(item), p = place("work");
+    const node: StudioNode = { id: `imp:container:${name}`, kind: "container", name, x: p.x, y: p.y, props: { image: str(s.image), ports: joinList(s.ports), env: joinList(s.env), command: joinList(s.command) } };
+    add(node, splitExtra(s, ["image", "network", "ports", "env", "command", "volumes", "secret"]));
+    containerItems.push({ node, s });
+  }
+  // Rede de um workload (pod/vm): resolve a aresta ou avisa se a rede não existe.
+  const linkNetwork = (node: StudioNode, net: string) => {
+    if (!net) return;
+    const nn = byKindName.get(`network/${net}`);
+    if (nn) edges.push({ id: `ie${eseq++}`, source: nn.id, target: node.id });
+    else warnings.push(`O ${CATALOG[node.kind].label.toLowerCase()} "${node.name}" refere a rede "${net}", não declarada — ligação não criada.`);
+  };
+  for (const item of asObjArray(spec.pods)) {
+    const name = str(item.name), s = asSpec(item), p = place("work");
+    const first = asObjArray(s.containers)[0] ?? {};
+    const ports = asObjArray(first.ports).map((pp) => str(pp.containerPort)).filter(Boolean);
+    const node: StudioNode = { id: `imp:pod:${name}`, kind: "pod", name, x: p.x, y: p.y, props: { image: str(first.image), ports: ports.join(", ") } };
+    add(node, splitExtra(s, ["containers", "network"]));
+    linkNetwork(node, str(s.network));
+  }
+  for (const item of asObjArray(spec.vms)) {
+    const name = str(item.name), s = asSpec(item), p = place("work");
+    const node: StudioNode = { id: `imp:vm:${name}`, kind: "vm", name, x: p.x, y: p.y, props: { disk: str(s.disk), vcpus: str(s.vcpus), memory: str(s.memory) } };
+    add(node, splitExtra(s, ["disk", "vcpus", "memory", "network"]));
+    linkNetwork(node, str(s.network));
+  }
+
+  // Segunda passagem: arestas dos containers (rede, volume montado, segredo).
+  for (const { node, s } of containerItems) {
+    const net = str(s.network);
+    if (net) {
+      const nn = byKindName.get(`network/${net}`);
+      if (nn) edges.push({ id: `ie${eseq++}`, source: nn.id, target: node.id });
+      else warnings.push(`O container "${node.name}" refere a rede "${net}", não declarada — ligação não criada.`);
+    }
+    for (const raw of Array.isArray(s.volumes) ? s.volumes : []) {
+      const ref = str(raw);
+      const idx = ref.indexOf(":");
+      const vname = idx >= 0 ? ref.slice(0, idx) : ref;
+      const mount = idx >= 0 ? ref.slice(idx + 1) : "";
+      const vn = byKindName.get(`volume/${vname}`);
+      if (vn) {
+        if (mount) vn.props.mount = mount;
+        edges.push({ id: `ie${eseq++}`, source: node.id, target: vn.id });
+      } else warnings.push(`O container "${node.name}" monta o volume "${vname}", não declarado — ligação não criada.`);
+    }
+    for (const raw of Array.isArray(s.secret) ? s.secret : []) {
+      const sname = str(raw);
+      const sn = byKindName.get(`secret/${sname}`);
+      if (sn) edges.push({ id: `ie${eseq++}`, source: node.id, target: sn.id });
+      else warnings.push(`O container "${node.name}" usa o segredo "${sname}", não declarado — ligação não criada.`);
+    }
+  }
+
+  // Preservação do que o modelo não representa (re-emitido no export).
+  const specExtra = Object.fromEntries(Object.entries(spec).filter(([k]) => !KNOWN_SPEC_BUCKETS.includes(k as (typeof KNOWN_SPEC_BUCKETS)[number])));
+  const docExtra = Object.fromEntries(Object.entries(doc).filter(([k]) => !DOC_TOP_KEYS.includes(k)));
+  const designExtra: NonNullable<StudioDesign["extra"]> = {};
+  if (Object.keys(specExtra).length) { designExtra.spec = specExtra; warnings.push(`Secções de spec não representadas preservadas (re-emitidas no export): ${Object.keys(specExtra).join(", ")}.`); }
+  if (Object.keys(docExtra).length) { designExtra.doc = docExtra; warnings.push(`Chaves de topo não representadas preservadas (re-emitidas no export): ${Object.keys(docExtra).join(", ")}.`); }
+  const nodesWithExtra = nodes.filter((n) => n.extra && Object.keys(n.extra).length);
+  if (nodesWithExtra.length) warnings.push(`Campos não representados preservados como extra (re-emitidos no export): ${nodesWithExtra.map((n) => `${n.name} [${Object.keys(n.extra!).join(", ")}]`).join("; ")}.`);
+
+  const design: StudioDesign = {
+    version: 1,
+    name: str(meta.name) || "importado",
+    namespace: str(meta.namespace),
+    nodes,
+    edges,
+  };
+  if (designExtra.spec || designExtra.doc) design.extra = designExtra;
+  return { design, warnings };
 }
 
 // --- Serialização do desenho (.json) ----------------------------------------
@@ -540,7 +760,7 @@ export function parseDesign(text: string): StudioDesign {
     const n = raw as Record<string, unknown>;
     const kind = n.kind as StudioKind;
     if (!CATALOG[kind]) throw new Error(`Tipo desconhecido no nó ${i}: ${String(n.kind)}`);
-    return {
+    const node: StudioNode = {
       id: String(n.id ?? `n${i}`),
       kind,
       name: String(n.name ?? ""),
@@ -548,6 +768,8 @@ export function parseDesign(text: string): StudioDesign {
       y: Number(n.y ?? 0),
       props: (n.props && typeof n.props === "object" ? (n.props as Record<string, string>) : {}),
     };
+    if (n.extra && typeof n.extra === "object") node.extra = n.extra as Record<string, unknown>;
+    return node;
   });
   const ids = new Set(nodes.map((n) => n.id));
   const edges: StudioEdge[] = (o.edges as unknown[])
@@ -556,13 +778,15 @@ export function parseDesign(text: string): StudioDesign {
       return { id: String(e.id ?? `e${i}`), source: String(e.source ?? ""), target: String(e.target ?? "") };
     })
     .filter((e) => ids.has(e.source) && ids.has(e.target));
-  return {
+  const design: StudioDesign = {
     version: 1,
     name: String(o.name ?? "arquitetura"),
     namespace: String(o.namespace ?? ""),
     nodes,
     edges,
   };
+  if (o.extra && typeof o.extra === "object") design.extra = o.extra as StudioDesign["extra"];
+  return design;
 }
 
 // --- Modo Live: runtime observado → desenho (só-leitura) --------------------
@@ -647,4 +871,71 @@ export function diffDesignVsLive(design: StudioDesign, live: StudioDesign): Plan
   }
   rows.sort((a, b) => (a.action === b.action ? a.name.localeCompare(b.name) : a.action.localeCompare(b.action)));
   return rows;
+}
+
+// --- Provisão dos tipos de DESENHO (gateway, cluster) -----------------------
+// Gateway e cluster NÃO entram no manifesto de stack (ver STACK_KINDS), mas
+// também não são inertes: cada um mapeia para um comando REAL do engine que o
+// Apply mostra como PASSO ADICIONAL (separado do `stack apply`), corrido com
+// confirmação de risco. gateway → `net tunnel expose` (kind: Gateway);
+// cluster → `cluster create` (kubeadm, kind-mode). Confirmados por `--help` no
+// delonix 5.1.1. `available` é falso quando faltam parâmetros para montar um
+// comando completo — aí `note` diz honestamente o que falta e o comando parcial
+// fica na mesma para copiar.
+
+export interface ProvisionAction {
+  nodeId: string;
+  kind: "gateway" | "cluster";
+  name: string;
+  /** Rótulo humano do passo. */
+  label: string;
+  /** argv do comando do engine (sempre presente, mesmo que parcial). */
+  argv: Argv;
+  /** Verdadeiro quando o argv está completo e pode correr. */
+  available: boolean;
+  /** Explicação do risco, para a confirmação do Apply. */
+  risk: string;
+  /** Nota honesta quando o comando não está pronto a correr. */
+  note?: string;
+}
+
+export function provisionActions(d: StudioDesign): ProvisionAction[] {
+  const out: ProvisionAction[] = [];
+  for (const n of d.nodes) {
+    const name = n.name.trim();
+    if (n.kind === "gateway") {
+      const port = (n.props.port ?? "").trim();
+      const provider = (n.props.provider ?? "").trim() || "pinggy";
+      out.push({
+        nodeId: n.id,
+        kind: "gateway",
+        name,
+        label: `Expor túnel "${name}"${port ? ` — porta ${port}` : ""} via ${provider}`,
+        argv: cmd.tunnelExpose({ port, provider, name }),
+        available: !!port,
+        risk: "Abre um túnel PÚBLICO de uma porta local para a internet — qualquer pessoa com o URL alcança o serviço. Provisiona-se FORA do stack.",
+        note: port ? undefined : "Define a porta de origem do gateway para o comando ficar completo.",
+      });
+    } else if (n.kind === "cluster") {
+      const cps = (n.props.controlPlanes ?? "").trim();
+      const workers = (n.props.workers ?? "").trim();
+      const cni = (n.props.cni ?? "").trim();
+      out.push({
+        nodeId: n.id,
+        kind: "cluster",
+        name,
+        label: `Criar cluster "${name}" (${cps || "1"} control-plane / ${workers || "0"} worker)`,
+        argv: cmd.clusterCreate({
+          name,
+          controlPlanes: cps ? Number(cps) : undefined,
+          workers: workers ? Number(workers) : undefined,
+          cni: cni && cni !== "default" ? cni : undefined,
+        }),
+        available: !!name,
+        risk: "Arranca nós kind-mode e faz bootstrap kubeadm — consome CPU/memória/disco e demora. Provisiona-se FORA do stack.",
+        note: name ? undefined : "Dá um nome ao cluster para o comando ficar completo.",
+      });
+    }
+  }
+  return out;
 }
