@@ -4,6 +4,7 @@
 //     size_bytes: number, orphan: boolean }
 // `orphan` é a fonte AUTORITÁRIA de "sem uso" (não o cruzamento com workloads).
 import type { ImageRow, WorkloadRow } from "./types";
+import { describeCliError } from "./errors";
 import { fmtCreated, humanBytes } from "./format";
 
 type Obj = Record<string, unknown>;
@@ -74,19 +75,8 @@ export const crossRefUsedBy = (images: ImageRow[], workloads: WorkloadRow[]): Im
 };
 
 // Extrai uma mensagem de erro ACIONÁVEL das linhas capturadas de um pull
-// falhado. Filtra as linhas INFO/tracing do stderr e devolve o erro do engine;
-// se detetar DX-4402 / "no such image", sugere o login no registry.
-export const extractPullError = (lines: string[]): string => {
-  const noise = /\bINFO\b|\bDEBUG\b|\bTRACE\b|^\s*(pulling|platform selected|copying|downloading|extracting)\b/i;
-  const errLines = lines.filter((l) => {
-    const t = l.trim();
-    if (!t) return false;
-    if (noise.test(t)) return false;
-    return /^error\b|\berror\[|\bDX-\d|no such image|unauthorized|denied|failed/i.test(t);
-  });
-  let msg = errLines.length ? errLines.join("\n") : (lines.filter((l) => l.trim() && !noise.test(l)).slice(-1)[0] ?? "O pull falhou.");
-  if (/DX-4402|no such image|unauthorized|denied/i.test(lines.join("\n"))) {
-    msg += "\n→ Faça login no registry em Plataforma › Registries e tente novamente.";
-  }
-  return msg;
-};
+// falhado. Agora delega no normalizador CENTRAL (lib/errors.ts): filtra o ruído
+// INFO/tracing, extrai o código DX e junta a hint acionável (DX-4402 →
+// "faça login no registry"). Mantém a assinatura (lines[] → string) para a tela
+// de Imagens não mudar. Ver lib/errors.ts para a taxonomia.
+export const extractPullError = (lines: string[]): string => describeCliError(lines.join("\n"));

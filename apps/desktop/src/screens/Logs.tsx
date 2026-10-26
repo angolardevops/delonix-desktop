@@ -10,6 +10,7 @@ import {
   BUFFER_LIMITS, capLines, filterLogLines, LOG_SOURCES, logFilename, sourceMeta, splitTimestamp, type BufferLimit, type LogSource,
 } from "../lib/logs";
 import { copyText, nativeDialogsAvailable } from "../lib/native";
+import { reconnectingStream, type StreamStatus } from "../lib/reconnectingStream";
 
 // Explorador de LOGS unificado (§7). Separa visualmente LOGS (abaixo) de
 // EVENTOS de lifecycle (reaproveita `system events`) em duas abas. As origens
@@ -102,7 +103,9 @@ function LogsExplorer() {
   useEffect(() => setLines((p) => capLines(p, limit)), [limit]);
 
   // Stream ao vivo (só container/pod). Pausa = congela (pára o processo, mantém
-  // o buffer). Fim do `-f` (container parou) → "interrompido" + re-prova em 4 s.
+  // o buffer). Fim do `-f` (container parou / engine em baixo) → "interrompido"
+  // e reconexão automática com backoff — pelo helper PARTILHADO
+  // (lib/reconnectingStream.ts). O botão "Reconectar" força já (bump de `gen`).
   useEffect(() => {
     if (!meta.streams || !resource) {
       setStatus("idle");
@@ -112,27 +115,14 @@ function LogsExplorer() {
       setStatus("paused");
       return;
     }
-    setStatus("streaming");
     const argv = source === "pod"
       ? cmd.podLogsFollow(resource)
       : cmd.containerLogs(resource, { follow: true, timestamps });
-    let stop: (() => void) | undefined;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    void client
-      .stream("logs-explorer", argv,
-        (l) => setLines((p) => capLines([...p, l], limitRef.current)),
-        () => {
-          if (cancelled) return;
-          setStatus("interrupted");
-          timer = setTimeout(() => { if (!cancelled) setGen((g) => g + 1); }, 4000);
-        })
-      .then((s) => { if (cancelled) s(); else stop = s; });
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      stop?.();
-    };
+    return reconnectingStream({
+      start: (onLine, onEnd) => client.stream("logs-explorer", argv, onLine, onEnd),
+      onLine: (l) => setLines((p) => capLines([...p, l], limitRef.current)),
+      onStatus: setStatus,
+    });
   }, [client, source, resource, follow, timestamps, meta.streams, gen]);
 
   const debouncedQuery = useDebounced(query, 220);
@@ -324,18 +314,19 @@ function EventsExplorer() {
   const [events, setEvents] = useState<string[]>([]);
   const [follow, setFollow] = useState(true);
   const [query, setQuery] = useState("");
+  const [evStatus, setEvStatus] = useState<StreamStatus>("streaming");
   const end = useRef<HTMLDivElement>(null);
 
+  // Mesmo helper partilhado dos logs: o `system events -f` também pode fechar
+  // (engine em baixo / socket caído) — religa com backoff em vez de ficar mudo.
   useEffect(() => {
     if (!follow) return;
-    let stop: (() => void) | undefined;
-    void client
-      .events((e) => {
-        const line = `${e.time}  ${e.kind.padEnd(10)} ${e.action.padEnd(10)} ${e.name}${e.detail ? ` · ${e.detail}` : ""}`;
-        setEvents((p) => capLines([...p, line], 2000));
-      })
-      .then((s) => (stop = s));
-    return () => stop?.();
+    return reconnectingStream({
+      start: (onLine, onEnd) =>
+        client.events((e) => onLine(`${e.time}  ${e.kind.padEnd(10)} ${e.action.padEnd(10)} ${e.name}${e.detail ? ` · ${e.detail}` : ""}`), onEnd),
+      onLine: (line) => setEvents((p) => capLines([...p, line], 2000)),
+      onStatus: setEvStatus,
+    });
   }, [client, follow]);
 
   const debounced = useDebounced(query, 220);
@@ -353,7 +344,11 @@ function EventsExplorer() {
           <span className="muted" style={{ fontSize: 12 }}>{shown.length}/{events.length}</span>
           <button className="btn sm" type="button" onClick={() => setEvents([])}>Limpar</button>
           <button className="btn sm" type="button" onClick={() => void doExport(events.join("\n"), logFilename("build", "events").replace("build-", "events-"))}><Icon name="download" size={13} />Exportar</button>
-          <Chip tone={follow ? "ok" : "neu"} dot={follow}>{follow ? "a seguir" : "pausado"}</Chip>
+          {!follow
+            ? <Chip tone="neu">pausado</Chip>
+            : evStatus === "interrupted"
+              ? <Chip tone="warn" dot>interrompido — a reconectar…</Chip>
+              : <Chip tone="ok" dot>a seguir</Chip>}
         </div>
         <div className="log" style={{ flex: 1, overflow: "auto", border: 0, minHeight: 320 }}>
           {shown.length ? shown.join("\n") : <span className="muted">Sem eventos ainda — ações no engine aparecem aqui em direto.</span>}

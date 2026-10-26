@@ -2,11 +2,12 @@ import { useState, type ReactNode } from "react";
 import type { RunState } from "../lib/hooks";
 import { Icon } from "./Icon";
 import { show, type Argv } from "../lib/cli";
+import { toCliError } from "../lib/errors";
 import { copyText } from "../lib/native";
 
-export function Chip({ tone, children, dot }: { tone: "ok" | "warn" | "bad" | "inf" | "neu"; children: ReactNode; dot?: boolean }) {
+export function Chip({ tone, children, dot, title }: { tone: "ok" | "warn" | "bad" | "inf" | "neu"; children: ReactNode; dot?: boolean; title?: string }) {
   return (
-    <span className={`chip ${tone}`}>
+    <span className={`chip ${tone}`} title={title}>
       {dot && <span className="dot" />}
       {children}
     </span>
@@ -84,10 +85,19 @@ export function Planned({ what, dependsOn }: { what: string; dependsOn: string }
   );
 }
 
+// Painel de erro CENTRAL (§3). Normaliza o texto cru via `toCliError` para
+// mostrar de forma consistente: código DX (quando há), mensagem SEM o ruído
+// INFO/tracing e uma hint acionável. Todos os painéis da app passam por aqui,
+// por isso a melhoria chega a todas as telas sem tocar nos sítios de chamada.
 export function ErrorNote({ error }: { error: string }) {
+  const e = toCliError(error);
   return (
     <div className="note" style={{ background: "var(--badb)", borderColor: "var(--bad-line)", color: "var(--bad)" }} role="alert">
-      <span className="mono" style={{ fontSize: 12 }}>{error}</span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        {e.code && <span className="chip bad" style={{ fontSize: 11 }}>{e.code}</span>}
+        <span className="mono" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{e.message}</span>
+      </div>
+      {e.hint && <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9 }}>→ {e.hint}</div>}
     </div>
   );
 }

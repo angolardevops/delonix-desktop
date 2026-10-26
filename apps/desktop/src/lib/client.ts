@@ -1,6 +1,7 @@
 import type {
   BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
+import type { EngineInfo } from "./engine";
 import type { Argv } from "./cli";
 
 // Contrato único entre a UI e o engine. Há duas implementações:
@@ -9,6 +10,11 @@ import type { Argv } from "./cli";
 export interface DelonixClient {
   readonly live: boolean;
   binary(): Promise<string>;
+  // Descoberta de versão/capacidades do engine (§3), lida UMA vez ao arrancar.
+  // Devolve a versão semver, se é compatível com a família testada e a contagem
+  // de capacidades (`mcp capabilities`). Best-effort: nunca lança (degrada a
+  // version="" / compatible=true quando o engine não responde).
+  engine(): Promise<EngineInfo>;
   dash(): Promise<DashSummary>;
   // Dashboard SRE (§B). `systemMetrics` são os contadores de frota estruturados
   // (storage por categoria incluído); `systemResources` traz os conselhos
@@ -71,7 +77,10 @@ export interface DelonixClient {
   // acaba) com o CÓDIGO DE SAÍDA real (0 = sucesso; null se indeterminado) — os
   // fluxos infinitos (`logs -f`) nunca o chamam.
   stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void): Promise<() => void>;
-  events(onEvent: (e: EngineEvent) => void): Promise<() => void>;
+  // `onEnd` (opcional) dispara quando o processo de eventos termina (o engine
+  // caiu / o socket fechou) — permite ao consumidor religar com backoff
+  // (lib/reconnectingStream.ts). Os fluxos infinitos saudáveis nunca o chamam.
+  events(onEvent: (e: EngineEvent) => void, onEnd?: () => void): Promise<() => void>;
   // Sessão interativa por PTY (§3/§6). `mode` escolhe a semântica: `shell novo`
   // (container exec), `attach` ao processo principal (output-only), `pod exec`
   // (shell num membro) ou `consola série` de VM. Os bytes do PTY chegam por

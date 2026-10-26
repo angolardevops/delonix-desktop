@@ -3,6 +3,7 @@
 import type { DelonixClient, ExecMode, ExecSession } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
+import { buildEngineInfo } from "./engine";
 import type {
   BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
@@ -322,6 +323,10 @@ const LOG = [
 export class MockClient implements DelonixClient {
   readonly live = false;
   binary = () => wait("duplo local");
+  // Descoberta de versão (§3): o duplo local finge a família testada (5.1.1) e
+  // uma contagem de capacidades plausível, para a StatusBar/ContextPicker terem
+  // o que mostrar no browser sem enganar (compatível, nunca alarma).
+  engine = () => wait(buildEngineInfo("delonix 5.1.1 (duplo local)", 72));
   dash = () => wait({ ...dashBase, rows: mockRows(), problems: mockProblems() });
   systemMetrics = () => wait(mockMetrics());
   systemResources = () => wait(mockResources());
@@ -686,7 +691,8 @@ export class MockClient implements DelonixClient {
     return wait(undefined);
   }
 
-  async events(onEvent: (e: EngineEvent) => void) {
+  async events(onEvent: (e: EngineEvent) => void, _onEnd?: () => void) {
+    void _onEnd; // o duplo local não termina o fluxo — sem reconexão a simular
     // `ts` em epoch (segundos); os dois eventos "15:06:03" partilham o MESMO ts
     // para exercitar a correlação ao segundo. `time` é a hora já formatada.
     const seed: EngineEvent[] = [

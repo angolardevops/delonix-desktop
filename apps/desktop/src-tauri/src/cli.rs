@@ -12,9 +12,62 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Stdio;
+use std::process::{Output, Stdio};
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+
+/// Marcador antecedente da mensagem quando um processo é MORTO por exceder o
+/// tempo-limite. O frontend (src/lib/errors.ts `TIMEOUT_MARKER`) deteta-o para
+/// classificar o erro como TIMEOUT, distinto de um stderr vazio.
+pub const TIMEOUT_PREFIX: &str = "DLX_TIMEOUT";
+
+/// Tempo-limite de um comando `delonix` pelo argv. Operações inerentemente
+/// LENTAS (puxar/publicar/gravar imagens, scan de CVEs, aplicar stacks, criar
+/// backups) ganham uma folga longa; tudo o resto tem um default generoso. O
+/// objetivo é NÃO pendurar a UI para sempre — não apertar leituras rápidas.
+fn timeout_for(args: &[String]) -> Duration {
+    const LONG: &[&[&str]] = &[
+        &["image", "pull"],
+        &["image", "push"],
+        &["image", "save"],
+        &["image", "export"],
+        &["image", "scan"],
+        &["image", "sbom"],
+        &["backup", "create"],
+        &["backup", "restore"],
+        &["stack", "apply"],
+        &["compose", "up"],
+        &["cluster", "load"],
+    ];
+    let long = LONG
+        .iter()
+        .any(|p| args.len() >= p.len() && p.iter().zip(args).all(|(a, b)| a == b));
+    Duration::from_secs(if long { 600 } else { 120 })
+}
+
+/// Corre um `Command` com tempo-limite: se não terminar dentro de `dur`, o
+/// processo é MORTO (via `kill_on_drop`, ao largar o future) e devolve-se um
+/// erro distinto prefixado com `TIMEOUT_PREFIX`. `label` é o que a UI mostra.
+/// Isolado (não depende do binário) para ser testável com `sleep`/`echo`.
+async fn output_with_timeout(
+    mut command: Command,
+    dur: Duration,
+    label: &str,
+) -> Result<Output, String> {
+    command.kill_on_drop(true);
+    let child = command
+        .spawn()
+        .map_err(|e| format!("não foi possível executar `{label}`: {e}."))?;
+    match tokio::time::timeout(dur, child.wait_with_output()).await {
+        Ok(res) => res.map_err(|e| format!("falha ao recolher a saída de `{label}`: {e}")),
+        // Future largado aqui → `kill_on_drop` mata o processo pendurado.
+        Err(_) => Err(format!(
+            "{TIMEOUT_PREFIX}: `{label}` excedeu o tempo-limite de {}s e foi terminado.",
+            dur.as_secs()
+        )),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -226,12 +279,25 @@ pub struct CliResult {
 }
 
 pub async fn exec(args: &[String]) -> Result<CliResult, String> {
-    let out = Command::new(bin())
+    let mut command = Command::new(bin());
+    command
         .args(args)
         .env("NO_COLOR", "1")
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let label = format!("delonix {}", args.join(" "));
+    let out = output_with_timeout(command, timeout_for(args), &label)
         .await
-        .map_err(|e| format!("não foi possível executar `delonix`: {e}. Define DELONIX_BIN ou instala o CLI."))?;
+        // Falha a ARRANCAR o processo troca-se por uma mensagem acionável (o
+        // TIMEOUT mantém o seu prefixo para a UI o classificar).
+        .map_err(|e| {
+            if e.starts_with(TIMEOUT_PREFIX) {
+                e
+            } else {
+                format!("{e} Define DELONIX_BIN ou instala o CLI.")
+            }
+        })?;
     let mut argv = vec!["delonix".to_string()];
     argv.extend(args.iter().cloned());
     Ok(CliResult {
@@ -269,6 +335,7 @@ pub async fn login(registry: &str, username: &str, password: &str) -> Result<Cli
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("não foi possível executar `delonix`: {e}. Define DELONIX_BIN ou instala o CLI."))?;
     {
@@ -280,10 +347,16 @@ pub async fn login(registry: &str, username: &str, password: &str) -> Result<Cli
             .await
             .map_err(|_| "falha ao escrever a password no stdin do login".to_string())?;
     }
-    let out = child
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("falha ao concluir o login: {e}"))?;
+    // Mesmo tempo-limite dos comandos normais: um login pendurado (registo
+    // inacessível) é morto com erro distinto (prefixo TIMEOUT), não fica mudo.
+    let out = match tokio::time::timeout(Duration::from_secs(120), child.wait_with_output()).await {
+        Ok(res) => res.map_err(|e| format!("falha ao concluir o login: {e}"))?,
+        Err(_) => {
+            return Err(format!(
+                "{TIMEOUT_PREFIX}: o login em '{registry}' excedeu o tempo-limite de 120s e foi terminado."
+            ))
+        }
+    };
     let mut argv = vec!["delonix".to_string()];
     argv.extend(args);
     Ok(CliResult {
@@ -409,15 +482,23 @@ pub async fn kubectl(cluster: &str, args: &[String]) -> Result<CliResult, String
 
     let mut argv: Vec<String> = vec!["--kubeconfig".to_string(), path.display().to_string()];
     argv.extend(args.iter().cloned());
-    let out = Command::new(kubectl_bin())
+    let mut command = Command::new(kubectl_bin());
+    command
         .args(&argv)
         .env("NO_COLOR", "1")
-        .output()
-        .await;
-    // Remove o kubeconfig temporário haja o que houver (sucesso ou erro).
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let label = format!("kubectl {}", args.join(" "));
+    let out = output_with_timeout(command, Duration::from_secs(120), &label).await;
+    // Remove o kubeconfig temporário haja o que houver (sucesso, erro, timeout).
     let _ = tokio::fs::remove_file(&path).await;
     let out = out.map_err(|e| {
-        format!("não foi possível executar `kubectl`: {e}. Instala o kubectl ou define KUBECTL_BIN.")
+        if e.starts_with(TIMEOUT_PREFIX) {
+            e
+        } else {
+            format!("{e} Instala o kubectl ou define KUBECTL_BIN.")
+        }
     })?;
 
     let mut shown = vec!["kubectl".to_string()];
@@ -437,6 +518,43 @@ mod tests {
 
     fn v(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn timeout_for_gives_long_leash_to_heavy_ops() {
+        // Operações lentas ganham folga longa; o resto o default generoso.
+        assert_eq!(timeout_for(&v("image pull alpine:3.20")).as_secs(), 600);
+        assert_eq!(timeout_for(&v("image scan postgres:16")).as_secs(), 600);
+        assert_eq!(timeout_for(&v("stack apply -f prod.yaml")).as_secs(), 600);
+        assert_eq!(timeout_for(&v("backup create container db")).as_secs(), 600);
+        // Leituras rápidas e mutações leves ficam no default.
+        assert_eq!(timeout_for(&v("workload ls -o json")).as_secs(), 120);
+        assert_eq!(timeout_for(&v("image ls -o json")).as_secs(), 120);
+        assert_eq!(timeout_for(&v("container start web")).as_secs(), 120);
+    }
+
+    #[tokio::test]
+    async fn output_with_timeout_kills_a_hung_process() {
+        // `sleep 5` com 100ms de teto → é MORTO e devolve o erro com o prefixo
+        // TIMEOUT (o contrato que o frontend deteta). Determinístico e rápido.
+        let mut cmd = Command::new("sleep");
+        cmd.arg("5");
+        let err = output_with_timeout(cmd, Duration::from_millis(100), "sleep 5")
+            .await
+            .unwrap_err();
+        assert!(err.starts_with(TIMEOUT_PREFIX), "esperava prefixo TIMEOUT, veio: {err}");
+    }
+
+    #[tokio::test]
+    async fn output_with_timeout_returns_normal_output_in_time() {
+        // Um comando rápido termina dentro do teto e devolve a saída normal.
+        let mut cmd = Command::new("echo");
+        cmd.arg("ola").stdout(Stdio::piped());
+        let out = output_with_timeout(cmd, Duration::from_secs(5), "echo ola")
+            .await
+            .expect("echo devia terminar a tempo");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ola");
     }
 
     #[test]

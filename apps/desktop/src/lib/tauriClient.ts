@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DelonixClient, ExecMode, ExecSession } from "./client";
 import { cmd, kubectl, type Argv } from "./cli";
+import { buildEngineInfo, type EngineInfo } from "./engine";
 import { parseDoctor } from "./doctor";
 import { fmtUnix } from "./format";
 import { crossRefUsedBy, parseImages } from "./images";
@@ -206,6 +207,23 @@ export class TauriClient implements DelonixClient {
 
   binary() {
     return invoke<string>("dlx_bin");
+  }
+
+  // Descoberta de versão/capacidades (§3). `version` é TEXTO (lê-se por dlx_run,
+  // classe Read); a contagem de capacidades vem de `mcp capabilities` (JSON).
+  // Best-effort e tolerante: se o engine não responder, degrada sem lançar
+  // (version="" → compatible=true, não alarma).
+  async engine(): Promise<EngineInfo> {
+    const vr = await invoke<CliResult>("dlx_run", { args: cmd.version(), confirm: false }).catch(() => null);
+    const raw = vr?.ok ? vr.stdout : "";
+    let caps = 0;
+    try {
+      const tools = await json<unknown>(cmd.mcpTools());
+      caps = Array.isArray(tools) ? tools.length : asArray((tools as Obj)?.tools ?? (tools as Obj)?.capabilities).length;
+    } catch {
+      /* sem mcp capabilities: capacidades ficam a 0 (não bloqueia o arranque) */
+    }
+    return buildEngineInfo(raw, caps);
   }
 
   async dash(): Promise<DashSummary> {
@@ -665,7 +683,7 @@ export class TauriClient implements DelonixClient {
     await invoke("node_vm_snapshot_restore", { name, snapshot });
   }
 
-  events(onEvent: (e: EngineEvent) => void) {
+  events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {
     return this.stream("engine-events", cmd.events(), (line) => {
       try {
         const o = JSON.parse(line) as Obj;
@@ -684,6 +702,6 @@ export class TauriClient implements DelonixClient {
       } catch {
         /* linha não-JSON: ignorar */
       }
-    });
+    }, onEnd ? () => onEnd() : undefined);
   }
 }

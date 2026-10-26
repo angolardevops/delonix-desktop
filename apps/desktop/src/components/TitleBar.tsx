@@ -73,7 +73,7 @@ function Menu({ label, items }: { label: string; items: MenuItem[] }) {
 // chevron morto, o popover é HONESTO: mostra o host/engine reais (`system info`
 // + caminho do binário) e diz que o contexto é único. Nada decorativo.
 function ContextPicker() {
-  const { client } = useApp();
+  const { client, engine: eng } = useApp();
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const info = useResource(["system-info"], () => client.readText(cmd.systemInfo()), 0).data;
@@ -88,7 +88,7 @@ function ContextPicker() {
     }
     return "";
   };
-  const engine = (info?.ok ? info.stdout.split("\n")[0] : "").trim();
+  const engineLine = (info?.ok ? info.stdout.split("\n")[0] : "").trim();
   const mode = line("mode");
 
   return (
@@ -103,7 +103,9 @@ function ContextPicker() {
         <section className="section" style={{ padding: 10 }}>
           <h2 style={{ fontSize: 12, margin: 0 }}>Contexto único (engine local rootless)</h2>
           <dl className="kv" style={{ margin: "8px 0 0" }}>
-            <dt>Engine</dt><dd className="mono">{engine || (client.live ? "—" : "duplo local")}</dd>
+            <dt>Engine</dt><dd className="mono">{engineLine || (client.live ? "—" : "duplo local")}</dd>
+            {/* Versão descoberta ao arrancar (§3); avisa se sair da família testada. */}
+            <dt>Versão</dt><dd className="mono">{eng?.version ? `${eng.version}${eng.compatible ? "" : ` · testado com ${eng.expected}.x`}` : "—"}</dd>
             <dt>Modo</dt><dd className="mono">{mode || (client.live ? "—" : "duplo local")}</dd>
             <dt>Estado</dt><dd className="mono">{line("state root") || "—"}</dd>
             <dt>Binário</dt><dd className="mono" style={{ wordBreak: "break-all" }}>{bin || "—"}</dd>

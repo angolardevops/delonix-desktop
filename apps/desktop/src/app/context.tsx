@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { DelonixClient } from "../lib/client";
+import type { EngineInfo } from "../lib/engine";
 import type { Argv } from "../lib/cli";
 
 export type Route =
@@ -30,6 +31,10 @@ export type DockTab = "terminal" | "logs" | "assistant" | "activity";
 
 export interface AppCtx {
   client: DelonixClient;
+  // Versão/capacidades do engine, descobertas UMA vez ao arrancar (§3). `null`
+  // enquanto a 1.ª leitura não chega. A StatusBar/ContextPicker mostram-na e
+  // sinalizam uma versão fora da família testada (sem esconder features).
+  engine: EngineInfo | null;
   route: Route;
   go: (r: Route) => void;
   openDock: (tab: DockTab) => void;

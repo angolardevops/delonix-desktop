@@ -37,6 +37,9 @@ export const cmd = {
     ["provider", "describe", id, ...(kind ? ["--kind", kind] : []), "-o", "json"],
   doctor: (): Argv => ["system", "doctor"],
   mcpTools: (): Argv => ["mcp", "capabilities"],
+  // Descoberta de versão do engine (§3): `version` é TEXTO (classe Read em
+  // cli.rs), lido por readText e parseado por lib/engine.ts.
+  version: (): Argv => ["version"],
   // Dashboard SRE (§B). `system metrics` são os contadores de frota ESTRUTURADOS
   // (o mesmo coletor do dashboard e do Prometheus), SEM a formatação das tiles e
   // com STORAGE por categoria. `system resources` traz os conselhos acionáveis

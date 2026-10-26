@@ -9,6 +9,8 @@ import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { isTauri, type DelonixClient } from "./lib/client";
 import { show, type Argv } from "./lib/cli";
+import { describeCliError } from "./lib/errors";
+import { useResource } from "./lib/hooks";
 import { MockClient } from "./lib/mockClient";
 import { notify } from "./lib/native";
 import { TauriClient } from "./lib/tauriClient";
@@ -118,11 +120,15 @@ export default function App() {
     try {
       const r = await client.run(argv, confirm);
       setHistory((h) => [{ at: new Date(), label, command: show(argv), ok: r.ok }, ...h].slice(0, 200));
-      setToast({ ok: r.ok, text: r.ok ? `${label} · feito` : `${label} falhou: ${r.stderr.trim() || `código ${r.code}`}` });
+      // Erro ESTRUTURADO: normaliza o stderr (+ código) numa mensagem acionável
+      // (código DX, hint, sem ruído INFO) em vez do stderr cru / "código N".
+      setToast({ ok: r.ok, text: r.ok ? `${label} · feito` : `${label} falhou: ${describeCliError(r.stderr, r.code)}` });
       return r.ok;
     } catch (e) {
       setHistory((h) => [{ at: new Date(), label, command: show(argv), ok: false }, ...h]);
-      setToast({ ok: false, text: String(e) });
+      // Rejeição do invoke (inclui o marcador de TIMEOUT do backend): também
+      // passa pelo normalizador, por isso um timeout aparece como tal.
+      setToast({ ok: false, text: describeCliError(String(e)) });
       return false;
     }
   }, [client]);
@@ -169,7 +175,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
 
-  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast, namespace, setNamespace };
+  // Descoberta de versão/capacidades do engine: UMA leitura ao arrancar
+  // (everyMs=0, sem polling), partilhada por chave no resourceStore. Exposta no
+  // contexto para a StatusBar/ContextPicker.
+  const engine = useResource(["engine"], () => client.engine(), 0).data;
+
+  const ctx: AppCtx = { client, engine: engine ?? null, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast, namespace, setNamespace };
 
   const screen = (() => {
     switch (route.name) {
