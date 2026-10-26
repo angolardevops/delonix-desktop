@@ -157,11 +157,15 @@ export const CATALOG: Record<StudioKind, CatalogEntry> = {
     kind: "volume", label: "Volume", icon: "volumes", color: "var(--chart-3, var(--ok))", emitsToStack: true,
     blurb: "Volume persistente. Monta-se num container ou pod.",
     fields: [
-      { key: "size", label: "Tamanho", placeholder: "1G", hint: "Quota do volume (opcional)." },
+      // `size` só vale DENTRO de um storage pool; um volume AVULSO usa `quota`
+      // (DX-1217). O campo "Tamanho" mapeia para `quota` fora de um pool e para
+      // `size` quando "Storage pool" está preenchido.
+      { key: "quota", label: "Tamanho", placeholder: "1G", hint: "Fora de um pool é a quota; num pool vira o size fixo (opcional)." },
+      { key: "pool", label: "Storage pool", placeholder: "", hint: "Opcional. Dentro de um pool o tamanho é um size reservado; fora, uma quota." },
       { key: "driver", label: "Driver", placeholder: "local" },
       { key: "mount", label: "Ponto de montagem", placeholder: "/data", hint: "Caminho dentro do container ligado." },
     ],
-    defaults: { size: "", driver: "local", mount: "/data" },
+    defaults: { quota: "", pool: "", driver: "local", mount: "/data" },
   },
   secret: {
     kind: "secret", label: "Segredo", icon: "secrets", color: "var(--warn)", emitsToStack: true,
@@ -282,7 +286,7 @@ export const STUDIO_TEMPLATES: StudioTemplate[] = [
         { id: "net", kind: "network", name: "app", x: 360, y: 40, props: { driver: "bridge", subnet: "10.89.0.0/24" } },
         { id: "web", kind: "container", name: "web", x: 120, y: 260, props: { image: "nginx:latest", ports: "8080:80", env: "", command: "" } },
         { id: "db", kind: "container", name: "db", x: 600, y: 260, props: { image: "postgres:16", ports: "", env: "POSTGRES_PASSWORD=change-me", command: "" } },
-        { id: "data", kind: "volume", name: "pgdata", x: 600, y: 480, props: { size: "5G", driver: "local", mount: "/var/lib/postgresql/data" } },
+        { id: "data", kind: "volume", name: "pgdata", x: 600, y: 480, props: { quota: "5G", driver: "local", mount: "/var/lib/postgresql/data" } },
         { id: "sec", kind: "secret", name: "db-secret", x: 360, y: 480, props: { keys: "POSTGRES_PASSWORD" } },
       ],
       edges: [
@@ -580,7 +584,7 @@ export interface ManifestResult {
 // create`, ver provisionActions). Campos preservados de uma reimportação
 // (node.extra / design.extra) são re-emitidos tal e qual, fechando o roundtrip
 // com manifestToDesign (ver abaixo).
-export function designToManifest(d: StudioDesign): ManifestResult {
+export function designToManifest(d: StudioDesign, opts?: { namespace?: string }): ManifestResult {
   const warnings: string[] = [];
   const byId = new Map(d.nodes.map((n) => [n.id, n]));
 
@@ -615,7 +619,17 @@ export function designToManifest(d: StudioDesign): ManifestResult {
       }
       case "volume": {
         const s: Record<string, Yaml> = {};
-        if (n.props.size?.trim()) s.size = n.props.size.trim();
+        // DX-1217: `size` só é válido DENTRO de um storage pool; um volume
+        // AVULSO usa `quota`. O campo "Tamanho" (props.quota) vira `size` quando
+        // há `pool` e `quota` quando não há.
+        const pool = n.props.pool?.trim();
+        const amount = n.props.quota?.trim();
+        if (pool) {
+          s.pool = pool;
+          if (amount) s.size = amount;
+        } else if (amount) {
+          s.quota = amount;
+        }
         if (n.props.driver?.trim() && n.props.driver.trim() !== "local") s.driver = n.props.driver.trim();
         mergeExtra(s, n.extra);
         push("volumes", { name, spec: s });
@@ -767,12 +781,14 @@ export function designToManifest(d: StudioDesign): ManifestResult {
   // Secções de spec preservadas de uma reimportação (buckets desconhecidos).
   mergeExtra(spec, d.extra?.spec);
 
+  // Namespace SEMPRE emitida (silencia o WARN "stack declares no namespace"): a
+  // do desenho, senão a namespace ativa do contexto, senão "default" (onde o
+  // engine as poria de qualquer forma — explicitá-la é honesto).
+  const namespace = d.namespace.trim() || opts?.namespace?.trim() || "default";
   const doc: Record<string, Yaml> = {
     apiVersion: "core.delonix.io/v1alpha1",
     kind: "Stack",
-    metadata: d.namespace.trim()
-      ? { name: d.name.trim() || "studio-stack", namespace: d.namespace.trim() }
-      : { name: d.name.trim() || "studio-stack" },
+    metadata: { name: d.name.trim() || "studio-stack", namespace },
     spec,
   };
 
@@ -874,7 +890,11 @@ export function manifestToDesign(text: string): ImportResult {
   }
   for (const item of asObjArray(spec.volumes)) {
     const name = str(item.name), s = asSpec(item), p = place("store");
-    add({ id: `imp:volume:${name}`, kind: "volume", name, x: p.x, y: p.y, props: { size: str(s.size), driver: str(s.driver) || "local", mount: "" } }, splitExtra(s, ["size", "driver"]));
+    // DX-1217: dentro de um pool o tamanho é `size`; fora, `quota`. Ambos caem
+    // no campo "Tamanho" (props.quota); `pool` guarda-se à parte.
+    const pool = str(s.pool);
+    const amount = pool ? str(s.size) : str(s.quota);
+    add({ id: `imp:volume:${name}`, kind: "volume", name, x: p.x, y: p.y, props: { quota: amount, pool, driver: str(s.driver) || "local", mount: "" } }, splitExtra(s, ["size", "quota", "pool", "driver"]));
   }
   for (const item of asObjArray(spec.secrets)) {
     const name = str(item.name), s = asSpec(item), p = place("store");

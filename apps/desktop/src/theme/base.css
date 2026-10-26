@@ -205,3 +205,41 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 @keyframes flt-slide { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes flt-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .drawer, .drawer-backdrop, .popover { animation: none; } }
+
+/* Architecture Studio (§11) — progresso ANIMADO do Apply. Só tokens de tema
+   (claro/escuro); todas as animações caem com prefers-reduced-motion. */
+.studio-prog-bar { position: relative; height: 8px; background: var(--track); overflow: hidden; }
+.studio-prog-fill { position: absolute; inset: 0 auto 0 0; width: 0; min-width: 2px; display: block; }
+.studio-prog-rows { display: flex; flex-direction: column; gap: 6px; }
+.studio-prog-row {
+  display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 10px;
+  padding: 6px 8px; border: 1px solid var(--line); background: var(--panel);
+  animation: studio-row-in .22s ease-out both;
+}
+.studio-prog-row.studio-st-ready, .studio-prog-row.studio-st-declarative { border-left: 2px solid var(--ok); }
+.studio-prog-row.studio-st-present { border-left: 2px solid var(--inf); }
+.studio-prog-row.studio-st-failed { border-left: 2px solid var(--bad); }
+.studio-prog-row.studio-st-pending { border-left: 2px solid var(--line); }
+.studio-prog-ic { display: inline-flex; align-items: center; justify-content: center; color: var(--mut); }
+.studio-prog-state { display: inline-flex; align-items: center; gap: 8px; }
+.studio-ind { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: none; }
+.studio-ind-ok { color: var(--ok); }
+.studio-ind-bad { color: var(--bad); }
+.studio-spin { color: var(--inf); animation: studio-spin 1s linear infinite; }
+.studio-check-path { stroke-dasharray: 14; stroke-dashoffset: 0; animation: studio-check .4s ease-out both; }
+/* Barra indeterminada (recurso criado, ainda a ficar saudável). */
+.studio-indet { position: relative; width: 28px; height: 4px; background: var(--track); overflow: hidden; border: 0; }
+.studio-indet > i { position: absolute; top: 0; bottom: 0; width: 40%; background: var(--inf); animation: studio-indet 1.1s ease-in-out infinite; }
+
+@keyframes studio-spin { to { transform: rotate(360deg); } }
+@keyframes studio-check { from { stroke-dashoffset: 14; } to { stroke-dashoffset: 0; } }
+@keyframes studio-indet { 0% { left: -40%; } 100% { left: 100%; } }
+@keyframes studio-row-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-prog-fill { transition: none !important; }
+  .studio-prog-row { animation: none; }
+  .studio-spin { animation: none; }
+  .studio-check-path { animation: none; stroke-dashoffset: 0; }
+  .studio-indet > i { animation: none; left: 0; width: 100%; opacity: .6; }
+}

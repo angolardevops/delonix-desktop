@@ -48,6 +48,14 @@ const STREAMABLE: &[&[&str]] = &[
     // progresso demorado — a tela Kubernetes mostra-o ao vivo. Classificado
     // SafeWrite em cli.rs (não destrói nada); aqui ganha a via de STREAM.
     &["cluster", "create"],
+    // `stack apply` e `stack wait` são o motor do Architecture Studio (§11): o
+    // apply materializa o manifesto por ordem de dependências (logs ao vivo +
+    // código de saída) e o wait bloqueia até cada recurso estar Ready. O
+    // STREAMABLE é ORTOGONAL ao classify (como `build`): `stack apply` continua
+    // classificado SafeWrite/Destructive em cli.rs — aqui só ganha a via de
+    // STREAM para o progresso ao vivo. Confirmados por `--help` no 5.1.1.
+    &["stack", "apply"],
+    &["stack", "wait"],
 ];
 
 fn allowed(args: &[String]) -> bool {
@@ -148,10 +156,21 @@ mod tests {
     }
 
     #[test]
+    fn streamable_allows_stack_apply_and_wait() {
+        // O Architecture Studio (§11) corre apply/wait por STREAM para o
+        // progresso ao vivo (DX-recusa "fluxo não permitido" sem isto).
+        assert!(allowed(&v("stack apply -f /tmp/studio.yaml")));
+        assert!(allowed(&v("stack wait -f /tmp/studio.yaml --timeout 180")));
+    }
+
+    #[test]
     fn streamable_refuses_everything_else() {
         // Nem verbos destrutivos nem aliases de raiz entram por aqui.
         assert!(!allowed(&v("workload rm -f web")));
         assert!(!allowed(&v("logs -f web")));
         assert!(!allowed(&v("pod create -f pod.yaml")));
+        // Outros subcomandos de `stack` NÃO entram por aqui (só apply/wait).
+        assert!(!allowed(&v("stack rm -f web-db")));
+        assert!(!allowed(&v("stack")));
     }
 }

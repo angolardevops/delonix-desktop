@@ -110,6 +110,62 @@ describe("designToManifest — cluster é o único tipo de desenho (avisa, não 
   });
 });
 
+describe("designToManifest — volume quota/size (DX-1217)", () => {
+  it("volume AVULSO (sem pool) emite `quota`, NUNCA `size`", () => {
+    const d = emptyDesign("vol");
+    d.nodes.push({ id: "v", kind: "volume", name: "data", x: 0, y: 0, props: { quota: "5G", pool: "", driver: "local", mount: "/data" } });
+    const { yaml } = designToManifest(d);
+    expect(yaml).toContain('quota: "5G"');
+    expect(yaml).not.toContain("size:");
+    expect(yaml).not.toContain("pool:");
+  });
+
+  it("volume DENTRO de um pool emite `pool` + `size` (não `quota`)", () => {
+    const d = emptyDesign("vol");
+    d.nodes.push({ id: "v", kind: "volume", name: "data", x: 0, y: 0, props: { quota: "5G", pool: "tank", driver: "local", mount: "/data" } });
+    const { yaml } = designToManifest(d);
+    expect(yaml).toContain("pool: tank");
+    expect(yaml).toContain('size: "5G"');
+    expect(yaml).not.toContain("quota:");
+  });
+
+  it("o modelo Web+BD emite quota (não size) no pgdata — passa o plan sem DX-1217", () => {
+    const { yaml } = designToManifest(STUDIO_TEMPLATES[0].make());
+    expect(yaml).toContain("- name: pgdata");
+    expect(yaml).toContain('quota: "5G"');
+    expect(yaml).not.toContain("size:");
+  });
+
+  it("roundtrip do volume: quota fora de pool e size dentro preservam-se", () => {
+    const avulso = emptyDesign("a");
+    avulso.nodes.push({ id: "v", kind: "volume", name: "d", x: 0, y: 0, props: { quota: "2G", pool: "", driver: "local", mount: "" } });
+    const backA = manifestToDesign(designToManifest(avulso).yaml).design.nodes.find((n) => n.kind === "volume")!;
+    expect(backA.props.quota).toBe("2G");
+    expect(backA.props.pool).toBe("");
+
+    const pooled = emptyDesign("b");
+    pooled.nodes.push({ id: "v", kind: "volume", name: "d", x: 0, y: 0, props: { quota: "9G", pool: "tank", driver: "local", mount: "" } });
+    const backP = manifestToDesign(designToManifest(pooled).yaml).design.nodes.find((n) => n.kind === "volume")!;
+    expect(backP.props.pool).toBe("tank");
+    expect(backP.props.quota).toBe("9G"); // o `size` dentro do pool volta ao campo "Tamanho"
+  });
+});
+
+describe("designToManifest — namespace (silencia o WARN sem namespace)", () => {
+  it("emite metadata.namespace 'default' quando nem o desenho nem o contexto a dão", () => {
+    const { yaml } = designToManifest(emptyDesign("x"));
+    expect(yaml).toContain("namespace: default");
+  });
+  it("a namespace do desenho tem precedência sobre o contexto", () => {
+    const d = emptyDesign("x");
+    d.namespace = "prod";
+    expect(designToManifest(d, { namespace: "staging" }).yaml).toContain("namespace: prod");
+  });
+  it("na falta de namespace no desenho usa a do contexto", () => {
+    expect(designToManifest(emptyDesign("x"), { namespace: "staging" }).yaml).toContain("namespace: staging");
+  });
+});
+
 describe("canConnect — ligações tipadas", () => {
   it("aceita pares válidos", () => {
     expect(canConnect("container", "network")).toBe(true);

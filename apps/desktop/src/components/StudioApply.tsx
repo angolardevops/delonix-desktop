@@ -13,6 +13,7 @@
 // sempre do ficheiro e confirma cada recurso contra a máquina.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
+import { usePrefersReducedMotion } from "./charts";
 import { Chip, CliHint, ErrorNote } from "./ui";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { YamlView } from "./LazyYamlView";
@@ -58,14 +59,115 @@ const STATE_META: Record<ResourceState, { label: string; tone: "ok" | "warn" | "
   failed: { label: "falhou", tone: "bad", dot: true },
 };
 
-export function StudioApply({ design, issues, act, client, toast }: {
+// Ícone (Icon.tsx) por KIND do `stack ls` — tolerante a maiúsculas/sufixos.
+function kindIcon(kind: string): string {
+  const k = kind.trim().toLowerCase();
+  if (k.includes("gateway")) return "networks";
+  if (k.startsWith("network")) return "networks";
+  if (k.startsWith("container") || k.startsWith("pod") || k.startsWith("vm")) return "workloads";
+  if (k.startsWith("volume")) return "volumes";
+  if (k.startsWith("secret")) return "secrets";
+  if (k.startsWith("image")) return "images";
+  if (k.startsWith("app")) return "build";
+  if (k.startsWith("service")) return "service";
+  if (k.startsWith("ingress")) return "ingress";
+  if (k.startsWith("tunnel")) return "tunnel";
+  if (k.startsWith("depend")) return "dependency";
+  return "declarative";
+}
+
+// Indicador ANIMADO por estado de um recurso. Puro de aspeto (só tokens de tema,
+// claro/escuro); todas as animações caem via CSS quando prefers-reduced-motion.
+//   pending → anel a girar (subtil) · present → barra indeterminada a pulsar ·
+//   ready/declarative → check verde que "estala" a entrar · failed → x vermelho.
+function StateIndicator({ state }: { state: ResourceState }) {
+  if (state === "ready" || state === "declarative") {
+    return (
+      <svg className="studio-ind studio-ind-ok" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.35" />
+        <path className="studio-check-path" d="M4.5 8.2l2.3 2.3 4.7-4.9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (state === "failed") {
+    return (
+      <svg className="studio-ind studio-ind-bad" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.5" />
+        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (state === "present") {
+    // Criado, ainda a ficar saudável — barra indeterminada a pulsar.
+    return <span className="studio-ind studio-indet" aria-hidden="true"><i /></span>;
+  }
+  // pending — anel a girar.
+  return (
+    <svg className="studio-ind studio-spin" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="28 10" strokeLinecap="round" opacity="0.8" />
+    </svg>
+  );
+}
+
+// Resumo visual ANIMADO do apply: barra geral "X/Y Ready" que preenche suave +
+// um cartão por recurso com estado animado e ícone por tipo. Vive por cima dos
+// logs ao vivo (que continuam a correr). Elegante e técnico; honra reduced-motion.
+function ApplyProgress({ progress, running }: { progress: Progress; running: boolean }) {
+  const reduce = usePrefersReducedMotion();
+  const failed = progress.rows.some((r) => r.state === "failed");
+  const frac = progress.total > 0 ? progress.ready / progress.total : 0;
+  const tone = failed ? "bad" : progress.done ? "ok" : "inf";
+  const barColor = failed ? "var(--bad)" : progress.done ? "var(--ok)" : "var(--inf)";
+  return (
+    <div className="studio-prog">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <b style={{ fontSize: 13 }}>Progresso</b>
+        <Chip tone={tone} dot>{progress.ready}/{progress.total} Ready</Chip>
+        {running && !progress.done && <span className="muted" style={{ fontSize: 11 }}>a convergir…</span>}
+      </div>
+      {/* Barra geral: preenche suavemente à medida que cada recurso fica Ready. */}
+      <div
+        className="studio-prog-bar"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={progress.total}
+        aria-valuenow={progress.ready}
+        aria-label={`${progress.ready} de ${progress.total} recursos Ready`}
+      >
+        <span
+          className="studio-prog-fill"
+          style={{ width: `${Math.round(frac * 100)}%`, background: barColor, transition: reduce ? "none" : "width .55s cubic-bezier(.4,0,.2,1), background .3s ease" }}
+        />
+      </div>
+      {/* Cartões por recurso. */}
+      <div className="studio-prog-rows" style={{ maxHeight: 220, overflow: "auto", marginTop: 8 }}>
+        {progress.rows.map((r, i) => {
+          const m = STATE_META[r.state];
+          return (
+            <div key={`${r.kind}/${r.name}/${i}`} className={`studio-prog-row studio-st-${r.state}`}>
+              <span className="studio-prog-ic" aria-hidden="true"><Icon name={kindIcon(r.kind)} size={14} /></span>
+              <span style={{ minWidth: 0 }}>
+                <span className="mono" style={{ fontSize: 12, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+                <span className="muted" style={{ fontSize: 10.5 }}>{r.kind}{r.status ? ` · ${r.status}` : ""}</span>
+              </span>
+              <span className="studio-prog-state"><StateIndicator state={r.state} /><Chip tone={m.tone} dot={m.dot}>{m.label}</Chip></span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function StudioApply({ design, issues, act, client, toast, namespace }: {
   design: StudioDesign;
   issues: Issue[];
   act: ReturnType<typeof useApp>["act"];
   client: Client;
   toast: ReturnType<typeof useApp>["toast"];
+  namespace: string;
 }) {
-  const { yaml, warnings } = useMemo(() => designToManifest(design), [design]);
+  const { yaml, warnings } = useMemo(() => designToManifest(design, { namespace }), [design, namespace]);
   const actions = useMemo(() => provisionActions(design), [design]);
   const errors = issues.filter((i) => i.level === "error");
 
@@ -236,32 +338,7 @@ export function StudioApply({ design, issues, act, client, toast }: {
           />
         ) : (
           <>
-            {progress && (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <b style={{ fontSize: 13 }}>Progresso</b>
-                  <Chip tone={progress.done ? "ok" : "inf"} dot>{progress.ready}/{progress.total} Ready</Chip>
-                  {running && <span className="muted" style={{ fontSize: 11 }}>a convergir…</span>}
-                </div>
-                <div style={{ maxHeight: 180, overflow: "auto", border: "1px solid var(--line)", borderRadius: 6 }}>
-                  <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <tbody>
-                      {progress.rows.map((r, i) => {
-                        const m = STATE_META[r.state];
-                        return (
-                          <tr key={i} style={{ borderTop: i ? "1px solid var(--line)" : undefined }}>
-                            <td style={{ padding: "4px 8px" }} className="muted">{r.kind}</td>
-                            <td style={{ padding: "4px 8px" }} className="mono">{r.name}</td>
-                            <td style={{ padding: "4px 8px" }}><Chip tone={m.tone} dot={m.dot}>{m.label}</Chip></td>
-                            <td style={{ padding: "4px 8px" }} className="muted mono" title={r.status}>{r.status || ""}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {progress && <ApplyProgress progress={progress} running={running} />}
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <div className="lbl" style={{ marginBottom: 4 }}>Execução (stack apply · stack wait)</div>
               <pre className="mono" style={{ flex: 1, margin: 0, padding: 10, background: "var(--bg2, rgba(0,0,0,.04))", border: "1px solid var(--line)", borderRadius: 6, overflow: "auto", fontSize: 11, whiteSpace: "pre-wrap" }}>

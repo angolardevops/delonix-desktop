@@ -55,7 +55,7 @@ interface History {
 }
 
 export function Studio() {
-  const { client, act, toast } = useApp();
+  const { client, act, toast, namespace } = useApp();
   const [mode, setMode] = useState<Mode>("design");
   // Abre num modelo PEQUENO não-vazio para o canvas não parecer vazio.
   const [hist, setHist] = useState<History>({ past: [], present: defaultDesign(), future: [] });
@@ -230,8 +230,8 @@ export function Studio() {
         />
       )}
       {mode === "live" && <LiveMode client={client} onImport={importDesign} />}
-      {mode === "plan" && <PlanMode client={client} design={design} issues={issues} toast={toast} />}
-      {mode === "apply" && <StudioApply design={design} issues={issues} act={act} client={client} toast={toast} />}
+      {mode === "plan" && <PlanMode client={client} design={design} issues={issues} toast={toast} namespace={namespace} />}
+      {mode === "apply" && <StudioApply design={design} issues={issues} act={act} client={client} toast={toast} namespace={namespace} />}
     </>
   );
 }
@@ -540,11 +540,12 @@ const FINE_META: Record<FinePlanAction, { verb: string; tone: "ok" | "warn" | "b
   noop: { verb: "manter", tone: "neu" },
 };
 
-function PlanMode({ client, design, issues, toast }: {
+function PlanMode({ client, design, issues, toast, namespace }: {
   client: ReturnType<typeof useApp>["client"];
   design: StudioDesign;
   issues: Issue[];
   toast: ReturnType<typeof useApp>["toast"];
+  namespace: string;
 }) {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -577,7 +578,7 @@ function PlanMode({ client, design, issues, toast }: {
     setFine(null);
     setFineError(null);
     try {
-      const { yaml } = designToManifest(design);
+      const { yaml } = designToManifest(design, { namespace });
       const path = await persistForCli(yaml, design.name);
       if (!path) return;
       setFine(await client.stackPlan(path));
@@ -587,7 +588,7 @@ function PlanMode({ client, design, issues, toast }: {
     } finally {
       setBusy(false);
     }
-  }, [client, design, toast]);
+  }, [client, design, toast, namespace]);
 
   const tone = (a: PlanRow["action"]) => (a === "create" ? "inf" : a === "remove" ? "bad" : "neu");
   const verb = (a: PlanRow["action"]) => (a === "create" ? "criar" : a === "remove" ? "remover" : "manter");

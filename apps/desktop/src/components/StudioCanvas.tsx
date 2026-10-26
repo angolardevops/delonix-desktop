@@ -44,7 +44,7 @@ function nodeLabel(n: StudioNode) {
   const sub =
     n.kind === "container" || n.kind === "pod" ? n.props.image
     : n.kind === "network" ? (n.props.subnet || n.props.driver)
-    : n.kind === "volume" ? n.props.size
+    : n.kind === "volume" ? (n.props.pool ? `${n.props.quota || ""} @ ${n.props.pool}`.trim() : n.props.quota)
     : n.kind === "vm" ? n.props.disk
     : n.kind === "secret" ? (n.props.keys ? `${n.props.keys.split(",").filter(Boolean).length} chave(s)` : "")
     : n.kind === "image" ? (n.props.pull || (n.props.buildTag ? `build ${n.props.buildTag}` : ""))
