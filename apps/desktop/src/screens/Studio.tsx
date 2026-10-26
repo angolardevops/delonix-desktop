@@ -26,12 +26,15 @@ import {
   diffDesignVsLive,
   emptyDesign,
   liveToDesign,
+  manifestToDesign,
   parseDesign,
+  provisionActions,
   serializeDesign,
   STUDIO_TEMPLATES,
   validateDesign,
   type Issue,
   type PlanRow,
+  type ProvisionAction,
   type StudioDesign,
   type StudioKind,
   type StudioNode,
@@ -54,6 +57,7 @@ export function Studio() {
   // Abre num modelo PEQUENO não-vazio para o canvas não parecer vazio.
   const [hist, setHist] = useState<History>({ past: [], present: defaultDesign(), future: [] });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const seq = useRef(100);
 
   const design = hist.present;
@@ -169,6 +173,21 @@ export function Studio() {
     }
   };
 
+  // Reimportar um manifesto `kind: Stack` (YAML) → reconstrói o grafo no canvas.
+  // Inverso do Apply: fecha o ciclo nos dois sentidos (ver manifestToDesign).
+  const applyImport = useCallback((d: StudioDesign, warnings: string[]) => {
+    setHist({ past: [], present: d, future: [] });
+    setSelectedId(null);
+    setMode("design");
+    setImportOpen(false);
+    toast(
+      warnings.length
+        ? `Manifesto importado — ${warnings.length} aviso(s). 1.º: ${warnings[0]}`
+        : "Manifesto importado para Design.",
+      warnings.length === 0,
+    );
+  }, [toast]);
+
   const errorCount = issues.filter((i) => i.level === "error").length;
 
   return (
@@ -179,8 +198,11 @@ export function Studio() {
           <button className="btn sm" type="button" onClick={redo} disabled={!hist.future.length} title="Refazer">Refazer</button>
           <button className="btn sm" type="button" onClick={() => void saveDesign()}><Icon name="download" size={13} /> Guardar</button>
           <button className="btn sm" type="button" onClick={() => void loadDesign()}>Carregar</button>
+          <button className="btn sm" type="button" onClick={() => setImportOpen(true)} title="Reconstruir o grafo a partir de um manifesto kind: Stack (YAML)"><Icon name="declarative" size={13} /> Importar manifesto…</button>
         </div>
       </PageHead>
+
+      {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImport={applyImport} />}
 
       <div style={{ padding: "10px 24px 0" }}>
         <Tabs
@@ -208,6 +230,73 @@ export function Studio() {
       {mode === "plan" && <PlanMode client={client} design={design} issues={issues} toast={toast} />}
       {mode === "apply" && <ApplyMode design={design} issues={issues} act={act} client={client} toast={toast} />}
     </>
+  );
+}
+
+// --- Importar manifesto (YAML → desenho) ------------------------------------
+// Diálogo que lê um manifesto `kind: Stack`: cola o YAML ou escolhe um ficheiro
+// (diálogo nativo). O parsing é PURO (manifestToDesign); erros mostram-se inline
+// e nada muda até a importação ter sucesso.
+function ImportModal({ onClose, onImport }: {
+  onClose: () => void;
+  onImport: (design: StudioDesign, warnings: string[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<string | null>(null);
+
+  const choose = async () => {
+    const path = await pickFile({ title: "Escolher manifesto", filters: YAML_FILTERS });
+    if (!path) return;
+    try {
+      setText(await readTextFile(path));
+      setSource(path);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const submit = () => {
+    try {
+      const { design, warnings } = manifestToDesign(text);
+      onImport(design, warnings);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Importar manifesto" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "grid", placeItems: "center", zIndex: 50 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(760px, 92vw)", maxHeight: "86vh", display: "flex", flexDirection: "column", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,.4)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Icon name="declarative" size={16} />
+          <b style={{ fontSize: 14 }}>Importar manifesto (kind: Stack)</b>
+          <button className="btn sm" type="button" style={{ marginLeft: "auto" }} onClick={onClose} aria-label="Fechar"><Icon name="close" size={13} /></button>
+        </div>
+        <p className="muted" style={{ fontSize: 12, margin: "0 0 10px", lineHeight: 1.5 }}>
+          Cola o YAML de um manifesto <span className="mono">kind: Stack</span> ou escolhe um ficheiro. O grafo é reconstruído no canvas (redes, workloads, volumes, segredos e as suas ligações). Os campos que o estúdio não representa são <b>preservados</b> e re-emitidos tal e qual no export — os avisos dizem o que foi preservado.
+        </p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+          {nativeDialogsAvailable() && <button className="btn sm" type="button" onClick={() => void choose()}><Icon name="file" size={12} /> Escolher ficheiro…</button>}
+          {source && <span className="muted mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{source}</span>}
+        </div>
+        <textarea
+          className="input mono"
+          value={text}
+          onChange={(e) => { setText(e.target.value); setError(null); }}
+          placeholder={"apiVersion: core.delonix.io/v1alpha1\nkind: Stack\nmetadata:\n  name: a-minha-stack\nspec:\n  networks: …"}
+          spellCheck={false}
+          style={{ flex: 1, minHeight: 280, width: "100%", resize: "vertical", fontSize: 12, whiteSpace: "pre", overflow: "auto" }}
+          aria-label="YAML do manifesto"
+        />
+        {error && <div style={{ marginTop: 8 }}><ErrorNote error={error} /></div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="btn" type="button" onClick={onClose}>Cancelar</button>
+          <button className="btn pri" type="button" disabled={!text.trim()} onClick={submit}><Icon name="download" size={13} /> Importar</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -544,10 +633,22 @@ function ApplyMode({ design, issues, act, client, toast }: {
   toast: ReturnType<typeof useApp>["toast"];
 }) {
   const { yaml, warnings } = useMemo(() => designToManifest(design), [design]);
+  const actions = useMemo(() => provisionActions(design), [design]);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [validateOut, setValidateOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const errors = issues.filter((i) => i.level === "error");
+
+  // Provisão de um tipo de DESENHO (gateway/cluster) — passo ADICIONAL, separado
+  // do stack apply, com a sua própria confirmação de risco via act().
+  const provision = async (a: ProvisionAction) => {
+    setBusy(true);
+    try {
+      await act(a.argv, `${a.label} — ${a.risk}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Guarda o manifesto num caminho escolhido pelo utilizador (save-dialog) e
   // devolve-o. A validação/aplicação correm o CLI contra esse ficheiro em disco.
@@ -621,6 +722,34 @@ function ApplyMode({ design, issues, act, client, toast }: {
         </p>
         {savedPath && <p className="muted mono" style={{ fontSize: 11 }}>Manifesto em: {savedPath}</p>}
         <div style={{ marginTop: 8 }}><CliHint argv={cmd.stackApply(savedPath ?? "<manifesto>")} compact /></div>
+
+        {actions.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div className="lbl" style={{ marginBottom: 4 }}>Passos adicionais (fora do stack)</div>
+            <p className="muted" style={{ fontSize: 11, margin: "0 0 8px", lineHeight: 1.5 }}>
+              Os tipos de desenho (gateway, cluster) NÃO entram no <span className="mono">stack apply</span> — provisionam-se por comandos próprios do engine. Cada passo corre com a sua confirmação de risco.
+            </p>
+            {actions.map((a) => (
+              <div key={a.nodeId} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <Icon name={a.kind === "cluster" ? "kubernetes" : "networks"} size={14} />
+                  <b style={{ fontSize: 12 }}>{a.label}</b>
+                </div>
+                <p className="muted" style={{ fontSize: 10.5, margin: "0 0 8px", lineHeight: 1.5 }}>{a.risk}</p>
+                <CliHint argv={a.argv} compact />
+                {a.available ? (
+                  <button className="btn sm" type="button" disabled={busy} style={{ marginTop: 8 }} onClick={() => void provision(a)}>
+                    <Icon name="play" size={12} /> Provisionar
+                  </button>
+                ) : (
+                  <p className="muted" style={{ fontSize: 10.5, marginTop: 8, color: "var(--warn)" }}>
+                    {a.note ?? "Comando incompleto — ajusta as propriedades do nó. Podes copiar o comando acima e completá-lo à mão."}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {validateOut && (
           <>
