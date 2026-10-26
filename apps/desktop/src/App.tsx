@@ -28,6 +28,7 @@ const Volumes = lazy(() => import("./screens/Volumes").then((m) => ({ default: m
 const Secrets = lazy(() => import("./screens/Secrets").then((m) => ({ default: m.Secrets })));
 const Backups = lazy(() => import("./screens/Backups").then((m) => ({ default: m.Backups })));
 const Declarativo = lazy(() => import("./screens/Declarativo").then((m) => ({ default: m.Declarativo })));
+const Studio = lazy(() => import("./screens/Studio").then((m) => ({ default: m.Studio })));
 const Networks = lazy(() => import("./screens/Networks").then((m) => ({ default: m.Networks })));
 const Events = lazy(() => import("./screens/Events").then((m) => ({ default: m.Events })));
 const Files = lazy(() => import("./screens/Files").then((m) => ({ default: m.Files })));
@@ -181,6 +182,7 @@ export default function App() {
       case "secrets": return <Secrets />;
       case "backups": return <Backups />;
       case "declarative": return <Declarativo />;
+      case "studio": return <Studio />;
       case "kubernetes": return <Kubernetes />;
       case "networks": return <Networks />;
       case "registries": return <Registries />;
