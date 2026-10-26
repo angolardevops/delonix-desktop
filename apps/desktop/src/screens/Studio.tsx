@@ -14,6 +14,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
+import { YamlView } from "../components/LazyYamlView";
 import { cmd } from "../lib/cli";
 import { fsAvailable, homeDir, readTextFile, saveTextViaDialog, writeTextFile } from "../lib/fsx";
 import { joinPath } from "../lib/fsx";
@@ -691,10 +692,13 @@ function ApplyMode({ design, issues, act, client, toast }: {
   return (
     <div style={{ padding: "14px 24px 0", display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, height: "calc(100vh - 220px)", minHeight: 440 }}>
       <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div className="lbl" style={{ marginBottom: 6 }}>Manifesto gerado (kind: Stack)</div>
-        <pre className="mono" style={{ flex: 1, margin: 0, padding: 12, background: "var(--bg2, rgba(0,0,0,.04))", border: "1px solid var(--line)", borderRadius: 6, overflow: "auto", fontSize: 12, whiteSpace: "pre" }}>
-          {yaml}
-        </pre>
+        <YamlView
+          value={yaml}
+          filename={`${design.name || "studio"}.delonix.yaml`}
+          label="Manifesto gerado (kind: Stack)"
+          downloadName={`${design.name || "studio"}.delonix.yaml`}
+          height="100%"
+        />
       </div>
       <aside style={{ overflowY: "auto" }}>
         {errors.length > 0 && (
