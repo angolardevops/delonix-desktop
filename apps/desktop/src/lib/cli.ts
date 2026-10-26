@@ -207,7 +207,27 @@ export const cmd = {
   stackDescribe: (manifest?: string): Argv => ["stack", "describe", ...fFlag(manifest)],
   stackValidate: (manifest?: string): Argv => ["stack", "validate", ...fFlag(manifest)],
   stackApply: (manifest?: string): Argv => ["stack", "apply", ...fFlag(manifest)],
+  // `stack wait` BLOQUEIA até cada recurso estar PRESENTE e, onde o tem,
+  // SAUDÁVEL/Ready — a parte "até estarem Ready" que o apply (fail-fast, retorna
+  // assim que cria) não garante. `--timeout <s>` (default 120) desiste e sai
+  // não-zero a nomear o que não subiu. Confirmado por `stack wait --help` (5.1.1).
+  stackWait: (manifest?: string, timeout?: number): Argv => [
+    "stack", "wait", ...fFlag(manifest),
+    ...(timeout && timeout > 0 ? ["--timeout", String(timeout)] : []),
+  ],
   stackDestroy: (manifest?: string): Argv => ["stack", "destroy", ...fFlag(manifest)],
+  // `stack rollback --to <N>` RE-APLICA a revisão N (ADR-0019) pelo mesmo
+  // caminho de um apply e ganha uma revisão própria. NÃO é máquina do tempo: o
+  // que foi criado depois de N fica (salvo `--prune`); dados apagados não voltam.
+  // `--dry-run` mostra o plano sem mudar nada. Confirmado por `stack rollback
+  // --help` no 5.1.1 (`--to` obrigatório).
+  stackRollback: (o: { to: number; manifest?: string; name?: string; dryRun?: boolean; prune?: boolean }): Argv => [
+    "stack", "rollback", "--to", String(o.to),
+    ...fFlag(o.manifest),
+    ...(o.name && o.name.trim() ? ["--name", o.name.trim()] : []),
+    ...(o.dryRun ? ["--dry-run"] : []),
+    ...(o.prune ? ["--prune"] : []),
+  ],
 
   // Compose: opera num ficheiro `docker-compose.yml` (`-f <ficheiro>`); sem `-f`
   // procura no diretório do processo. NENHUM subcomando tem `-o json`.

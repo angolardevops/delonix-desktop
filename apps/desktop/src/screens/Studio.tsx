@@ -14,11 +14,12 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
-import { YamlView } from "../components/LazyYamlView";
+import { StudioApply } from "../components/StudioApply";
 import { cmd } from "../lib/cli";
 import { fsAvailable, homeDir, readTextFile, saveTextViaDialog, writeTextFile } from "../lib/fsx";
 import { joinPath } from "../lib/fsx";
 import { nativeDialogsAvailable, pickFile, YAML_FILTERS } from "../lib/native";
+import type { StackPlanRow } from "../lib/types";
 import {
   ALL_KINDS,
   CATALOG,
@@ -28,14 +29,15 @@ import {
   emptyDesign,
   liveToDesign,
   manifestToDesign,
+  normalizePlanAction,
   parseDesign,
-  provisionActions,
   serializeDesign,
   STUDIO_TEMPLATES,
+  summarizePlan,
   validateDesign,
+  type FinePlanAction,
   type Issue,
   type PlanRow,
-  type ProvisionAction,
   type StudioDesign,
   type StudioKind,
   type StudioNode,
@@ -229,7 +231,7 @@ export function Studio() {
       )}
       {mode === "live" && <LiveMode client={client} onImport={importDesign} />}
       {mode === "plan" && <PlanMode client={client} design={design} issues={issues} toast={toast} />}
-      {mode === "apply" && <ApplyMode design={design} issues={issues} act={act} client={client} toast={toast} />}
+      {mode === "apply" && <StudioApply design={design} issues={issues} act={act} client={client} toast={toast} />}
     </>
   );
 }
@@ -530,6 +532,14 @@ async function persistForCli(yaml: string, name: string): Promise<string | null>
   return saveTextViaDialog(yaml, { title: "Guardar manifesto para o plano", defaultPath: `${name || "studio"}.delonix.yaml`, filters: YAML_FILTERS });
 }
 
+// Verbo/cor da ação do plano REAL (stack plan). Terraform-like.
+const FINE_META: Record<FinePlanAction, { verb: string; tone: "ok" | "warn" | "bad" | "inf" | "neu" }> = {
+  create: { verb: "criar", tone: "inf" },
+  update: { verb: "alterar", tone: "warn" },
+  remove: { verb: "reverter", tone: "bad" },
+  noop: { verb: "manter", tone: "neu" },
+};
+
 function PlanMode({ client, design, issues, toast }: {
   client: ReturnType<typeof useApp>["client"];
   design: StudioDesign;
@@ -539,9 +549,11 @@ function PlanMode({ client, design, issues, toast }: {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [finePlan, setFinePlan] = useState<string | null>(null);
+  const [fine, setFine] = useState<StackPlanRow[] | null>(null);
+  const [fineError, setFineError] = useState<string | null>(null);
   const errorCount = issues.filter((i) => i.level === "error").length;
 
+  // Diff de presença LOCAL (complemento): Design × runtime observado.
   const compute = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -558,18 +570,19 @@ function PlanMode({ client, design, issues, toast }: {
     }
   }, [client, design]);
 
-  // Plano FINO: materializa o manifesto e corre `stack plan -f` (diff de campos).
+  // Plano REAL: materializa o manifesto e corre `stack plan -f` (DIFF DE 3 VIAS
+  // do engine — manifesto × máquina × último apply). É o `terraform plan`.
   const computeFine = useCallback(async () => {
     setBusy(true);
-    setFinePlan(null);
+    setFine(null);
+    setFineError(null);
     try {
       const { yaml } = designToManifest(design);
       const path = await persistForCli(yaml, design.name);
       if (!path) return;
-      const r = await client.readText(cmd.stackPlan(path));
-      setFinePlan([r.stdout, r.stderr].filter((s) => s.trim()).join("\n") || "(sem saída)");
+      setFine(await client.stackPlan(path));
     } catch (e) {
-      setFinePlan(String(e));
+      setFineError(String(e));
       toast("Falha no stack plan — vê a saída.", false);
     } finally {
       setBusy(false);
@@ -579,189 +592,83 @@ function PlanMode({ client, design, issues, toast }: {
   const tone = (a: PlanRow["action"]) => (a === "create" ? "inf" : a === "remove" ? "bad" : "neu");
   const verb = (a: PlanRow["action"]) => (a === "create" ? "criar" : a === "remove" ? "remover" : "manter");
   const counts = rows ? { create: rows.filter((r) => r.action === "create").length, keep: rows.filter((r) => r.action === "keep").length, remove: rows.filter((r) => r.action === "remove").length } : null;
+  const sum = fine ? summarizePlan(fine) : null;
 
   return (
-    <div style={{ padding: "14px 24px 0" }}>
+    <div style={{ padding: "14px 24px 0", overflowY: "auto", height: "calc(100vh - 220px)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, flexWrap: "wrap" }}>
-        <button className="btn pri" type="button" disabled={busy} onClick={() => void compute()}><Icon name="overview" size={13} /> Comparar com o runtime</button>
-        <button className="btn" type="button" disabled={busy || errorCount > 0} title={errorCount > 0 ? "Corrige os erros do desenho primeiro" : "Diff fino de campos (stack plan -f)"} onClick={() => void computeFine()}><Icon name="declarative" size={13} /> Plano fino (stack plan)</button>
-        <span className="muted" style={{ fontSize: 12 }}>Diff de presença (tipo + nome) entre o Design e o Live. O plano fino de campos vem de <span className="mono">stack plan -f</span>.</span>
+        <button className="btn pri" type="button" disabled={busy || errorCount > 0} title={errorCount > 0 ? "Corrige os erros do desenho primeiro" : "Diff de 3 vias do engine (stack plan -f)"} onClick={() => void computeFine()}><Icon name="declarative" size={13} /> Plan (stack plan)</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => void compute()}><Icon name="overview" size={13} /> Comparar presença (local)</button>
+        <span className="muted" style={{ fontSize: 12 }}>O <b>Plan</b> corre <span className="mono">stack plan -f</span> — diff de 3 vias (manifesto × máquina × último apply), como o <span className="mono">terraform plan</span>. A comparação de presença é um complemento local (tipo + nome vs runtime).</span>
       </div>
-      {error && <ErrorNote error={error} />}
-      {counts && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <Chip tone="inf">criar {counts.create}</Chip>
-          <Chip tone="neu">manter {counts.keep}</Chip>
-          <Chip tone="bad">remover {counts.remove}</Chip>
-        </div>
-      )}
-      {rows && (
-        <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ textAlign: "left", color: "var(--mut)", fontSize: 11 }}>
-              <th style={{ padding: "6px 8px" }}>Ação</th><th style={{ padding: "6px 8px" }}>Tipo</th><th style={{ padding: "6px 8px" }}>Nome</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && <tr><td colSpan={3} className="muted" style={{ padding: 12 }}>O desenho corresponde ao runtime.</td></tr>}
-            {rows.map((r, i) => (
-              <tr key={i} style={{ borderTop: "1px solid var(--line)" }}>
-                <td style={{ padding: "6px 8px" }}><Chip tone={tone(r.action)}>{verb(r.action)}</Chip></td>
-                <td style={{ padding: "6px 8px" }} className="muted">{CATALOG[r.kind]?.label ?? r.kind}</td>
-                <td style={{ padding: "6px 8px" }} className="mono">{r.name}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {finePlan && (
+
+      {/* Plano REAL do engine */}
+      {fineError && <ErrorNote error={fineError} />}
+      {sum && (
         <>
-          <div className="lbl" style={{ margin: "14px 0 4px" }}>Plano fino (stack plan -f)</div>
-          <pre className="mono" style={{ margin: 0, padding: 10, background: "var(--bg2, rgba(0,0,0,.04))", border: "1px solid var(--line)", borderRadius: 6, overflow: "auto", maxHeight: 320, fontSize: 11, whiteSpace: "pre-wrap" }}>{finePlan}</pre>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <Chip tone="inf">criar {sum.create}</Chip>
+            <Chip tone="warn">alterar {sum.update}</Chip>
+            <Chip tone="bad">reverter {sum.remove}</Chip>
+            <Chip tone="neu">manter {sum.noop}</Chip>
+            <span className="muted" style={{ fontSize: 12, alignSelf: "center" }}>{sum.changed} de {sum.total} recurso(s) mudariam no apply</span>
+          </div>
+          {fine && fine.length === 0
+            ? <p className="muted" style={{ fontSize: 12 }}>Sem mudanças — o manifesto está convergido com a máquina (ou nada declara).</p>
+            : (
+              <table className="table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: 18 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", color: "var(--mut)", fontSize: 11 }}>
+                    <th style={{ padding: "6px 8px" }}>Ação</th><th style={{ padding: "6px 8px" }}>Kind</th><th style={{ padding: "6px 8px" }}>Nome</th><th style={{ padding: "6px 8px" }}>Campos</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fine!.map((r, i) => {
+                    const m = FINE_META[normalizePlanAction(r.action)];
+                    return (
+                      <tr key={i} style={{ borderTop: "1px solid var(--line)" }}>
+                        <td style={{ padding: "6px 8px" }}><Chip tone={m.tone}>{m.verb}</Chip></td>
+                        <td style={{ padding: "6px 8px" }} className="muted">{r.kind}</td>
+                        <td style={{ padding: "6px 8px" }} className="mono">{r.name}</td>
+                        <td style={{ padding: "6px 8px" }} className="muted mono">{r.diffs > 0 ? `${r.diffs} campo(s)` : r.changed ? "—" : ""}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
         </>
       )}
-    </div>
-  );
-}
 
-// --- Modo Apply -------------------------------------------------------------
-
-function ApplyMode({ design, issues, act, client, toast }: {
-  design: StudioDesign;
-  issues: Issue[];
-  act: ReturnType<typeof useApp>["act"];
-  client: ReturnType<typeof useApp>["client"];
-  toast: ReturnType<typeof useApp>["toast"];
-}) {
-  const { yaml, warnings } = useMemo(() => designToManifest(design), [design]);
-  const actions = useMemo(() => provisionActions(design), [design]);
-  const [savedPath, setSavedPath] = useState<string | null>(null);
-  const [validateOut, setValidateOut] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const errors = issues.filter((i) => i.level === "error");
-
-  // Provisão de um tipo de DESENHO (gateway/cluster) — passo ADICIONAL, separado
-  // do stack apply, com a sua própria confirmação de risco via act().
-  const provision = async (a: ProvisionAction) => {
-    setBusy(true);
-    try {
-      await act(a.argv, `${a.label} — ${a.risk}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Guarda o manifesto num caminho escolhido pelo utilizador (save-dialog) e
-  // devolve-o. A validação/aplicação correm o CLI contra esse ficheiro em disco.
-  const persist = async (): Promise<string | null> => {
-    const path = await saveTextViaDialog(yaml, {
-      title: "Guardar manifesto gerado",
-      defaultPath: `${design.name || "studio"}.delonix.yaml`,
-      filters: YAML_FILTERS,
-    });
-    if (path) setSavedPath(path);
-    return path;
-  };
-
-  const validate = async () => {
-    setBusy(true);
-    setValidateOut(null);
-    try {
-      const path = savedPath ?? (await persist());
-      if (!path) return;
-      const r = await client.readText(cmd.manifestValidate(path));
-      setValidateOut([r.stdout, r.stderr].filter((s) => s.trim()).join("\n") || "(sem saída)");
-    } catch (e) {
-      setValidateOut(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const apply = async () => {
-    setBusy(true);
-    try {
-      const path = savedPath ?? (await persist());
-      if (!path) return;
-      await act(cmd.stackApply(path), `Aplicar arquitetura (${path})`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={{ padding: "14px 24px 0", display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, height: "calc(100vh - 220px)", minHeight: 440 }}>
-      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <YamlView
-          value={yaml}
-          filename={`${design.name || "studio"}.delonix.yaml`}
-          label="Manifesto gerado (kind: Stack)"
-          downloadName={`${design.name || "studio"}.delonix.yaml`}
-          height="100%"
-        />
-      </div>
-      <aside style={{ overflowY: "auto" }}>
-        {errors.length > 0 && (
-          <div className="note" style={{ background: "var(--badb)", borderColor: "var(--bad-line)", color: "var(--bad)", marginBottom: 10 }} role="alert">
-            <b>{errors.length} erro(s) no desenho.</b> Corrige-os no Design antes de aplicar.
-            <ul style={{ margin: "6px 0 0 16px", fontSize: 12 }}>{errors.slice(0, 6).map((e, i) => <li key={i}>{e.message}</li>)}</ul>
+      {/* Diff de presença local (complemento) */}
+      {error && <ErrorNote error={error} />}
+      {counts && (
+        <>
+          <div className="lbl" style={{ margin: "4px 0 6px" }}>Presença (Design × runtime)</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <Chip tone="inf">criar {counts.create}</Chip>
+            <Chip tone="neu">manter {counts.keep}</Chip>
+            <Chip tone="bad">remover {counts.remove}</Chip>
           </div>
-        )}
-        {warnings.length > 0 && (
-          <div className="note" style={{ background: "var(--warnb)", borderColor: "var(--warn-line)", color: "var(--warn)", marginBottom: 10 }}>
-            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {nativeDialogsAvailable() && (
-            <button className="btn" type="button" disabled={busy} onClick={() => void persist()}><Icon name="download" size={13} /> Exportar manifesto…</button>
-          )}
-          <button className="btn" type="button" disabled={busy} onClick={() => void validate()}><Icon name="capabilities" size={13} /> Validar com o engine</button>
-          <button className="btn pri" type="button" disabled={busy || errors.length > 0} onClick={() => void apply()}><Icon name="play" size={13} /> Aplicar (stack apply)</button>
-        </div>
-
-        <p className="muted" style={{ fontSize: 11, marginTop: 10 }}>
-          Aplicar é EXPLÍCITO: corre <span className="mono">stack apply -f</span> com confirmação de risco. Uma ligação desenhada não autoriza por si só rede/firewall. Efeitos irreversíveis (ex.: destruir dados) não têm rollback.
-        </p>
-        {savedPath && <p className="muted mono" style={{ fontSize: 11 }}>Manifesto em: {savedPath}</p>}
-        <div style={{ marginTop: 8 }}><CliHint argv={cmd.stackApply(savedPath ?? "<manifesto>")} compact /></div>
-
-        {actions.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <div className="lbl" style={{ marginBottom: 4 }}>Passos adicionais (fora do stack)</div>
-            <p className="muted" style={{ fontSize: 11, margin: "0 0 8px", lineHeight: 1.5 }}>
-              Os tipos de desenho (gateway, cluster) NÃO entram no <span className="mono">stack apply</span> — provisionam-se por comandos próprios do engine. Cada passo corre com a sua confirmação de risco.
-            </p>
-            {actions.map((a) => (
-              <div key={a.nodeId} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <Icon name={a.kind === "cluster" ? "kubernetes" : "networks"} size={14} />
-                  <b style={{ fontSize: 12 }}>{a.label}</b>
-                </div>
-                <p className="muted" style={{ fontSize: 10.5, margin: "0 0 8px", lineHeight: 1.5 }}>{a.risk}</p>
-                <CliHint argv={a.argv} compact />
-                {a.available ? (
-                  <button className="btn sm" type="button" disabled={busy} style={{ marginTop: 8 }} onClick={() => void provision(a)}>
-                    <Icon name="play" size={12} /> Provisionar
-                  </button>
-                ) : (
-                  <p className="muted" style={{ fontSize: 10.5, marginTop: 8, color: "var(--warn)" }}>
-                    {a.note ?? "Comando incompleto — ajusta as propriedades do nó. Podes copiar o comando acima e completá-lo à mão."}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {validateOut && (
-          <>
-            <div className="lbl" style={{ margin: "12px 0 4px" }}>Validação</div>
-            <pre className="mono" style={{ margin: 0, padding: 10, background: "var(--bg2, rgba(0,0,0,.04))", border: "1px solid var(--line)", borderRadius: 6, overflow: "auto", maxHeight: 220, fontSize: 11, whiteSpace: "pre-wrap" }}>{validateOut}</pre>
-          </>
-        )}
-      </aside>
+          <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "var(--mut)", fontSize: 11 }}>
+                <th style={{ padding: "6px 8px" }}>Ação</th><th style={{ padding: "6px 8px" }}>Tipo</th><th style={{ padding: "6px 8px" }}>Nome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows!.length === 0 && <tr><td colSpan={3} className="muted" style={{ padding: 12 }}>O desenho corresponde ao runtime.</td></tr>}
+              {rows!.map((r, i) => (
+                <tr key={i} style={{ borderTop: "1px solid var(--line)" }}>
+                  <td style={{ padding: "6px 8px" }}><Chip tone={tone(r.action)}>{verb(r.action)}</Chip></td>
+                  <td style={{ padding: "6px 8px" }} className="muted">{CATALOG[r.kind]?.label ?? r.kind}</td>
+                  <td style={{ padding: "6px 8px" }} className="mono">{r.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }

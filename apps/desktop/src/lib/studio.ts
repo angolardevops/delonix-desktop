@@ -14,13 +14,19 @@
 
 import { parseAllDocuments } from "yaml";
 import { cmd, type Argv } from "./cli";
-import type { NetworkRow, VmDetail, WorkloadRow } from "./types";
+import type { NetworkRow, StackPlanRow, VmDetail, WorkloadRow } from "./types";
 
 // --- Modelo -----------------------------------------------------------------
 
-// Tipos derivados das capacidades/verbos REAIS do engine (§2 do prompt). Os
-// seis primeiros materializam-se num manifesto de stack; `gateway` e `cluster`
-// são de DESENHO (provisionados por outra via — ver STACK_KINDS).
+// Tipos mapeados aos ARRAYS do StackSpec do engine (§2 do prompt), um por
+// componente que alimenta o motor. Todos menos `cluster` materializam-se no
+// manifesto de stack; `cluster` é de DESENHO (provisiona-se por `cluster
+// create`, fora do stack — ver STACK_KINDS / provisionActions). O mapeamento
+// StudioKind → bucket do StackSpec:
+//   container→containers · vm→vms · pod→pods · network→networks ·
+//   volume→volumes · secret→secrets · image→images · app→apps ·
+//   service→services · ingress→ingress · tunnel→tunnels ·
+//   gateway→networkGateways · dependency→dependencies.
 export type StudioKind =
   | "container"
   | "vm"
@@ -28,7 +34,13 @@ export type StudioKind =
   | "network"
   | "volume"
   | "secret"
+  | "image"
+  | "app"
+  | "service"
+  | "ingress"
+  | "tunnel"
   | "gateway"
+  | "dependency"
   | "cluster";
 
 export interface StudioNode {
@@ -159,14 +171,74 @@ export const CATALOG: Record<StudioKind, CatalogEntry> = {
     ],
     defaults: { keys: "" },
   },
-  gateway: {
-    kind: "gateway", label: "Gateway / Túnel", icon: "networks", color: "var(--chart-4, var(--inf))", emitsToStack: false,
-    blurb: "Exposição pública (túnel). DESENHO — provisiona-se à parte, não entra no stack.",
+  image: {
+    kind: "image", label: "Imagem", icon: "images", color: "var(--chart-2)", emitsToStack: true,
+    blurb: "Imagem OCI do stack: puxa de um registry (pull) OU constrói de um contexto (build).",
     fields: [
-      { key: "provider", label: "Fornecedor", placeholder: "cloudflare | pinggy | ngrok" },
-      { key: "port", label: "Porta de origem", placeholder: "8080", type: "number" },
+      { key: "pull", label: "Puxar (pull)", placeholder: "nginx:latest", hint: "Referência a puxar. Deixa vazio para CONSTRUIR em vez de puxar." },
+      { key: "buildTag", label: "Construir — tag", placeholder: "minha-app:1", hint: "Só se não puxares: a tag que a imagem construída recebe." },
+      { key: "buildContext", label: "Construir — contexto", placeholder: ".", hint: "Diretório do build (default '.')." },
     ],
-    defaults: { provider: "cloudflare", port: "" },
+    defaults: { pull: "", buildTag: "", buildContext: "." },
+  },
+  app: {
+    kind: "app", label: "App (buildpack)", icon: "build", color: "var(--chart-4, var(--inf))", emitsToStack: true,
+    blurb: "Aplicação por Cloud Native Buildpacks: constrói do código-fonte, sem Dockerfile.",
+    fields: [
+      { key: "image", label: "Imagem de saída", placeholder: "api:latest", hint: "Obrigatória: a tag que a imagem construída recebe no store local." },
+      { key: "builder", label: "Builder", placeholder: "auto | heroku | <imagem>", hint: "'auto' deteta a stack (Paketo); um builder próprio exige runImage." },
+      { key: "source", label: "Código-fonte", placeholder: ".", hint: "Diretório a construir (relativo ao CWD, default '.')." },
+    ],
+    defaults: { image: "", builder: "auto", source: "." },
+  },
+  service: {
+    kind: "service", label: "Serviço", icon: "service", color: "var(--chart-1)", emitsToStack: true,
+    blurb: "Serviço DNS/VirtualIP que seleciona workloads por rótulo (matchLabels).",
+    fields: [
+      { key: "port", label: "Porta", placeholder: "80", type: "number", hint: "Porta do container que os workloads selecionados servem." },
+      { key: "selector", label: "Seletor", placeholder: "app=web, tier=front", hint: "matchLabels: pares rótulo=valor. Vazio → app=<nome do serviço>." },
+      { key: "type", label: "Tipo", placeholder: "DNS | VirtualIP", hint: "DNS (default, ADR-0032) ou VirtualIP (ADR-0066)." },
+    ],
+    defaults: { port: "", selector: "", type: "DNS" },
+  },
+  ingress: {
+    kind: "ingress", label: "Ingress (HTTP)", icon: "ingress", color: "var(--inf)", emitsToStack: true,
+    blurb: "Entrada HTTP(S) do proxy L7: encaminha host/caminho para um container. Liga ao container de destino.",
+    fields: [
+      { key: "host", label: "Host", placeholder: "exemplo.local", hint: "Opcional: host a casar. Vazio = qualquer host." },
+      { key: "path", label: "Caminho", placeholder: "/", hint: "Prefixo a casar (default '/')." },
+      { key: "port", label: "Porta do backend", placeholder: "80", type: "number", hint: "Porta do container de destino." },
+    ],
+    defaults: { host: "", path: "/", port: "80" },
+  },
+  tunnel: {
+    kind: "tunnel", label: "Túnel público", icon: "tunnel", color: "var(--chart-4, var(--inf))", emitsToStack: true,
+    blurb: "Expõe uma porta local à internet (pinggy/ngrok/cloudflare). Entra no stack (kind: Tunnel).",
+    fields: [
+      { key: "provider", label: "Fornecedor", placeholder: "pinggy | ngrok | cloudflare", hint: "Obrigatório." },
+      { key: "localPort", label: "Porta local", placeholder: "8080", type: "number", hint: "Obrigatória: a porta local exposta." },
+      { key: "hostname", label: "Hostname", placeholder: "app.exemplo.com", hint: "Opcional: hostname custom/reservado (depende do fornecedor)." },
+    ],
+    defaults: { provider: "pinggy", localPort: "", hostname: "" },
+  },
+  gateway: {
+    kind: "gateway", label: "Gateway (appliance)", icon: "networks", color: "var(--chart-3, var(--ok))", emitsToStack: true,
+    blurb: "Gateway de appliance (NAT/políticas/aliases) via provider registado. Entra no stack (kind: NetworkGateway).",
+    fields: [
+      { key: "provider", label: "Provider", placeholder: "opnsense", hint: "Id do GatewayProvider registado. Opcional (ADR-0059 F2c)." },
+    ],
+    defaults: { provider: "opnsense" },
+  },
+  dependency: {
+    kind: "dependency", label: "Dependência", icon: "dependency", color: "var(--chart-2)", emitsToStack: true,
+    blurb: "Dependência dirigida: 'from' alcança 'to' (ordena o apply e protege o alvo). from/to são nomes de container/VM/pod.",
+    fields: [
+      { key: "from", label: "De (from)", placeholder: "web", hint: "Obrigatório: quem INICIA a ligação (container/VM que 'conhece')." },
+      { key: "to", label: "Para (to)", placeholder: "db", hint: "Obrigatório: alvo(s) alcançados, separados por vírgula." },
+      { key: "ports", label: "Portas", placeholder: "5432", hint: "Portas de 'to' abertas a 'from' (vazio = qualquer)." },
+      { key: "proto", label: "Protocolo", placeholder: "tcp | udp | any", hint: "Opcional (default any)." },
+    ],
+    defaults: { from: "", to: "", ports: "", proto: "" },
   },
   cluster: {
     kind: "cluster", label: "Cluster Kubernetes", icon: "kubernetes", color: "var(--chart-2)", emitsToStack: false,
@@ -267,7 +339,12 @@ const VALID_PAIRS = new Set<string>([
   pair("vm", "network"),
   pair("pod", "network"),
   pair("pod", "volume"),
-  pair("gateway", "container"),
+  // Ingress → backend: a aresta resolve o `backend.service.name` do ingress para
+  // o container/pod de destino (o proxy L7 encaminha HTTP para ele). É a ÚNICA
+  // ligação nova QUE EMITE no manifesto (e se reconstrói no reimport).
+  pair("ingress", "container"),
+  pair("ingress", "pod"),
+  // Gateway (appliance) serve uma rede — informativo (não altera o spec).
   pair("gateway", "network"),
 ]);
 
@@ -299,7 +376,8 @@ export function edgeLabel(design: StudioDesign, edge: StudioEdge): string {
   const vol = s.kind === "volume" ? s : t.kind === "volume" ? t : null;
   if (vol) return `monta em ${vol.props.mount?.trim() || `/mnt/${vol.name.trim()}`}`;
   if (kinds.has("secret")) return "segredo";
-  if (kinds.has("gateway")) return "expõe";
+  if (kinds.has("ingress")) return "encaminha";
+  if (kinds.has("gateway")) return "serve";
   if (kinds.has("network")) return "rede";
   return "";
 }
@@ -331,7 +409,10 @@ export function validateDesign(d: StudioDesign): Issue[] {
     seen.set(key, n.id);
   }
 
-  // Campos obrigatórios por tipo + conselhos.
+  // Campos obrigatórios por tipo + conselhos. Nomes de workload por tipo+nome
+  // (para avisar quando uma dependência aponta para um recurso inexistente).
+  const names = new Set(d.nodes.map((n) => `${n.kind}/${n.name.trim()}`));
+  const anyNamed = (nm: string) => ["container", "vm", "pod"].some((k) => names.has(`${k}/${nm}`));
   for (const n of d.nodes) {
     if ((n.kind === "container" || n.kind === "pod") && !n.props.image?.trim())
       issues.push({ level: "error", nodeId: n.id, message: `${CATALOG[n.kind].label} "${n.name}" sem imagem.` });
@@ -339,6 +420,40 @@ export function validateDesign(d: StudioDesign): Issue[] {
       issues.push({ level: "error", nodeId: n.id, message: `VM "${n.name}" sem disco base.` });
     if (n.kind === "secret" && !n.props.keys?.trim())
       issues.push({ level: "warn", nodeId: n.id, message: `Segredo "${n.name}" sem chaves declaradas.` });
+    if (n.kind === "image" && !n.props.pull?.trim() && !n.props.buildTag?.trim())
+      issues.push({ level: "error", nodeId: n.id, message: `Imagem "${n.name}" sem referência: define "pull" OU a tag de build.` });
+    if (n.kind === "app" && !n.props.image?.trim())
+      issues.push({ level: "error", nodeId: n.id, message: `App "${n.name}" sem imagem de saída.` });
+    if (n.kind === "service") {
+      const port = Number(n.props.port);
+      if (!Number.isInteger(port) || port <= 0)
+        issues.push({ level: "error", nodeId: n.id, message: `Serviço "${n.name}" sem porta válida.` });
+    }
+    if (n.kind === "tunnel") {
+      if (!n.props.provider?.trim())
+        issues.push({ level: "error", nodeId: n.id, message: `Túnel "${n.name}" sem fornecedor.` });
+      const lp = Number(n.props.localPort);
+      if (!Number.isInteger(lp) || lp <= 0)
+        issues.push({ level: "error", nodeId: n.id, message: `Túnel "${n.name}" sem porta local válida.` });
+    }
+    if (n.kind === "dependency") {
+      if (!n.props.from?.trim()) issues.push({ level: "error", nodeId: n.id, message: `Dependência "${n.name}" sem "from".` });
+      if (!csv(n.props.to).length) issues.push({ level: "error", nodeId: n.id, message: `Dependência "${n.name}" sem "to".` });
+      // Avisos de referência: o engine recusa um from/to que não seja um
+      // container/VM/pod declarado (visto ao vivo em `manifest validate`).
+      if (n.props.from?.trim() && !anyNamed(n.props.from.trim()))
+        issues.push({ level: "warn", nodeId: n.id, message: `Dependência "${n.name}": "from" ("${n.props.from.trim()}") não é um workload declarado — o engine recusa a referência.` });
+      for (const to of csv(n.props.to)) if (!anyNamed(to))
+        issues.push({ level: "warn", nodeId: n.id, message: `Dependência "${n.name}": "to" ("${to}") não é um workload declarado — o engine recusa a referência.` });
+    }
+    if (n.kind === "ingress") {
+      const hasBackend = d.edges.some((e) => {
+        const other = e.source === n.id ? byId.get(e.target) : e.target === n.id ? byId.get(e.source) : undefined;
+        return other && (other.kind === "container" || other.kind === "pod");
+      });
+      if (!hasBackend)
+        issues.push({ level: "warn", nodeId: n.id, message: `Ingress "${n.name}" sem backend — liga-o a um container/pod de destino.` });
+    }
   }
 
   // Arestas: extremos existentes e par tipado válido.
@@ -425,6 +540,20 @@ function csv(s?: string): string[] {
   return (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 }
 
+// Separa uma lista "k=v, k2=v2" num mapa {k: v}. Inverso de kvJoin. Puro.
+function parseKV(s?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of csv(s)) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+// Junta um mapa {k: v} em "k=v, k2=v2" (ordem de inserção). Inverso de parseKV.
+function kvJoin(m: Record<string, unknown>): string {
+  return Object.entries(m).map(([k, v]) => `${k}=${str(v)}`).join(", ");
+}
+
 // Funde campos "extra" (preservados de uma reimportação) num objeto de spec, SEM
 // sobrepor as chaves que o mapeamento conhecido já produziu. Puro.
 function mergeExtra<T extends Record<string, Yaml>>(spec: T, extra?: Record<string, unknown>): T {
@@ -441,11 +570,14 @@ export interface ManifestResult {
   warnings: string[];
 }
 
-// Converte o desenho num manifesto `kind: Stack`. Resolve as arestas:
+// Converte o desenho num manifesto `kind: Stack`, mapeando cada tipo ao seu
+// bucket do StackSpec (containers/networks/volumes/secrets/images/apps/services/
+// ingress/tunnels/networkGateways/dependencies/pods/vms). Resolve as arestas:
 // container→rede (spec.network), container/pod→volume (spec.volumes com o ponto
-// de montagem do volume), container→segredo (spec.secret). Tipos de DESENHO
-// (gateway, cluster) NÃO entram no stack — geram um aviso honesto e provisionam-
-// se à parte (ver provisionActions). Campos preservados de uma reimportação
+// de montagem), container→segredo (spec.secret) e ingress→container/pod
+// (rules[].http.paths[].backend.service.name). O único tipo de DESENHO é
+// `cluster` — NÃO entra no stack (aviso honesto; provisiona-se por `cluster
+// create`, ver provisionActions). Campos preservados de uma reimportação
 // (node.extra / design.extra) são re-emitidos tal e qual, fechando o roundtrip
 // com manifestToDesign (ver abaixo).
 export function designToManifest(d: StudioDesign): ManifestResult {
@@ -544,6 +676,89 @@ export function designToManifest(d: StudioDesign): ManifestResult {
         push("vms", { name, spec: s });
         break;
       }
+      case "image": {
+        const s: Record<string, Yaml> = {};
+        if (n.props.pull?.trim()) {
+          s.pull = n.props.pull.trim();
+        } else if (n.props.buildTag?.trim()) {
+          s.build = { tag: n.props.buildTag.trim(), context: n.props.buildContext?.trim() || "." };
+        }
+        mergeExtra(s, n.extra);
+        push("images", { name, spec: s });
+        break;
+      }
+      case "app": {
+        const s: Record<string, Yaml> = { image: n.props.image?.trim() || "" };
+        if (n.props.builder?.trim() && n.props.builder.trim() !== "auto") s.builder = n.props.builder.trim();
+        if (n.props.source?.trim() && n.props.source.trim() !== ".") s.source = n.props.source.trim();
+        mergeExtra(s, n.extra);
+        push("apps", { name, spec: s });
+        break;
+      }
+      case "service": {
+        const s: Record<string, Yaml> = {};
+        const port = Number(n.props.port);
+        if (Number.isInteger(port) && port > 0) s.port = port;
+        // selector é OBRIGATÓRIO no ServiceSpec: vazio → seleciona app=<nome>.
+        const sel = parseKV(n.props.selector);
+        s.selector = { matchLabels: Object.keys(sel).length ? sel : { app: name } };
+        if (n.props.type?.trim() && n.props.type.trim() !== "DNS") s.type = n.props.type.trim();
+        mergeExtra(s, n.extra);
+        push("services", { name, spec: s });
+        break;
+      }
+      case "ingress": {
+        const s: Record<string, Yaml> = {};
+        const backends = [...neighborsOf(n.id, "container"), ...neighborsOf(n.id, "pod")];
+        if (backends[0]) {
+          const port = Number(n.props.port) || 80;
+          const rule: Record<string, Yaml> = {};
+          if (n.props.host?.trim()) rule.host = n.props.host.trim();
+          rule.http = {
+            paths: [{
+              path: n.props.path?.trim() || "/",
+              pathType: "Prefix",
+              backend: { service: { name: backends[0].name.trim(), port: { number: port } } },
+            }],
+          };
+          s.rules = [rule];
+          if (backends.length > 1) warnings.push(`Ingress "${name}" ligado a ${backends.length} backends — o manifesto encaminha para o primeiro ("${backends[0].name}").`);
+        } else {
+          warnings.push(`Ingress "${name}" sem backend — liga-o a um container/pod; o manifesto fica sem regras.`);
+        }
+        mergeExtra(s, n.extra);
+        push("ingress", { name, spec: s });
+        break;
+      }
+      case "tunnel": {
+        const s: Record<string, Yaml> = { provider: n.props.provider?.trim() || "pinggy" };
+        const lp = Number(n.props.localPort);
+        if (Number.isInteger(lp) && lp > 0) s.localPort = lp;
+        if (n.props.hostname?.trim()) s.hostname = n.props.hostname.trim();
+        mergeExtra(s, n.extra);
+        push("tunnels", { name, spec: s });
+        break;
+      }
+      case "gateway": {
+        const s: Record<string, Yaml> = {};
+        if (n.props.provider?.trim()) s.provider = n.props.provider.trim();
+        mergeExtra(s, n.extra);
+        push("networkGateways", { name, spec: s });
+        break;
+      }
+      case "dependency": {
+        const s: Record<string, Yaml> = {};
+        if (n.props.from?.trim()) s.from = n.props.from.trim();
+        const to = csv(n.props.to);
+        if (to.length === 1) s.to = to[0];
+        else if (to.length > 1) s.to = to;
+        const ports = csv(n.props.ports);
+        if (ports.length) s.ports = ports;
+        if (n.props.proto?.trim()) s.proto = n.props.proto.trim();
+        mergeExtra(s, n.extra);
+        push("dependencies", { name, spec: s });
+        break;
+      }
       default:
         break;
     }
@@ -582,7 +797,10 @@ export interface ImportResult {
   warnings: string[];
 }
 
-const KNOWN_SPEC_BUCKETS = ["networks", "volumes", "secrets", "containers", "pods", "vms"] as const;
+const KNOWN_SPEC_BUCKETS = [
+  "networks", "volumes", "secrets", "containers", "pods", "vms",
+  "images", "apps", "services", "ingress", "tunnels", "networkGateways", "dependencies",
+] as const;
 const DOC_TOP_KEYS = ["apiVersion", "kind", "metadata", "spec"];
 
 function asObjArray(v: unknown): Record<string, unknown>[] {
@@ -645,8 +863,10 @@ export function manifestToDesign(text: string): ImportResult {
     nodes.push(n);
     byKindName.set(`${n.kind}/${n.name}`, n);
   };
-  const col = { net: 0, work: 0, store: 0 };
-  const place = (row: "net" | "work" | "store") => ({ x: 60 + col[row]++ * 230, y: row === "net" ? 40 : row === "work" ? 280 : 520 });
+  const rowY = { net: 40, build: 160, work: 280, store: 520, policy: 640, expose: 760 } as const;
+  type Row = keyof typeof rowY;
+  const col: Record<Row, number> = { net: 0, build: 0, work: 0, store: 0, policy: 0, expose: 0 };
+  const place = (row: Row) => ({ x: 60 + col[row]++ * 230, y: rowY[row] });
 
   for (const item of asObjArray(spec.networks)) {
     const name = str(item.name), s = asSpec(item), p = place("net");
@@ -688,6 +908,58 @@ export function manifestToDesign(text: string): ImportResult {
     const node: StudioNode = { id: `imp:vm:${name}`, kind: "vm", name, x: p.x, y: p.y, props: { disk: str(s.disk), vcpus: str(s.vcpus), memory: str(s.memory) } };
     add(node, splitExtra(s, ["disk", "vcpus", "memory", "network"]));
     linkNetwork(node, str(s.network));
+  }
+  // Imagens: pull OU build (tag + context).
+  for (const item of asObjArray(spec.images)) {
+    const name = str(item.name), s = asSpec(item), p = place("build");
+    const b = (s.build && typeof s.build === "object" ? s.build : {}) as Record<string, unknown>;
+    add({ id: `imp:image:${name}`, kind: "image", name, x: p.x, y: p.y, props: { pull: str(s.pull), buildTag: str(b.tag), buildContext: str(b.context) || (b.tag ? "." : "") } }, splitExtra(s, ["pull", "build", "pullSecret"]));
+  }
+  // Apps (buildpack).
+  for (const item of asObjArray(spec.apps)) {
+    const name = str(item.name), s = asSpec(item), p = place("build");
+    add({ id: `imp:app:${name}`, kind: "app", name, x: p.x, y: p.y, props: { image: str(s.image), builder: str(s.builder) || "auto", source: str(s.source) || "." } }, splitExtra(s, ["image", "builder", "source", "runImage"]));
+  }
+  // Serviços (selector matchLabels → "k=v, …"; port; type).
+  for (const item of asObjArray(spec.services)) {
+    const name = str(item.name), s = asSpec(item), p = place("policy");
+    const sel = (s.selector && typeof s.selector === "object" ? s.selector : {}) as Record<string, unknown>;
+    const ml = (sel.matchLabels && typeof sel.matchLabels === "object" ? sel.matchLabels : {}) as Record<string, unknown>;
+    add({ id: `imp:service:${name}`, kind: "service", name, x: p.x, y: p.y, props: { port: str(s.port), selector: kvJoin(ml), type: str(s.type) || "DNS" } }, splitExtra(s, ["selector", "port", "type"]));
+  }
+  // Túneis públicos.
+  for (const item of asObjArray(spec.tunnels)) {
+    const name = str(item.name), s = asSpec(item), p = place("expose");
+    add({ id: `imp:tunnel:${name}`, kind: "tunnel", name, x: p.x, y: p.y, props: { provider: str(s.provider), localPort: str(s.localPort), hostname: str(s.hostname) } }, splitExtra(s, ["provider", "localPort", "hostname", "token", "tokenSecretRef", "insecureSkipTlsVerify"]));
+  }
+  // Gateways de appliance.
+  for (const item of asObjArray(spec.networkGateways)) {
+    const name = str(item.name), s = asSpec(item), p = place("expose");
+    add({ id: `imp:gateway:${name}`, kind: "gateway", name, x: p.x, y: p.y, props: { provider: str(s.provider) } }, splitExtra(s, ["provider", "aliases", "nat", "policies", "rules"]));
+  }
+  // Dependências (from/to/ports/proto).
+  for (const item of asObjArray(spec.dependencies)) {
+    const name = str(item.name), s = asSpec(item), p = place("policy");
+    add({ id: `imp:dependency:${name}`, kind: "dependency", name, x: p.x, y: p.y, props: { from: str(s.from), to: joinList(s.to), ports: joinList(s.ports), proto: str(s.proto) } }, splitExtra(s, ["from", "to", "ports", "proto"]));
+  }
+  // Ingress: host/path/porta do primeiro path + aresta para o container/pod de
+  // backend (rules[].http.paths[].backend.service.name, ou defaultBackend).
+  for (const item of asObjArray(spec.ingress)) {
+    const name = str(item.name), s = asSpec(item), p = place("expose");
+    const rule0 = asObjArray(s.rules)[0] ?? {};
+    const http = (rule0.http && typeof rule0.http === "object" ? rule0.http : {}) as Record<string, unknown>;
+    const path0 = asObjArray(http.paths)[0] ?? {};
+    const backend = (path0.backend && typeof path0.backend === "object" ? path0.backend : (s.defaultBackend && typeof s.defaultBackend === "object" ? s.defaultBackend : {})) as Record<string, unknown>;
+    const svc = (backend.service && typeof backend.service === "object" ? backend.service : {}) as Record<string, unknown>;
+    const port = (svc.port && typeof svc.port === "object" ? (svc.port as Record<string, unknown>).number : svc.port);
+    const node: StudioNode = { id: `imp:ingress:${name}`, kind: "ingress", name, x: p.x, y: p.y, props: { host: str(rule0.host), path: str(path0.path) || "/", port: str(port) || "80" } };
+    add(node, splitExtra(s, ["rules", "defaultBackend", "tls", "entrypoints", "ingressClassName"]));
+    const backendName = str(svc.name);
+    if (backendName) {
+      const target = byKindName.get(`container/${backendName}`) ?? byKindName.get(`pod/${backendName}`);
+      if (target) edges.push({ id: `ie${eseq++}`, source: node.id, target: target.id });
+      else warnings.push(`O ingress "${name}" encaminha para "${backendName}", não declarado — ligação não criada.`);
+    }
   }
 
   // Segunda passagem: arestas dos containers (rede, volume montado, segredo).
@@ -873,19 +1145,19 @@ export function diffDesignVsLive(design: StudioDesign, live: StudioDesign): Plan
   return rows;
 }
 
-// --- Provisão dos tipos de DESENHO (gateway, cluster) -----------------------
-// Gateway e cluster NÃO entram no manifesto de stack (ver STACK_KINDS), mas
-// também não são inertes: cada um mapeia para um comando REAL do engine que o
-// Apply mostra como PASSO ADICIONAL (separado do `stack apply`), corrido com
-// confirmação de risco. gateway → `net tunnel expose` (kind: Gateway);
-// cluster → `cluster create` (kubeadm, kind-mode). Confirmados por `--help` no
-// delonix 5.1.1. `available` é falso quando faltam parâmetros para montar um
+// --- Provisão do tipo de DESENHO (cluster) ----------------------------------
+// `cluster` é o ÚNICO tipo que NÃO entra no manifesto de stack (ver STACK_KINDS)
+// — mas não é inerte: mapeia para um comando REAL do engine que o Apply mostra
+// como PASSO ADICIONAL (separado do `stack apply`), corrido com confirmação de
+// risco. cluster → `cluster create` (kubeadm, kind-mode). Confirmado por `--help`
+// no delonix 5.1.1. `available` é falso quando faltam parâmetros para montar um
 // comando completo — aí `note` diz honestamente o que falta e o comando parcial
-// fica na mesma para copiar.
+// fica na mesma para copiar. (O antigo `gateway`/túnel agora materializa-se no
+// stack como `tunnels[]`/`networkGateways[]`, por isso já não vive aqui.)
 
 export interface ProvisionAction {
   nodeId: string;
-  kind: "gateway" | "cluster";
+  kind: "cluster";
   name: string;
   /** Rótulo humano do passo. */
   label: string;
@@ -903,20 +1175,7 @@ export function provisionActions(d: StudioDesign): ProvisionAction[] {
   const out: ProvisionAction[] = [];
   for (const n of d.nodes) {
     const name = n.name.trim();
-    if (n.kind === "gateway") {
-      const port = (n.props.port ?? "").trim();
-      const provider = (n.props.provider ?? "").trim() || "pinggy";
-      out.push({
-        nodeId: n.id,
-        kind: "gateway",
-        name,
-        label: `Expor túnel "${name}"${port ? ` — porta ${port}` : ""} via ${provider}`,
-        argv: cmd.tunnelExpose({ port, provider, name }),
-        available: !!port,
-        risk: "Abre um túnel PÚBLICO de uma porta local para a internet — qualquer pessoa com o URL alcança o serviço. Provisiona-se FORA do stack.",
-        note: port ? undefined : "Define a porta de origem do gateway para o comando ficar completo.",
-      });
-    } else if (n.kind === "cluster") {
+    if (n.kind === "cluster") {
       const cps = (n.props.controlPlanes ?? "").trim();
       const workers = (n.props.workers ?? "").trim();
       const cni = (n.props.cni ?? "").trim();
@@ -938,4 +1197,175 @@ export function provisionActions(d: StudioDesign): ProvisionAction[] {
     }
   }
   return out;
+}
+
+// --- Plan REAL: resumo do `stack plan -o json` ------------------------------
+// O `delonix stack plan -o json` devolve um DIFF DE 3 VIAS (manifesto × máquina
+// × último apply) — linhas {kind,name,action,changed,diffs,planDigest} já
+// parseadas por client.stackPlan(). Aqui resumimos os números para o cabeçalho
+// (criar/alterar/reverter/manter) e decidimos se o Apply pode seguir. É o
+// equivalente do `terraform plan`. Puro e testável.
+
+export interface PlanSummary {
+  create: number;
+  update: number;
+  remove: number;
+  noop: number;
+  changed: number; // total de recursos que o apply mexeria
+  total: number;
+}
+
+// Normaliza a `action` do engine (create/update/replace/delete/remove/noop/keep)
+// para um verbo estável da UI.
+export type FinePlanAction = "create" | "update" | "remove" | "noop";
+export function normalizePlanAction(action: string): FinePlanAction {
+  const a = action.trim().toLowerCase();
+  if (a === "create" || a === "add") return "create";
+  if (a === "delete" || a === "remove" || a === "destroy" || a === "prune") return "remove";
+  if (a === "noop" || a === "keep" || a === "unchanged" || a === "") return "noop";
+  return "update"; // update / replace / reboot / change
+}
+
+export function summarizePlan(rows: StackPlanRow[]): PlanSummary {
+  const s: PlanSummary = { create: 0, update: 0, remove: 0, noop: 0, changed: 0, total: rows.length };
+  for (const r of rows) {
+    s[normalizePlanAction(r.action)]++;
+    if (r.changed) s.changed++;
+  }
+  return s;
+}
+
+// --- Apply ATÉ READY: progresso por recurso (`stack ls -f`) -----------------
+// O `stack ls` é TEXTO (sem -o json no 5.1.1): colunas KIND DOMAIN NAME PRESENT
+// STATUS NAMESPACE. Parseamos por posição de cabeçalho (resiste a colunas
+// variáveis) e derivamos o ESTADO de cada recurso para a vista de progresso do
+// Apply: Pendente → Presente → Ready (ou Falhou), estilo `terraform apply`.
+
+export interface StackLsRow {
+  kind: string;
+  name: string;
+  present: string; // "yes" | "no" | "-" (recursos declarativos não têm presença)
+  status: string;
+  namespace: string;
+}
+
+// Parser de tabela por posição de cabeçalho. Cada coluna começa no índice do seu
+// título; o valor vai até ao início da coluna seguinte. Tolerante a espaços nos
+// valores e a colunas ausentes.
+export function parseStackLs(text: string): StackLsRow[] {
+  const lines = text.split("\n").filter((l) => l.trim());
+  const headerIdx = lines.findIndex((l) => /\bKIND\b/.test(l) && /\bNAME\b/.test(l));
+  if (headerIdx < 0) return [];
+  const header = lines[headerIdx];
+  // TODAS as colunas do cabeçalho (inclui as que não mapeamos, p.ex. DOMAIN) —
+  // as fronteiras de corte têm de as respeitar, senão o valor de KIND engoliria
+  // o DOMAIN. Cada token é uma coluna que começa no seu índice.
+  const tokens: { title: string; at: number }[] = [];
+  const re = /\S+/g;
+  for (let m = re.exec(header); m; m = re.exec(header)) tokens.push({ title: m[0], at: m.index });
+  const KNOWN: Record<string, keyof StackLsRow> = { KIND: "kind", NAME: "name", PRESENT: "present", STATUS: "status", NAMESPACE: "namespace" };
+  const rows: StackLsRow[] = [];
+  for (const line of lines.slice(headerIdx + 1)) {
+    if (/^-{3,}/.test(line.trim())) continue;
+    const row: StackLsRow = { kind: "", name: "", present: "", status: "", namespace: "" };
+    for (let i = 0; i < tokens.length; i++) {
+      const key = KNOWN[tokens[i].title];
+      if (!key) continue;
+      const start = tokens[i].at;
+      const end = i + 1 < tokens.length ? tokens[i + 1].at : line.length;
+      row[key] = line.slice(start, end).trim();
+    }
+    if (row.kind || row.name) rows.push(row);
+  }
+  return rows;
+}
+
+export type ResourceState = "pending" | "present" | "ready" | "failed" | "declarative";
+
+export interface ProgressRow {
+  kind: string;
+  name: string;
+  state: ResourceState;
+  status: string;
+}
+
+export interface Progress {
+  rows: ProgressRow[];
+  ready: number; // recursos Ready ou declarativos aplicados
+  total: number;
+  done: boolean; // tudo convergido (ready/declarative), nada pendente/falhado
+}
+
+const READY_RE = /\b(up|running|ready|healthy|active|ok|present)\b/i;
+const FAIL_RE = /\b(fail|error|crash|exited|dead|unhealthy|refused)\b/i;
+
+// Classifica cada linha do `stack ls` num estado de progresso. Recursos
+// DECLARATIVOS (ingress/networkPolicy/…), cujo PRESENT é "-", contam como
+// aplicados assim que o stack aplica. Puro.
+export function resourceProgress(ls: StackLsRow[]): Progress {
+  const rows: ProgressRow[] = ls.map((r) => {
+    const present = r.present.trim().toLowerCase();
+    const status = r.status.trim();
+    let state: ResourceState;
+    if (FAIL_RE.test(status)) state = "failed";
+    else if (present === "-" || present === "n/a" || present === "") {
+      // Sem conceito de presença: declarativo. Se o status disser "declarative"
+      // ou vier vazio, consideramo-lo aplicado.
+      state = present === "" && status === "" ? "pending" : "declarative";
+    } else if (present === "yes" || present === "true") {
+      state = READY_RE.test(status) || status === "" || status === "-" ? "ready" : "present";
+    } else {
+      state = "pending"; // "no" / "false"
+    }
+    return { kind: r.kind, name: r.name, state, status };
+  });
+  const ready = rows.filter((r) => r.state === "ready" || r.state === "declarative").length;
+  const done = rows.length > 0 && rows.every((r) => r.state === "ready" || r.state === "declarative");
+  return { rows, ready, total: rows.length, done };
+}
+
+// --- Histórico de revisões (`stack history -o json`, ADR-0019) --------------
+// Uma revisão por apply que pediu mudança (falhadas incluídas e marcadas). O
+// JSON carrega o erro COMPLETO de uma revisão falhada. Parse defensivo dos
+// nomes de campo (o engine pode variá-los entre versões). Puro.
+
+export interface RevisionRow {
+  revision: number;
+  at: string;
+  action: string;
+  ok: boolean;
+  error: string;
+}
+
+function pickStr(o: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) if (o[k] != null) return str(o[k]);
+  return "";
+}
+
+export function parseStackHistory(text: string): RevisionRow[] {
+  const start = text.indexOf("[");
+  if (start < 0) return [];
+  let arr: unknown;
+  try {
+    arr = JSON.parse(text.slice(start));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((x) => x && typeof x === "object")
+    .map((raw) => {
+      const o = raw as Record<string, unknown>;
+      const okRaw = o.ok ?? o.success;
+      const status = pickStr(o, "status", "result", "state").toLowerCase();
+      const ok = typeof okRaw === "boolean" ? okRaw : status ? !/fail|error/.test(status) : true;
+      return {
+        revision: Number(pickStr(o, "revision", "rev", "n", "id")) || 0,
+        at: pickStr(o, "at", "time", "appliedAt", "timestamp", "date"),
+        action: pickStr(o, "action", "op", "kind") || (ok ? "apply" : "falhou"),
+        ok,
+        error: pickStr(o, "error", "err", "message"),
+      };
+    })
+    .sort((a, b) => b.revision - a.revision);
 }

@@ -47,6 +47,12 @@ function nodeLabel(n: StudioNode) {
     : n.kind === "volume" ? n.props.size
     : n.kind === "vm" ? n.props.disk
     : n.kind === "secret" ? (n.props.keys ? `${n.props.keys.split(",").filter(Boolean).length} chave(s)` : "")
+    : n.kind === "image" ? (n.props.pull || (n.props.buildTag ? `build ${n.props.buildTag}` : ""))
+    : n.kind === "app" ? n.props.image
+    : n.kind === "service" ? (n.props.port ? `:${n.props.port}${n.props.type && n.props.type !== "DNS" ? ` ${n.props.type}` : ""}` : "")
+    : n.kind === "ingress" ? `${n.props.host || "*"}${n.props.path || "/"}`
+    : n.kind === "tunnel" ? `${n.props.provider || "?"}:${n.props.localPort || "?"}`
+    : n.kind === "dependency" ? `${n.props.from || "?"} → ${n.props.to || "?"}`
     : n.kind === "cluster" ? `${n.props.controlPlanes || "?"}cp/${n.props.workers || "?"}w`
     : n.props.provider;
   return (

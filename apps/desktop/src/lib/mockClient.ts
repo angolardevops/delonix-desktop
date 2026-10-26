@@ -391,6 +391,11 @@ export class MockClient implements DelonixClient {
     const j = argv.join(" ");
     let stdout = `duplo local — sem engine · ${show(argv)}\n`;
     if (j.startsWith("stack validate")) stdout = "stack validate: OK — 4 document(s), all references resolved\n";
+    // `stack ls` (TEXTO): colunas KIND DOMAIN NAME PRESENT STATUS NAMESPACE. No
+    // duplo, reflete se o apply simulado já correu (vista de progresso do Studio).
+    else if (j.startsWith("stack ls")) stdout = stackApplied
+      ? "KIND       DOMAIN   NAME   PRESENT   STATUS        NAMESPACE\nNetwork    net      app    yes       -             default\nContainer  compute  web    yes       Up            default\nContainer  compute  db     yes       Up            default\nIngress    net-exp  ing    -         declarative   default\n"
+      : "KIND       DOMAIN   NAME   PRESENT   STATUS        NAMESPACE\nNetwork    net      app    no        -             default\nContainer  compute  web    no        -             default\nContainer  compute  db     no        -             default\nIngress    net-exp  ing    -         declarative   default\n";
     else if (j.startsWith("stack describe")) stdout = "KIND       NAME    PRESENT  STATUS\nNetwork    edge    yes      Up\nContainer  web     yes      Up 3d\nContainer  api     no       —\n";
     else if (j.startsWith("stack history")) stdout = "[]\n";
     else if (j.startsWith("compose config")) stdout = "name: shop\nservices:\n  web:\n    image: docker.io/library/nginx:alpine\n  db:\n    image: docker.io/library/postgres:16\n";
@@ -618,6 +623,22 @@ export class MockClient implements DelonixClient {
         }
         onEnd?.(0);
       }, 600);
+      return () => clearInterval(t);
+    }
+    // `stack apply` / `stack wait` simulados (Architecture Studio §11): emitem
+    // alguns passos e TERMINAM com código 0. O apply marca o stack como aplicado
+    // (para o `stack ls`/plano do duplo refletirem presença).
+    if (argv[0] === "stack" && (argv[1] === "apply" || argv[1] === "wait")) {
+      const steps = argv[1] === "apply"
+        ? ["• a aplicar por ordem de dependências (Network→Volume→Image→Vm→Container)", "• Network app ✓", "• Container web ✓", "• Container db ✓", "✓ stack apply concluído (duplo local — sem engine)"]
+        : ["• a aguardar que cada recurso fique Ready…", "• web: Ready", "• db: Ready", "✓ tudo Ready (duplo local — sem engine)"];
+      if (argv[1] === "apply") stackApplied = true;
+      let i = 0;
+      const t = setInterval(() => {
+        if (i < steps.length) { onLine(steps[i++]); return; }
+        clearInterval(t);
+        onEnd?.(0);
+      }, 400);
       return () => clearInterval(t);
     }
     let i = 0;

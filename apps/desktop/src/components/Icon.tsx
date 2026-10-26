@@ -42,6 +42,11 @@ const PATHS: Record<string, string> = {
   min: "M6 12h12",
   max: "M6 6h12v12H6z",
   close: "M7 7l10 10M17 7L7 17",
+  // Tipos do Architecture Studio (§11).
+  service: "M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM5 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 9v3M12 12l-5 3M12 12l5 3",
+  ingress: "M3 12h10M9 8l4 4-4 4M15 4h6v16h-6",
+  tunnel: "M4 20V10a8 8 0 0 1 16 0v10M9 20v-7a3 3 0 0 1 6 0v7",
+  dependency: "M6 6h6a6 6 0 0 1 6 6v6M14 14l4 4 4-4",
 };
 
 export function Icon({ name, size = 16, label }: { name: keyof typeof PATHS | string; size?: number; label?: string }) {

@@ -8,14 +8,21 @@ import {
   edgeLabel,
   emptyDesign,
   manifestToDesign,
+  normalizePlanAction,
   parseDesign,
+  parseStackHistory,
+  parseStackLs,
   provisionActions,
+  resourceProgress,
   serializeDesign,
   STUDIO_TEMPLATES,
+  summarizePlan,
   toYaml,
   validateDesign,
   type StudioDesign,
+  type StudioNode,
 } from "./studio";
+import type { StackPlanRow } from "./types";
 
 // Assinatura SEMÂNTICA de um desenho: tipos+nomes dos nós com as suas
 // propriedades relevantes, e as arestas como pares não-orientados de nomes. É o
@@ -89,14 +96,17 @@ describe("designToManifest — forma mínima (container numa rede)", () => {
   });
 });
 
-describe("designToManifest — tipos de desenho avisam, não quebram", () => {
-  it("gateway e cluster não entram no stack mas geram aviso", () => {
+describe("designToManifest — cluster é o único tipo de desenho (avisa, não quebra)", () => {
+  it("cluster não entra no stack mas gera aviso; tunnel/gateway agora ENTRAM", () => {
     const d = emptyDesign("mix");
-    d.nodes.push({ id: "g", kind: "gateway", name: "edge", x: 0, y: 0, props: { provider: "cloudflare", port: "8080" } });
+    d.nodes.push({ id: "t", kind: "tunnel", name: "edge", x: 0, y: 0, props: { provider: "cloudflare", localPort: "8080" } });
     d.nodes.push({ id: "k", kind: "cluster", name: "lab", x: 0, y: 0, props: {} });
     const { yaml, warnings } = designToManifest(d);
-    expect(yaml).not.toContain("edge");
-    expect(warnings).toHaveLength(2);
+    // tunnel materializa-se (tunnels[]); cluster NÃO (1 aviso só).
+    expect(yaml).toContain("tunnels:");
+    expect(yaml).toContain("- name: edge");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/cluster/i);
   });
 });
 
@@ -357,26 +367,7 @@ describe("manifestToDesign — preserva campos não representados (extra)", () =
   });
 });
 
-describe("provisionActions — gateway/cluster → comandos do engine", () => {
-  it("gateway → `net tunnel expose` com porta e provider", () => {
-    const d = emptyDesign("mix");
-    d.nodes.push({ id: "g", kind: "gateway", name: "edge", x: 0, y: 0, props: { provider: "cloudflare", port: "8080" } });
-    const acts = provisionActions(d);
-    expect(acts).toHaveLength(1);
-    expect(acts[0].kind).toBe("gateway");
-    expect(acts[0].available).toBe(true);
-    expect(acts[0].argv).toEqual(["net", "tunnel", "expose", "8080", "--provider", "cloudflare", "--name", "edge"]);
-  });
-
-  it("gateway sem porta fica indisponível, mas dá nota e comando parcial", () => {
-    const d = emptyDesign("mix");
-    d.nodes.push({ id: "g", kind: "gateway", name: "edge", x: 0, y: 0, props: { provider: "pinggy", port: "" } });
-    const a = provisionActions(d)[0];
-    expect(a.available).toBe(false);
-    expect(a.note).toMatch(/porta/i);
-    expect(a.argv.slice(0, 3)).toEqual(["net", "tunnel", "expose"]);
-  });
-
+describe("provisionActions — cluster → comando do engine (único tipo de desenho)", () => {
   it("cluster → `cluster create` com control-planes/workers/cni", () => {
     const d = emptyDesign("mix");
     d.nodes.push({ id: "k", kind: "cluster", name: "lab", x: 0, y: 0, props: { controlPlanes: "3", workers: "2", cni: "none" } });
@@ -396,5 +387,239 @@ describe("provisionActions — gateway/cluster → comandos do engine", () => {
 
   it("um desenho sem tipos de desenho não gera passos de provisão", () => {
     expect(provisionActions(minimal)).toHaveLength(0);
+  });
+});
+
+// --- Catálogo completo (§11 v3): novos tipos que alimentam o StackSpec -------
+
+// Desenho com UM nó de cada tipo novo que emite, mais um container de destino
+// para o ingress e a dependência. É a base dos testes de emissão/roundtrip.
+function richDesign(): StudioDesign {
+  const nodes: StudioNode[] = [
+    { id: "net", kind: "network", name: "app", x: 0, y: 0, props: { driver: "bridge", subnet: "" } },
+    { id: "web", kind: "container", name: "web", x: 0, y: 0, props: { image: "nginx:latest", ports: "", env: "", command: "" } },
+    { id: "db", kind: "container", name: "db", x: 0, y: 0, props: { image: "postgres:16", ports: "", env: "", command: "" } },
+    { id: "imgp", kind: "image", name: "cache-img", x: 0, y: 0, props: { pull: "redis:7", buildTag: "", buildContext: "" } },
+    { id: "imgb", kind: "image", name: "built", x: 0, y: 0, props: { pull: "", buildTag: "built:1", buildContext: "src" } },
+    { id: "app", kind: "app", name: "api", x: 0, y: 0, props: { image: "api:latest", builder: "heroku", source: "backend" } },
+    { id: "svc", kind: "service", name: "web-svc", x: 0, y: 0, props: { port: "80", selector: "app=web, tier=front", type: "VirtualIP" } },
+    { id: "ing", kind: "ingress", name: "web-ing", x: 0, y: 0, props: { host: "exemplo.local", path: "/", port: "80" } },
+    { id: "tun", kind: "tunnel", name: "public", x: 0, y: 0, props: { provider: "pinggy", localPort: "8080", hostname: "" } },
+    { id: "gw", kind: "gateway", name: "edge-gw", x: 0, y: 0, props: { provider: "opnsense" } },
+    { id: "dep", kind: "dependency", name: "web-db", x: 0, y: 0, props: { from: "web", to: "db", ports: "5432", proto: "tcp" } },
+  ];
+  return {
+    version: 1, name: "rico", namespace: "studio", nodes,
+    edges: [
+      { id: "e1", source: "net", target: "web" },
+      { id: "e2", source: "ing", target: "web" }, // ingress → backend container
+    ],
+  };
+}
+
+describe("catálogo completo — novos tipos mapeiam para os arrays do StackSpec", () => {
+  const { yaml, warnings } = designToManifest(richDesign());
+
+  it("sem erros de validação no desenho rico", () => {
+    expect(validateDesign(richDesign()).filter((i) => i.level === "error")).toHaveLength(0);
+  });
+
+  it("image emite pull OU build (tag+context)", () => {
+    expect(yaml).toContain("images:");
+    expect(yaml).toContain('pull: "redis:7"');
+    expect(yaml).toContain("build:");
+    expect(yaml).toContain('tag: "built:1"');
+    expect(yaml).toContain("context: src");
+  });
+
+  it("app emite apps[] com image/builder/source", () => {
+    expect(yaml).toContain("apps:");
+    expect(yaml).toContain("- name: api");
+    expect(yaml).toContain('image: "api:latest"');
+    expect(yaml).toContain("builder: heroku");
+    expect(yaml).toContain("source: backend");
+  });
+
+  it("service emite selector.matchLabels + port + type", () => {
+    expect(yaml).toContain("services:");
+    expect(yaml).toContain("selector:");
+    expect(yaml).toContain("matchLabels:");
+    expect(yaml).toContain("app: web");
+    expect(yaml).toContain("tier: front");
+    expect(yaml).toContain("port: 80");
+    expect(yaml).toContain("type: VirtualIP");
+  });
+
+  it("ingress resolve a aresta → backend.service.name do container ligado", () => {
+    expect(yaml).toContain("ingress:");
+    expect(yaml).toContain("host: exemplo.local");
+    expect(yaml).toContain("backend:");
+    expect(yaml).toContain("name: web"); // backend aponta para o container ligado
+    expect(yaml).toContain("number: 80");
+  });
+
+  it("tunnel e gateway (appliance) materializam-se no stack", () => {
+    expect(yaml).toContain("tunnels:");
+    expect(yaml).toContain("provider: pinggy");
+    expect(yaml).toContain("localPort: 8080");
+    expect(yaml).toContain("networkGateways:");
+    expect(yaml).toContain("provider: opnsense");
+  });
+
+  it("dependency emite from/to/ports/proto", () => {
+    expect(yaml).toContain("dependencies:");
+    expect(yaml).toContain("from: web");
+    expect(yaml).toContain("to: db");
+    expect(yaml).toContain("proto: tcp");
+    expect(yaml).toContain('- "5432"');
+  });
+
+  it("nenhum aviso espúrio (tudo mapeia)", () => {
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("service com selector vazio recai em app=<nome> (ServiceSpec exige selector)", () => {
+    const d = emptyDesign("x");
+    d.nodes.push({ id: "s", kind: "service", name: "sem-sel", x: 0, y: 0, props: { port: "443", selector: "", type: "DNS" } });
+    const { yaml: y } = designToManifest(d);
+    expect(y).toContain("app: sem-sel");
+  });
+
+  it("validação assinala os campos obrigatórios dos tipos novos", () => {
+    const d = emptyDesign("x");
+    d.nodes.push({ id: "i", kind: "image", name: "i", x: 0, y: 0, props: {} });
+    d.nodes.push({ id: "t", kind: "tunnel", name: "t", x: 0, y: 0, props: {} });
+    d.nodes.push({ id: "dep", kind: "dependency", name: "d", x: 0, y: 0, props: {} });
+    const errs = validateDesign(d).filter((i) => i.level === "error").map((i) => i.message);
+    expect(errs.some((m) => /pull.*OU.*build|build/i.test(m))).toBe(true);
+    expect(errs.some((m) => /porta local|fornecedor/i.test(m))).toBe(true);
+    expect(errs.some((m) => /"from"/.test(m))).toBe(true);
+  });
+});
+
+describe("roundtrip dos novos tipos — design → YAML → design", () => {
+  it("preserva os novos tipos, as suas propriedades e a aresta do ingress", () => {
+    const d = richDesign();
+    const { design: back } = manifestToDesign(designToManifest(d).yaml);
+    // Todos os tipos sobrevivem.
+    for (const k of ["image", "app", "service", "ingress", "tunnel", "gateway", "dependency"] as const) {
+      expect(back.nodes.some((n) => n.kind === k), `tipo ${k} perdido no roundtrip`).toBe(true);
+    }
+    // Propriedades-chave preservadas.
+    const svc = back.nodes.find((n) => n.kind === "service")!;
+    expect(svc.props.port).toBe("80");
+    expect(svc.props.selector).toContain("app=web");
+    const app = back.nodes.find((n) => n.kind === "app")!;
+    expect(app.props.image).toBe("api:latest");
+    expect(app.props.builder).toBe("heroku");
+    const dep = back.nodes.find((n) => n.kind === "dependency")!;
+    expect(dep.props.from).toBe("web");
+    expect(dep.props.to).toBe("db");
+    // A aresta ingress → container foi reconstruída.
+    const ing = back.nodes.find((n) => n.kind === "ingress")!;
+    const web = back.nodes.find((n) => n.kind === "container" && n.name === "web")!;
+    expect(back.edges.some((e) => (e.source === ing.id && e.target === web.id) || (e.source === web.id && e.target === ing.id))).toBe(true);
+  });
+
+  it("é um ponto fixo: YAML → design → YAML idempotente com os tipos novos", () => {
+    const y1 = designToManifest(richDesign()).yaml;
+    const y2 = designToManifest(manifestToDesign(y1).design).yaml;
+    const y3 = designToManifest(manifestToDesign(y2).design).yaml;
+    expect(y3).toBe(y2);
+  });
+});
+
+describe("canConnect — ligações novas", () => {
+  it("aceita ingress↔container e ingress↔pod", () => {
+    expect(canConnect("ingress", "container")).toBe(true);
+    expect(canConnect("pod", "ingress")).toBe(true); // não-orientado
+  });
+  it("recusa ligações sem sentido dos tipos novos", () => {
+    expect(canConnect("service", "container")).toBe(false); // selector é por rótulo
+    expect(canConnect("tunnel", "container")).toBe(false);
+    expect(canConnect("image", "container")).toBe(false);
+  });
+});
+
+describe("summarizePlan / normalizePlanAction — Plan REAL (stack plan -o json)", () => {
+  const rows: StackPlanRow[] = [
+    { kind: "Network", name: "app", action: "create", changed: true, diffs: 0, planDigest: "a" },
+    { kind: "Container", name: "web", action: "update", changed: true, diffs: 2, planDigest: "b" },
+    { kind: "Container", name: "old", action: "delete", changed: true, diffs: 0, planDigest: "c" },
+    { kind: "Volume", name: "data", action: "noop", changed: false, diffs: 0, planDigest: "d" },
+  ];
+  it("conta create/update/remove/noop e os recursos que mudam", () => {
+    const s = summarizePlan(rows);
+    expect(s).toMatchObject({ create: 1, update: 1, remove: 1, noop: 1, changed: 3, total: 4 });
+  });
+  it("normaliza sinónimos de ação do engine", () => {
+    expect(normalizePlanAction("replace")).toBe("update");
+    expect(normalizePlanAction("destroy")).toBe("remove");
+    expect(normalizePlanAction("keep")).toBe("noop");
+    expect(normalizePlanAction("add")).toBe("create");
+  });
+});
+
+describe("parseStackLs / resourceProgress — Apply até Ready", () => {
+  const ls = [
+    "warning qualquer coisa antes da tabela",
+    "KIND            DOMAIN         NAME            PRESENT   STATUS        NAMESPACE",
+    "Container       compute        web             yes       Up 3d         studio",
+    "Container       compute        db              no        -             studio",
+    "Network         net            app             yes       -             studio",
+    "Ingress         net-exposure   web-ing         -         declarative   studio",
+    "Container       compute        broken          yes       Exited (1)    studio",
+  ].join("\n");
+
+  it("parseStackLs lê as colunas por posição de cabeçalho", () => {
+    const rows = parseStackLs(ls);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toMatchObject({ kind: "Container", name: "web", present: "yes", status: "Up 3d", namespace: "studio" });
+    expect(rows.find((r) => r.name === "web-ing")?.present).toBe("-");
+  });
+
+  it("resourceProgress classifica pending/present/ready/failed/declarative", () => {
+    const p = resourceProgress(parseStackLs(ls));
+    const by = (n: string) => p.rows.find((r) => r.name === n)!.state;
+    expect(by("web")).toBe("ready"); // present yes + status Up
+    expect(by("db")).toBe("pending"); // present no
+    expect(by("app")).toBe("ready"); // present yes + status "-"
+    expect(by("web-ing")).toBe("declarative");
+    expect(by("broken")).toBe("failed");
+    expect(p.done).toBe(false); // há pendentes/falhados
+  });
+
+  it("done=true quando tudo está ready/declarativo", () => {
+    const allUp = [
+      "KIND        NAME   PRESENT  STATUS       NAMESPACE",
+      "Container   web    yes      Up           studio",
+      "Ingress     ing    -        declarative  studio",
+    ].join("\n");
+    const p = resourceProgress(parseStackLs(allUp));
+    expect(p.done).toBe(true);
+    expect(p.ready).toBe(2);
+  });
+
+  it("saída sem tabela (duplo local) → zero linhas, sem rebentar", () => {
+    expect(parseStackLs("duplo local — sem engine · delonix stack ls")).toHaveLength(0);
+  });
+});
+
+describe("parseStackHistory — revisões (stack history -o json, ADR-0019)", () => {
+  it("parseia revisões, ordena da mais recente e marca falhas", () => {
+    const json = JSON.stringify([
+      { revision: 1, at: "2026-10-26T10:00:00Z", action: "apply", ok: true },
+      { revision: 2, appliedAt: "2026-10-26T11:00:00Z", ok: false, error: "DX-5601 recurso de outro stack" },
+    ]);
+    const revs = parseStackHistory(json);
+    expect(revs).toHaveLength(2);
+    expect(revs[0].revision).toBe(2); // ordenado desc
+    expect(revs[0].ok).toBe(false);
+    expect(revs[0].error).toMatch(/DX-5601/);
+    expect(revs[1].ok).toBe(true);
+  });
+  it("lista vazia e texto não-JSON → []", () => {
+    expect(parseStackHistory("[]")).toHaveLength(0);
+    expect(parseStackHistory("duplo local — sem engine")).toHaveLength(0);
   });
 });
