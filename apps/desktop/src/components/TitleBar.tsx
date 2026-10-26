@@ -173,10 +173,21 @@ export function TitleBar() {
   const edit = (cmd: "copy" | "cut" | "selectAll") => { try { document.execCommand(cmd); } catch { /* sem seleção */ } };
 
   const copyDocs = () => void copyText(DOCS_URL).then((ok) => toast(ok ? "Link da documentação copiado" : "Não foi possível copiar", ok));
-  const about = () => void aboutDialog(
-    "Delonix Desktop 0.1.0\nAmbiente de trabalho para Platform Engineering, SRE e DevOps sobre o Delonix Engine.\n\n" + DOCS_URL,
-    "Sobre o Delonix Desktop",
-  );
+  // Versão REAL da app (lida do tauri.conf.json via getVersion), nunca um literal
+  // que fica para trás a cada bump. Fora do Tauri (web/testes) cai num traço.
+  const about = async () => {
+    let version = "—";
+    if (isTauri()) {
+      try {
+        const { getVersion } = await import("@tauri-apps/api/app");
+        version = await getVersion();
+      } catch { /* mantém o traço */ }
+    }
+    await aboutDialog(
+      `Delonix Desktop ${version}\nAmbiente de trabalho para Platform Engineering, SRE e DevOps sobre o Delonix Engine.\n\n` + DOCS_URL,
+      "Sobre o Delonix Desktop",
+    );
+  };
 
   const menus: { label: string; items: MenuItem[] }[] = [
     { label: "Ficheiro", items: [
