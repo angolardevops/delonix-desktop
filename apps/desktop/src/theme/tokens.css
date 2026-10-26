@@ -75,5 +75,14 @@
   --h-row: 34px;
   --h-btn: 30px;
   --h-btn-sm: 24px;
-  --pad-page: 24px;
+
+  /* Espaçamento da área de conteúdo (eixo de layout)
+     - gutter-x/y: margem da janela para o conteúdo não colar às bordas
+     - max-content: largura máxima legível (centrada) em ecrãs largos
+     O contentor .page aplica os gutters; os elementos internos (cabeçalho,
+     toolbar, tabela, paginador) alinham-se à caixa de conteúdo, sem padding
+     horizontal próprio, para as divisórias não tocarem as bordas da janela. */
+  --gutter-x: 24px;
+  --gutter-y: 20px;
+  --max-content: 1480px;
 }

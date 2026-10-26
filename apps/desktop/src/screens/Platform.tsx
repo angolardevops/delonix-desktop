@@ -136,16 +136,14 @@ export function Registries() {
 
   return (
     <>
-      <PageHead title="Registries" subtitle="Credenciais OCI persistidas (auth.json) · login/logout, pull e push por registry">
+      <PageHead title="Registries" subtitle="Credenciais OCI (auth.json) por registry">
         <button className="btn" type="button" onClick={() => void reload()}><Icon name="restart" size={13} /> Atualizar</button>
         <button className="btn" type="button" onClick={() => openPull()}><Icon name="download" size={13} /> Puxar imagem</button>
         <button className="btn pri" type="button" onClick={() => openLogin()}><Icon name="plus" size={13} /> Autenticar</button>
       </PageHead>
       <div className="note">
-        <Chip tone="neu" dot>Limite do engine 5.1.1</Chip>
-        <span style={{ flex: "1 1 360px" }}>
-          Gere credenciais reais + <span className="mono">pull</span>/<span className="mono">push</span>. Não há catálogo remoto (<span className="mono">image ls-remote</span>), mirror pull-through nem promoção — o engine só guarda credenciais por registry e transfere imagens.
-        </span>
+        <Chip tone="neu" dot>Engine 5.1.1</Chip>
+        <span style={{ flex: "1 1 360px" }}>Credenciais e <span className="mono">pull</span>/<span className="mono">push</span> por registry — sem catálogo remoto, mirror ou promoção.</span>
       </div>
       {reg?.error && <ErrorNote error={`Não foi possível ler o auth.json: ${reg.error}`} />}
       {msg && <div className="note" role="status" style={{ background: "var(--okb, rgba(0,160,80,.08))" }}><span>{msg}</span></div>}
@@ -350,14 +348,11 @@ export function Kubernetes() {
 
   return (
     <>
-      <PageHead title="Kubernetes" subtitle={`${rows.length} cluster(s) · kind e VM · criar, operar, nós, pods e logs`}>
+      <PageHead title="Kubernetes" subtitle={`${rows.length} cluster(s) · kind e VM`}>
         <button className="btn" type="button" onClick={() => void refresh()}><Icon name="restart" size={13} /> Atualizar</button>
         <button className="btn" type="button" onClick={() => setGenOpen(true)}><Icon name="declarative" size={13} /> Gerar manifesto</button>
         <button className="btn pri" type="button" onClick={() => setCreateOpen(true)}><Icon name="plus" size={13} /> Criar cluster</button>
       </PageHead>
-      <div className="note">
-        <span>Opera o cluster aqui, como no Docker/Podman Desktop: <span className="mono">criar · iniciar · parar · destruir</span> e, no detalhe, <span className="mono">saúde · kubeconfig · nós · pods · logs</span>. Os recursos dentro do cluster são lidos por <span className="mono">kubectl</span> (só leitura, pela cache do kubeconfig).</span>
-      </div>
       {error && <ErrorNote error={error} />}
       <DataTable<ClusterRow>
         columns={columns}
