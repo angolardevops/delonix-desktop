@@ -98,11 +98,18 @@ export function isDelonixSchemaReady(): boolean {
   return delonixSchema != null;
 }
 
-// Reconfigura as associações ficheiro→schema do monaco-yaml a partir dos YAML
-// abertos. Só deve ser chamada quando a associação muda (ver schemasSignature)
-// para não reenviar o schema grande do Delonix ao worker a cada tecla.
-export async function updateYamlSchemas(files: YamlFile[]): Promise<void> {
+// O monaco-yaml é um SINGLETON (uma só instância por processo): a sua lista de
+// schemas é GLOBAL. Como vários consumidores podem estar montados ao mesmo tempo
+// (o Editor e, noutra tela, um ou mais `YamlView`), cada um regista os SEUS
+// ficheiros por uma CHAVE própria; o conjunto final é a UNIÃO de todas as
+// chaves. Assim um consumidor nunca apaga as associações de outro.
+const schemaRegistry = new Map<string, YamlFile[]>();
+const EDITOR_KEY = "__editor__";
+
+async function rebuildYamlSchemas(): Promise<void> {
   if (!yamlHandle) return;
+  const files: YamlFile[] = [];
+  for (const group of schemaRegistry.values()) files.push(...group);
   const schemas = buildSchemas(files, delonixSchema);
   await yamlHandle.update({
     enableSchemaRequest: false,
@@ -111,4 +118,23 @@ export async function updateYamlSchemas(files: YamlFile[]): Promise<void> {
     completion: true,
     schemas,
   });
+}
+
+// Reconfigura as associações ficheiro→schema do Editor (chave fixa). Só deve ser
+// chamada quando a associação muda (ver schemasSignature) para não reenviar o
+// schema grande do Delonix ao worker a cada tecla. API inalterada (Editor.tsx).
+export async function updateYamlSchemas(files: YamlFile[]): Promise<void> {
+  schemaRegistry.set(EDITOR_KEY, files);
+  await rebuildYamlSchemas();
+}
+
+// Regista/atualiza as associações de UM consumidor arbitrário (ex.: um YamlView)
+// sob a sua chave. `unregisterYamlSchemas` remove-as ao desmontar.
+export async function registerYamlSchemas(key: string, files: YamlFile[]): Promise<void> {
+  schemaRegistry.set(key, files);
+  await rebuildYamlSchemas();
+}
+
+export function unregisterYamlSchemas(key: string): void {
+  if (schemaRegistry.delete(key)) void rebuildYamlSchemas();
 }

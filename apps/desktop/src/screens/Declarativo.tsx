@@ -4,6 +4,7 @@ import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { DataTable, type Column } from "../components/DataTable";
 import { Drawer } from "../components/Drawer";
+import { YamlView } from "../components/LazyYamlView";
 import { cmd, type Argv } from "../lib/cli";
 import { nativeDialogsAvailable, pickFile, YAML_FILTERS } from "../lib/native";
 import type { ComposeService, StackPlanRow } from "../lib/types";
@@ -44,17 +45,25 @@ export function Declarativo() {
   );
 }
 
-// Painel de saída de texto cru (stack validate/describe/history, compose config).
-function OutputPanel({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
+// Painel de saída. Quando a saída é YAML/manifesto (`yaml`), mostra-a no visor
+// realçado (YamlView); caso contrário (relatórios de validate/history) fica em
+// `<pre>` cru. `filename` dá a pista de schema ao visor.
+function OutputPanel({ title, text, onClose, yaml, filename }: { title: string; text: string; onClose: () => void; yaml?: boolean; filename?: string }) {
   return (
     <section className="section" style={{ marginTop: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 style={{ margin: 0 }}>{title}</h2>
         <button className="btn sm" type="button" onClick={onClose}><Icon name="close" size={12} /> Fechar</button>
       </div>
-      <pre className="mono" style={{ margin: "8px 0 0", padding: 12, background: "var(--bg2, rgba(0,0,0,.04))", borderRadius: 6, overflow: "auto", maxHeight: 320, fontSize: 12, whiteSpace: "pre", border: "1px solid var(--line)" }}>
-        {text || "(sem saída)"}
-      </pre>
+      {yaml && text.trim() ? (
+        <div style={{ marginTop: 8 }}>
+          <YamlView value={text} filename={filename} downloadName={filename} height={360} />
+        </div>
+      ) : (
+        <pre className="mono" style={{ margin: "8px 0 0", padding: 12, background: "var(--bg2, rgba(0,0,0,.04))", borderRadius: 6, overflow: "auto", maxHeight: 320, fontSize: 12, whiteSpace: "pre", border: "1px solid var(--line)" }}>
+          {text || "(sem saída)"}
+        </pre>
+      )}
     </section>
   );
 }
@@ -72,7 +81,7 @@ function StacksPanel() {
   const [rows, setRows] = useState<StackPlanRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [out, setOut] = useState<{ title: string; text: string } | null>(null);
+  const [out, setOut] = useState<{ title: string; text: string; yaml?: boolean; filename?: string } | null>(null);
   const [applyOpen, setApplyOpen] = useState(false);
 
   const plan = async () => {
@@ -89,12 +98,13 @@ function StacksPanel() {
   };
 
   // Leitura só-texto (validate/describe/history): mostra o stdout num painel.
-  const showText = async (argv: Argv, title: string) => {
+  // `describe` devolve um manifesto YAML → realçado no visor (opts.yaml).
+  const showText = async (argv: Argv, title: string, opts?: { yaml?: boolean; filename?: string }) => {
     setBusy(true);
     setError(null);
     try {
       const r = await client.readText(argv);
-      setOut({ title, text: [r.stdout, r.stderr].filter((s) => s.trim()).join("\n") });
+      setOut({ title, text: [r.stdout, r.stderr].filter((s) => s.trim()).join("\n"), yaml: opts?.yaml, filename: opts?.filename });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -149,7 +159,7 @@ function StacksPanel() {
             : <>Nada a aplicar — a máquina já corresponde ao manifesto.</>
         }
       />
-      {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
+      {out && <OutputPanel title={out.title} text={out.text} yaml={out.yaml} filename={out.filename} onClose={() => setOut(null)} />}
 
       <Drawer open={applyOpen} onClose={() => setApplyOpen(false)} title="Aplicar manifesto">
         <section className="section">
@@ -189,7 +199,7 @@ function ComposePanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [withVolumes, setWithVolumes] = useState(false);
-  const [out, setOut] = useState<{ title: string; text: string } | null>(null);
+  const [out, setOut] = useState<{ title: string; text: string; yaml?: boolean; filename?: string } | null>(null);
   const [lifeOpen, setLifeOpen] = useState(false);
 
   const refresh = async () => {
@@ -210,7 +220,7 @@ function ComposePanel() {
     setError(null);
     try {
       const r = await client.readText(cmd.composeConfig(file));
-      setOut({ title: "compose config", text: [r.stdout, r.stderr].filter((s) => s.trim()).join("\n") });
+      setOut({ title: "compose config", text: [r.stdout, r.stderr].filter((s) => s.trim()).join("\n"), yaml: true, filename: "docker-compose.config.yaml" });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -262,7 +272,7 @@ function ComposePanel() {
             : <>Nenhum serviço deste projeto está de pé. Usa <b>Subir</b>.</>
         }
       />
-      {out && <OutputPanel title={out.title} text={out.text} onClose={() => setOut(null)} />}
+      {out && <OutputPanel title={out.title} text={out.text} yaml={out.yaml} filename={out.filename} onClose={() => setOut(null)} />}
 
       <Drawer open={lifeOpen} onClose={() => setLifeOpen(false)} title="Ciclo de vida">
         <section className="section">

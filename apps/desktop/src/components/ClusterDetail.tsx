@@ -8,6 +8,7 @@ import type { ClusterRow, K8sNode, K8sPod } from "../lib/types";
 import { DataTable, type Column } from "./DataTable";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
+import { YamlView } from "./LazyYamlView";
 import { Chip, CliHint, ErrorNote, Tabs } from "./ui";
 
 // Detalhe OPERÁVEL de um cluster (anatomia Docker/Podman Desktop). Overlay a
@@ -141,7 +142,11 @@ function Overview({ name }: { name: string }) {
           O ficheiro da cache local (sem SSH). Copia para a área de transferência ou guarda em disco para usar com o <span className="mono">kubectl</span>.
         </p>
         {saved && <div className="note" role="status"><span>Guardado em <span className="mono">{saved}</span></span></div>}
-        {kubeconfig && <pre className="code" style={{ fontSize: 11, maxHeight: 280, overflow: "auto", marginTop: 8 }}>{kubeconfig}</pre>}
+        {kubeconfig && (
+          <div style={{ marginTop: 8 }}>
+            <YamlView value={kubeconfig} filename={`${name}-kubeconfig.yaml`} downloadName={`${name}-kubeconfig.yaml`} height={300} actions={false} />
+          </div>
+        )}
         <CliHint argv={cmd.clusterKubeconfig(name)} compact />
       </section>
     </div>

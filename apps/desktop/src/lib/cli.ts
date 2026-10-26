@@ -362,3 +362,45 @@ export const kubectl = {
     "logs", pod, "-n", namespace, "--tail", String(tail),
   ],
 };
+
+// --- Versão do Kubernetes no "Criar cluster" (§6) ---------------------------
+// O `cluster create` escolhe a versão do Kubernetes pela imagem de nó
+// `kindest/node:<tag>` (confirmado: `--image <IMAGE>`; sem a flag o engine usa a
+// imagem FIXADA POR DIGEST — a sua default). A MAIS BAIXA suportada é a 1.34.x
+// (decisão do dono). Oferecem-se as minor plausíveis + um valor livre para uma
+// tag/imagem personalizada. Dados PUROS (testáveis, sem React).
+export const K8S_VERSION_DEFAULT = ""; // "" = imagem default do engine (sem --image)
+export const K8S_VERSION_CUSTOM = "custom";
+
+export interface K8sVersionOption {
+  value: string;
+  label: string;
+}
+
+// Lista para o seletor, do default do engine à mais recente, terminando no
+// valor livre. A ordem é a de apresentação.
+export const K8S_VERSIONS: K8sVersionOption[] = [
+  { value: K8S_VERSION_DEFAULT, label: "Padrão do engine (fixada por digest)" },
+  { value: "v1.36.0", label: "v1.36.0 (mais recente)" },
+  { value: "v1.35.0", label: "v1.35.0" },
+  { value: "v1.34.0", label: "v1.34.0 (mínima suportada)" },
+  { value: K8S_VERSION_CUSTOM, label: "Imagem/tag personalizada…" },
+];
+
+// Mapeia a ESCOLHA do seletor para o valor de `--image` a passar a
+// `clusterCreate`. Devolve `undefined` quando se deve OMITIR `--image` (default
+// do engine ou custom vazio) — o único caso em que a flag não é emitida.
+//   - ""        → undefined (default do engine, fixada por digest)
+//   - "vX.Y.Z"  → "kindest/node:vX.Y.Z"
+//   - "custom"  → a string livre: passa-se tal e qual se já parecer uma
+//                 referência de imagem (tem "/"), senão trata-se como tag de
+//                 `kindest/node:<tag>`.
+export function k8sVersionImage(choice: string, custom?: string): string | undefined {
+  if (!choice || choice === K8S_VERSION_DEFAULT) return undefined;
+  if (choice === K8S_VERSION_CUSTOM) {
+    const c = (custom ?? "").trim();
+    if (!c) return undefined;
+    return c.includes("/") ? c : `kindest/node:${c}`;
+  }
+  return `kindest/node:${choice}`;
+}

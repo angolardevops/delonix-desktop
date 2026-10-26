@@ -9,7 +9,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { Drawer } from "../components/Drawer";
 import { Select } from "../components/Select";
 import { Chip, CliHint, ErrorNote, PageHead, Planned } from "../components/ui";
-import { cmd, type Argv } from "../lib/cli";
+import { cmd, k8sVersionImage, K8S_VERSION_CUSTOM, K8S_VERSIONS, type Argv } from "../lib/cli";
 import { useResource } from "../lib/hooks";
 import { imageHost, readRegistryAuths, type RegistryReadResult } from "../lib/registries";
 import type { ClusterRow, ImageRow } from "../lib/types";
@@ -306,6 +306,10 @@ export function Kubernetes() {
   const [cCps, setCCps] = useState(1);
   const [cApiPort, setCApiPort] = useState("");
   const [cCni, setCCni] = useState("default");
+  // Versão do Kubernetes → imagem de nó `kindest/node:<tag>` (§6). "" = default
+  // do engine (sem --image); "custom" revela o campo de imagem/tag livre.
+  const [cK8sVersion, setCK8sVersion] = useState("");
+  const [cCustomImage, setCCustomImage] = useState("");
   const [lines, setLines] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [createDone, setCreateDone] = useState(false);
@@ -320,6 +324,7 @@ export function Kubernetes() {
     controlPlanes: cCps,
     apiPort: cApiPort || undefined,
     cni: cCni,
+    image: k8sVersionImage(cK8sVersion, cCustomImage),
   });
   const startCreate = () => {
     stopRef.current?.();
@@ -408,6 +413,25 @@ export function Kubernetes() {
           </div>
           <label className="lbl">Porta da API (opcional)</label>
           <input className="input mono" placeholder="6443 (livre, se vazio)" value={cApiPort} onChange={(e) => setCApiPort(e.target.value)} aria-label="Porta do apiserver" />
+          <label className="lbl">Versão do Kubernetes</label>
+          <Select
+            value={cK8sVersion}
+            onChange={setCK8sVersion}
+            options={K8S_VERSIONS.map((v) => ({ value: v.value, label: v.label }))}
+            ariaLabel="Versão do Kubernetes"
+          />
+          {cK8sVersion === K8S_VERSION_CUSTOM && (
+            <input
+              className="input mono"
+              placeholder="kindest/node:v1.33.4 (ou só v1.33.4)"
+              value={cCustomImage}
+              onChange={(e) => setCCustomImage(e.target.value)}
+              aria-label="Imagem de nó personalizada"
+            />
+          )}
+          <p className="muted" style={{ margin: 0, fontSize: 11 }}>
+            A versão escolhe a imagem de nó <span className="mono">kindest/node:&lt;tag&gt;</span>. Padrão = a imagem fixada por digest do engine (sem <span className="mono">--image</span>). Mínima suportada: <span className="mono">v1.34.x</span>.
+          </p>
           <label className="lbl">CNI</label>
           <Select value={cCni} onChange={setCCni} options={CNI_OPTIONS} ariaLabel="CNI" />
           <p className="muted" style={{ margin: 0, fontSize: 11 }}>
