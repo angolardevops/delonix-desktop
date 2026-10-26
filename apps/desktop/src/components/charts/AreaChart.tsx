@@ -4,6 +4,7 @@
 // Acessível (role=img + aria-label com o último valor de cada série) e legenda
 // quando há 2+ séries. É a versão "grande" do Sparkline (mesma linguagem).
 import { useRef, useState } from "react";
+import { smoothPath } from "./geometry";
 
 export interface AreaSeries {
   key: string;
@@ -70,12 +71,20 @@ export function AreaChart({ series, width = 240, height = 64, max, format, ariaL
         </defs>
         {series.map((s, i) => {
           if (s.values.length < 2) return null;
-          const line = s.values.map((v, j) => `${j === 0 ? "M" : "L"}${x(j).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-          const area = `${line} L${x(s.values.length - 1).toFixed(1)},${height - PAD} L0,${height - PAD} Z`;
+          // Linha SUAVE (Catmull-Rom → Bézier): tendência contínua, não zig-zag
+          // reto entre amostras. O preenchimento fecha a mesma curva ao eixo.
+          const pts = s.values.map((v, j) => ({ x: x(j), y: y(v) }));
+          const line = smoothPath(pts, 0.5);
+          const lastX = x(s.values.length - 1).toFixed(1);
+          const area = `${line} L${lastX},${height - PAD} L0,${height - PAD} Z`;
+          const lastY = y(s.values[s.values.length - 1]);
           return (
             <g key={s.key}>
               <path d={area} fill={`url(#dlx-area-${i})`} />
               <path d={line} fill="none" stroke={s.color} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              {/* Cabeça viva da série: ponto no último valor + halo pulsante. */}
+              <circle cx={lastX} cy={lastY.toFixed(1)} r={3.4} fill={s.color} opacity={0.22} className="dlx-live-pulse" vectorEffect="non-scaling-stroke" />
+              <circle cx={lastX} cy={lastY.toFixed(1)} r={1.9} fill={s.color} stroke="var(--panel)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
             </g>
           );
         })}

@@ -38,6 +38,33 @@ export function fraction(value: number | null | undefined, max: number | null | 
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
+// --- Suavização de linha (tendências) ---------------------------------------
+// Caminho SVG SUAVE por uma série de pontos, via spline Catmull-Rom convertida
+// em Béziers cúbicas. Dá à linha de tendência um aspeto contínuo e orgânico (de
+// gráfico real) em vez de segmentos retos a ligar amostras — era a queixa de
+// "parece linear/mock". `tension` 0..1 controla o quão solta é a curva (0.5 ≈
+// suave sem exagero). Com < 2 pontos devolve "" (quem chama trata o caso vazio);
+// com exatamente 2 devolve uma reta. É pura e determinística (testável em Node).
+export function smoothPath(pts: Point[], tension = 0.5): string {
+  if (pts.length < 2) return "";
+  const f = (n: number) => n.toFixed(2);
+  if (pts.length === 2) return `M${f(pts[0].x)},${f(pts[0].y)} L${f(pts[1].x)},${f(pts[1].y)}`;
+  const k = tension;
+  let d = `M${f(pts[0].x)},${f(pts[0].y)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + ((p2.x - p0.x) / 6) * k;
+    const c1y = p1.y + ((p2.y - p0.y) / 6) * k;
+    const c2x = p2.x - ((p3.x - p1.x) / 6) * k;
+    const c2y = p2.y - ((p3.y - p1.y) / 6) * k;
+    d += ` C${f(c1x)},${f(c1y)} ${f(c2x)},${f(c2y)} ${f(p2.x)},${f(p2.y)}`;
+  }
+  return d;
+}
+
 // --- Zonas de cor (verde/amarelo/vermelho) por limiar -----------------------
 // Cada zona cobre de `from` (exclusivo do anterior) até `upTo` (fração 0..1).
 export interface Zone {

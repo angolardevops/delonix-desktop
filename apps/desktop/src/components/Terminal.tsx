@@ -58,11 +58,48 @@ export function Terminal({ name, mode = "container-exec" }: { name: string; mode
     if (!el) return;
 
     const term = new XTerm({
-      fontFamily: "var(--mono, 'JetBrains Mono', monospace)",
+      // xterm não lê var(--…) do CSS — valores concretos. Tipografia de código
+      // (ligaduras desligadas para alinhamento previsível em TUIs) e respiração
+      // vertical/horizontal que dão um ar profissional, não apertado.
+      fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
       fontSize: 13,
+      lineHeight: 1.35,
+      letterSpacing: 0.3,
+      fontWeight: "400",
+      fontWeightBold: "600",
       cursorBlink: true,
+      cursorStyle: "bar",
+      cursorWidth: 2,
       convertEol: false,
-      theme: { background: "#0b0e14", foreground: "#d4d7dd" },
+      scrollback: 10000,
+      drawBoldTextInBrightColors: true,
+      // Paleta "Delonix dark" — ANSI 16 cores calibrada (contraste legível sobre
+      // o fundo quase-preto), coerente com os tokens do tema. Faz o output
+      // colorido (ls, git, kubectl, logs) sair elegante e profissional.
+      theme: {
+        background: "#0a0c10",
+        foreground: "#d6dae0",
+        cursor: "#6aa8ff",
+        cursorAccent: "#0a0c10",
+        selectionBackground: "#2a3d5e",
+        selectionForeground: "#eef2f7",
+        black: "#2a2f37",
+        red: "#e5555a",
+        green: "#3fbf7f",
+        yellow: "#e3a43b",
+        blue: "#6aa8ff",
+        magenta: "#c08cff",
+        cyan: "#4cc9d4",
+        white: "#c9ced6",
+        brightBlack: "#5a636f",
+        brightRed: "#ff7b7f",
+        brightGreen: "#5fe0a0",
+        brightYellow: "#f5b94a",
+        brightBlue: "#8ab8ff",
+        brightMagenta: "#d7b0ff",
+        brightCyan: "#7fe0e8",
+        brightWhite: "#f1f3f5",
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -118,5 +155,5 @@ export function Terminal({ name, mode = "container-exec" }: { name: string; mode
     };
   }, [client, name, mode]);
 
-  return <div ref={host} style={{ flex: 1, minHeight: 360, padding: 8, background: "#0b0e14" }} />;
+  return <div ref={host} style={{ flex: 1, minHeight: 360, padding: "10px 12px", background: "#0a0c10" }} />;
 }

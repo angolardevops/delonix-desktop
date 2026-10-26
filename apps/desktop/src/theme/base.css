@@ -99,9 +99,13 @@ button { font: inherit; }
 table { border-collapse: collapse; width: 100%; }
 th { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; position: sticky; top: 0; }
 td { padding: 7px 12px; border-bottom: 1px solid var(--line2); color: var(--tx-cell); white-space: nowrap; }
+/* Números alinham-se opticamente (dígitos de largura fixa) — listas e métricas
+   ficam a "ler" em coluna como num DataTable. */
+td.mono, td[style*="right"] { font-variant-numeric: tabular-nums; }
 /* Primeira/última coluna alinham-se à caixa de conteúdo (gutter já no .page). */
 th:first-child, td:first-child { padding-left: 0; }
 th:last-child, td:last-child { padding-right: 0; }
+tbody tr { transition: background .1s ease; }
 tr:hover td { background: var(--side); }
 tr.sel td { background: var(--sel); }
 .sub { display: block; font: var(--fs-xs) var(--font-mono); color: var(--mut); margin-top: 1px; }
@@ -116,11 +120,19 @@ tr.sel td { background: var(--sel); }
 .dt-search { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .dt-search .input { width: 280px; max-width: 42vw; }
 .dt-table { table-layout: auto; }
+/* Look DataTable: cabeçalho fixo com sombra de recorte ao rolar, listras zebra
+   subtis e ordenação com destaque. */
+.dt-table thead th { box-shadow: inset 0 -1px 0 var(--line); z-index: 1; }
+.dt-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--side) 32%, transparent); }
+.dt-table tbody tr:hover td { background: var(--side); }
+.dt-table tbody tr.sel td { background: var(--sel); }
 /* Célula truncável: elipse em vez de forçar largura (nowrap já é o default das td). */
 .dt-trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-th.dt-sort { cursor: pointer; }
+th.dt-sort { cursor: pointer; user-select: none; }
 th.dt-sort:hover { color: var(--tx-strong); }
-.dt-sort-ind { margin-left: 4px; font-size: 9px; opacity: .65; }
+th.dt-sort[aria-sort="ascending"], th.dt-sort[aria-sort="descending"] { color: var(--tx); }
+th.dt-sort[aria-sort="ascending"] .dt-sort-ind, th.dt-sort[aria-sort="descending"] .dt-sort-ind { opacity: 1; color: var(--acc); }
+.dt-sort-ind { margin-left: 4px; font-size: 9px; opacity: .5; }
 th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
 .dt-act-group { display: inline-flex; gap: 2px; align-items: center; justify-content: flex-end; }
 /* Ícones de ação mais compactos dentro da tabela. */
@@ -134,6 +146,8 @@ th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
 .sel-btn.mono { font-family: var(--font-mono); }
 .sel-btn.sm { height: 24px; font-size: var(--fs-sm); }
 .sel-btn:hover { background: var(--btn-hover); color: var(--tx-strong); }
+.sel-btn:focus-visible { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 35%, transparent); }
+.sel-btn[aria-expanded="true"] { border-color: var(--acc); }
 .sel-btn:disabled { opacity: .45; cursor: not-allowed; }
 .sel-btn .sel-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .sel-btn .ic { margin-left: auto; flex: none; opacity: .7; }
@@ -141,9 +155,11 @@ th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
 .sel-search { padding: 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .sel-search .input { width: 100%; }
 .sel-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 240px; }
-.sel-opt { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px; color: var(--tx); cursor: pointer; white-space: nowrap; }
+.sel-opt { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px 0 24px; color: var(--tx); cursor: pointer; white-space: nowrap; }
 .sel-opt.active, .sel-opt:hover { background: var(--bg); color: var(--tx-strong); }
 .sel-opt.on { background: var(--sel); color: var(--sel-tx); }
+/* Marca de visto (✓) à esquerda da opção selecionada — pista select2. */
+.sel-opt.on::before { content: "✓"; position: absolute; left: 8px; font-size: 11px; color: var(--acc); }
 .sel-opt.dis { opacity: .45; cursor: not-allowed; }
 .sel-empty { padding: 10px; color: var(--mut); font-size: var(--fs-sm); }
 
@@ -236,10 +252,32 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 @keyframes studio-indet { 0% { left: -40%; } 100% { left: 100%; } }
 @keyframes studio-row-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
+/* KPIs ao vivo — ponto pulsante (sinal de "real-time") e halo na cabeça das
+   séries de tendência. Subtis e só decorativos (aria-hidden). */
+.kpi-card { transition: border-color .12s ease, background .12s ease, transform .12s ease; }
+.kpi-card:hover { border-color: var(--acc); }
+button.kpi-card:hover { transform: translateY(-1px); }
+.kpi-card:focus-visible { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 35%, transparent); }
+.dlx-live-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; box-shadow: 0 0 0 0 currentColor; animation: dlx-live 1.8s ease-out infinite; }
+.dlx-live-pulse { transform-box: fill-box; transform-origin: center; animation: dlx-halo 1.8s ease-out infinite; }
+@keyframes dlx-live {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes dlx-halo {
+  0% { opacity: .35; transform: scale(.7); }
+  70% { opacity: 0; transform: scale(1.8); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .studio-prog-fill { transition: none !important; }
   .studio-prog-row { animation: none; }
   .studio-spin { animation: none; }
   .studio-check-path { animation: none; stroke-dashoffset: 0; }
   .studio-indet > i { animation: none; left: 0; width: 100%; opacity: .6; }
+  .dlx-live-dot, .dlx-live-pulse { animation: none; }
+  .dlx-live-pulse { opacity: 0; }
+  button.kpi-card:hover { transform: none; }
 }

@@ -27,6 +27,41 @@ export function usePrefersReducedMotion(): boolean {
 // consumers, mas genérico e para séries ao nível do Overview. Se `compute`
 // devolver null/undefined a amostra é ignorada (não suja a série com zeros
 // enquanto os dados ainda não chegaram).
+// Converte um contador CUMULATIVO (ex.: bytes de rede rx+tx do engine) numa
+// TAXA por segundo, derivando entre amostras consecutivas do poll. Guarda a
+// última leitura (valor + instante real) num ref; a PRIMEIRA amostra não tem
+// base para derivar (devolve null, não zero fabricado). Um reinício do contador
+// (valor desce) devolve 0, nunca negativo. `total` null (métrica não medida em
+// rootless) → null, sem inventar. Vive num ref: não dispara re-render — o
+// re-render vem do poll que muda `dep`.
+export function useRate(dep: unknown, total: number | null | undefined): number | null {
+  const ref = useRef<{ last: unknown; prevV: number; prevT: number; rate: number | null }>({
+    last: undefined,
+    prevV: 0,
+    prevT: 0,
+    rate: null,
+  });
+  const r = ref.current;
+  if (dep !== r.last) {
+    r.last = dep;
+    if (total == null) {
+      r.rate = null;
+    } else if (r.prevT === 0) {
+      r.rate = null; // primeira amostra: estabelece a base
+      r.prevV = total;
+      r.prevT = Date.now();
+    } else {
+      const now = Date.now();
+      const dt = (now - r.prevT) / 1000;
+      const dv = total - r.prevV;
+      if (dt > 0) r.rate = Math.max(0, dv / dt);
+      r.prevV = total;
+      r.prevT = now;
+    }
+  }
+  return r.rate;
+}
+
 export function useTrail<T>(dep: unknown, compute: () => T | null | undefined, cap = 40): T[] {
   const ref = useRef<{ last: unknown; buf: T[]; init: boolean }>({ last: undefined, buf: [], init: false });
   if (!ref.current.init || dep !== ref.current.last) {

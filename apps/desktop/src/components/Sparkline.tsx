@@ -2,6 +2,8 @@
 // métricas sem dependências de gráficos. SVG inline, escalado ao min/max da
 // própria série; usa tokens do tema (correto em claro E escuro). Com menos de 2
 // pontos não há tendência: mostra um travessão discreto.
+import { smoothPath } from "./charts/geometry";
+
 interface SparklineProps {
   values: number[];
   width?: number;
@@ -21,7 +23,8 @@ export function Sparkline({ values, width = 72, height = 20, color = "var(--char
   const stepX = width / (pts.length - 1);
   // y invertido (SVG cresce para baixo); 1px de margem para o traço não cortar.
   const y = (v: number) => height - 1 - ((v - min) / span) * (height - 2);
-  const line = pts.map((v, i) => `${i === 0 ? "M" : "L"}${(i * stepX).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  // Linha suave (mesma linguagem do AreaChart): tendência contínua, não retas.
+  const line = smoothPath(pts.map((v, i) => ({ x: i * stepX, y: y(v) })), 0.5);
   const area = `${line} L${width.toFixed(1)},${height} L0,${height} Z`;
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel} style={{ display: "block", overflow: "visible" }}>

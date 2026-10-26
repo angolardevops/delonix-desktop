@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { arcPath, donutArcs, fraction, polar, zoneColor, ZONES_PSI, type DonutInput } from "./geometry";
+import { arcPath, donutArcs, fraction, polar, smoothPath, zoneColor, ZONES_PSI, type DonutInput } from "./geometry";
+
+describe("smoothPath", () => {
+  it("< 2 pontos → caminho vazio", () => {
+    expect(smoothPath([])).toBe("");
+    expect(smoothPath([{ x: 1, y: 2 }])).toBe("");
+  });
+  it("2 pontos → reta (M…L…)", () => {
+    const d = smoothPath([{ x: 0, y: 0 }, { x: 10, y: 5 }]);
+    expect(d).toBe("M0.00,0.00 L10.00,5.00");
+  });
+  it("3+ pontos → começa em M e usa Béziers cúbicas (C), uma por segmento", () => {
+    const pts = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 0 }, { x: 30, y: 10 }];
+    const d = smoothPath(pts);
+    expect(d.startsWith("M0.00,0.00")).toBe(true);
+    expect((d.match(/C/g) ?? []).length).toBe(pts.length - 1);
+  });
+  it("passa por TODOS os pontos de dados (a curva interpola, não aproxima)", () => {
+    const pts = [{ x: 0, y: 3 }, { x: 5, y: 7 }, { x: 10, y: 2 }];
+    const d = smoothPath(pts);
+    // cada ponto é o destino de um comando (reta inicial M + fim de cada C).
+    expect(d).toContain("5.00,7.00");
+    expect(d).toContain("10.00,2.00");
+  });
+});
 
 describe("polar", () => {
   it("0° fica no topo (12 h)", () => {

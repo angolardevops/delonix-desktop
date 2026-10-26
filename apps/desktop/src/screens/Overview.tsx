@@ -4,7 +4,7 @@ import { FleetMetrics } from "../components/FleetMetrics";
 import { HealthPanel } from "../components/HealthPanel";
 import { TopConsumers } from "../components/TopConsumers";
 import { Icon } from "../components/Icon";
-import { AreaChart, Card, CardGrid, useTrail, type AreaSeries } from "../components/charts";
+import { AreaChart, Card, CardGrid, KpiCard, KpiGrid, useRate, useTrail, type AreaSeries } from "../components/charts";
 import { bucketOf } from "../lib/capability";
 import { cmd } from "../lib/cli";
 import { fmtBytes, isOom, runState, useResource } from "../lib/hooks";
@@ -43,6 +43,21 @@ export function Overview() {
   // poll; só quando há dados (useTrail ignora nulos). Área num só eixo y.
   const memTrail = useTrail(metrics.data, () => (m ? m.memory_bytes_used : null), 48);
   const psiAvg = (name: string) => res?.pressure.find((p) => p.resource === name)?.avg10 ?? null;
+
+  // --- KPIs de topo: séries REAIS (uma amostra por poll), contam uma história
+  // em real-time (valor + delta sobre a janela + sparkline). Só aparecem os que
+  // têm dados — nada é fabricado quando o engine devolve null. ---------------
+  const runningCount = m ? m.containers_running + m.vms_running : null;
+  const runTrail = useTrail(metrics.data, () => runningCount, 48);
+  const memPct = m && m.memory_bytes_limit > 0 ? (m.memory_bytes_used / m.memory_bytes_limit) * 100 : null;
+  const memPctTrail = useTrail(metrics.data, () => memPct, 48);
+  // Taxa de rede = derivada do contador cumulativo rx+tx (B/s). null em rootless
+  // sem medição → o KPI nem aparece.
+  const netTotal = m && m.network_rx_bytes != null && m.network_tx_bytes != null ? m.network_rx_bytes + m.network_tx_bytes : null;
+  const netRate = useRate(metrics.data, netTotal);
+  const netTrail = useTrail(metrics.data, () => netRate, 48);
+  const cpuPsiNow = psiAvg("cpu");
+  const cpuTrail = useTrail(resources.data, () => cpuPsiNow, 48);
   const psiTrail = useTrail(
     resources.data,
     () => (res && res.pressure.length > 0 ? { cpu: psiAvg("cpu") ?? 0, memory: psiAvg("memory") ?? 0, io: psiAvg("io") ?? 0 } : null),
@@ -86,6 +101,57 @@ export function Overview() {
         onAdvice={onAdvice}
         onCleanup={() => go({ name: "images" })}
       />
+
+      {/* KPIs ao vivo — a "história" do nó em real-time (valor + variação +
+          sparkline). Só os que têm série é que aparecem. */}
+      {(runningCount != null || memPct != null || netRate != null || cpuPsiNow != null) && (
+        <KpiGrid>
+          {runningCount != null && (
+            <KpiCard
+              label="Workloads a correr"
+              value={runningCount}
+              history={runTrail}
+              color="var(--chart-1)"
+              live
+              sub={m ? `${m.containers_total + m.vms_total} no total` : undefined}
+              onClick={() => go({ name: "workloads" })}
+            />
+          )}
+          {memPct != null && (
+            <KpiCard
+              label="Memória do engine"
+              value={`${Math.round(memPct)}%`}
+              history={memPctTrail}
+              color="var(--chart-2)"
+              live
+              format={(n) => `${n > 0 ? "+" : ""}${n.toFixed(0)} pp`}
+              sub={m ? `${fmtBytes(m.memory_bytes_used)} de ${fmtBytes(m.memory_bytes_limit)}` : undefined}
+            />
+          )}
+          {netRate != null && (
+            <KpiCard
+              label="Rede (rx+tx)"
+              value={`${fmtBytes(netRate)}/s`}
+              history={netTrail}
+              color="var(--bar-ok)"
+              live
+              format={(n) => `${fmtBytes(n)}/s`}
+              sub="taxa derivada do cumulativo"
+            />
+          )}
+          {cpuPsiNow != null && (
+            <KpiCard
+              label="Pressão CPU (PSI 10 s)"
+              value={`${cpuPsiNow.toFixed(0)}%`}
+              history={cpuTrail}
+              color="var(--chart-1)"
+              live
+              format={(n) => `${n > 0 ? "+" : ""}${n.toFixed(1)} pp`}
+              sub="estagnação de CPU, média 10 s"
+            />
+          )}
+        </KpiGrid>
+      )}
 
       <FleetMetrics metrics={m ?? null} host={res?.host ?? null} pressure={res?.pressure ?? []} go={go} />
 
