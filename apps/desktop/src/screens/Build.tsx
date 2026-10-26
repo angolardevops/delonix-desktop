@@ -7,14 +7,16 @@ import { Drawer } from "../components/Drawer";
 import { ImageArtifacts } from "../components/ImageArtifacts";
 import { cmd, type Argv } from "../lib/cli";
 import { nativeDialogsAvailable, pickDirectory, pickFile } from "../lib/native";
-import { fmtClock, fmtDuration, type BuildRecord, type BuildState } from "../lib/build";
+import { fmtClock, fmtDuration, loadBuildHistory, saveBuildHistory, type BuildRecord, type BuildState } from "../lib/build";
 
 // Estúdio de build (§ build). O form monta um `delonix build` completo (tag,
 // contexto/Dockerfile por diálogo nativo, build-args em linhas, e as opções
 // --no-cache/--target/--platform/--secret); o build corre por STREAM (logs ao
-// vivo, stream.rs). Ao terminar, a app verifica se a imagem resultante existe
-// (`image ls`) para distinguir CONCLUÍDO de FALHOU e abrir os ARTEFACTOS
-// (scan/SBOM/assinar/push/export). O histórico guarda cada build DESTA SESSÃO.
+// vivo, stream.rs). O sucesso é decidido pelo CÓDIGO DE SAÍDA real do processo
+// (`dlx-stream-exit`), não por adivinhar pela existência da imagem. Ao terminar
+// bem, abrem-se os ARTEFACTOS (scan/SBOM/assinar/push/export). O histórico (a
+// LISTA: tag/estado/duração/hora/argv) persiste em localStorage e é reposto no
+// arranque — os LOGS não se persistem (só a sessão viva os tem).
 
 interface Kv { k: string; v: string }
 
@@ -39,7 +41,7 @@ export function Build() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState<null | "ok" | "fail">(null);
   const [resultRef, setResultRef] = useState<string | null>(null);
-  const [history, setHistory] = useState<BuildRecord[]>([]);
+  const [history, setHistory] = useState<BuildRecord[]>(() => loadBuildHistory());
   const [artifactsOpen, setArtifactsOpen] = useState(false);
 
   const end = useRef<HTMLDivElement>(null);
@@ -50,6 +52,8 @@ export function Build() {
 
   useEffect(() => () => stop.current?.(), []);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [lines]);
+  // Persiste a LISTA de builds (sem os logs) a cada mudança — reposta no arranque.
+  useEffect(() => { saveBuildHistory(history); }, [history]);
 
   // Build-args não-vazios → `KEY=VALUE`; secrets → `id=<id>,src=<src>`.
   const buildArgs = kvs.filter((x) => x.k.trim()).map((x) => `${x.k.trim()}=${x.v}`);
@@ -87,32 +91,23 @@ export function Build() {
     setHistory((h) => [rec, ...h].slice(0, 50));
 
     const onLine = (l: string) => { buf.current = [...buf.current.slice(-4999), l]; setLines((p) => [...p.slice(-4999), l]); };
-    // Sucesso decidido pelo CÓDIGO DE SAÍDA real do processo (stream.rs emite
-    // `dlx-stream-exit`), não por adivinhar pela existência da imagem — que era
-    // frágil (parser/timing). Quando ok, resolve-se a ref exata por `image ls`
-    // só para mostrar a forma legível; a falha NÃO depende disso.
-    const finalize = async (code: number | null) => {
+    // Sucesso decidido APENAS pelo CÓDIGO DE SAÍDA real do processo (stream.rs
+    // emite `dlx-stream-exit`). NÃO se procura a imagem por `image ls` — era
+    // frágil (parser/timing) e redundante: o exit code já é a verdade. A ref da
+    // imagem resultante é a própria tag que o utilizador pediu (`-t <tag>`).
+    const finalize = (code: number | null) => {
       setRunning(false);
       const startedAt = Number(id.slice("build-".length));
       const durationMs = Date.now() - startedAt;
       const ok = code === 0;
-      let ref: string | null = ok ? buildTag : null;
-      if (ok) {
-        try {
-          const imgs = await client.images();
-          const cand = [buildTag, `${buildTag}:latest`];
-          const found = imgs.find((i) => cand.includes(i.ref) || i.tags.some((t) => cand.includes(t)) || i.ref.endsWith(`/${buildTag}`));
-          if (found) ref = found.ref;
-        } catch { /* sem engine: fica com a tag tal-qual (o exit code já confirmou o sucesso) */ }
-      }
       setDone(ok ? "ok" : "fail");
-      setResultRef(ref);
+      setResultRef(ok ? buildTag : null);
       setHistory((h) => h.map((r) => (r.id === id ? { ...r, state: ok ? "ok" : "fail", durationMs, lines: buf.current } : r)));
       if (ok) toast(`Build de ${buildTag} concluído`);
     };
 
     void client
-      .stream("build", buildArgv, onLine, (code) => { void finalize(code); })
+      .stream("build", buildArgv, onLine, (code) => finalize(code))
       .then((s) => (stop.current = s))
       .catch((e) => {
         onLine(String(e));
@@ -260,9 +255,12 @@ export function Build() {
           </section>
 
           <section className="section" style={{ flex: 1, minHeight: 0 }}>
-            <h2>Histórico desta sessão</h2>
+            <h2>Histórico de builds</h2>
+            <p className="muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
+              A lista persiste entre sessões (tag, estado, duração, hora, comando). «Re-executar» corre outra vez; «Ver logs» só mostra os logs de builds <strong>desta</strong> sessão — os logs não se guardam.
+            </p>
             {history.length === 0 ? (
-              <p className="muted" style={{ fontSize: 12, margin: 0 }}>Ainda não há builds nesta sessão.</p>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>Ainda não há builds.</p>
             ) : (
               <DataTable<BuildRecord>
                 columns={histCols}

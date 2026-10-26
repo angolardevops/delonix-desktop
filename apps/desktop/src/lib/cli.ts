@@ -313,7 +313,11 @@ export const cmd = {
   // limpeza de ecrã ANSI (não é um fluxo por linha) — a UI corre o one-shot.
   netFlow: (iface?: string): Argv => ["net", "flow", ...(iface ? ["--iface", iface] : [])],
 
-  run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string }): Argv => [
+  // `--log-cri` grava o log do container no FORMATO CRI (carimbo + stream por
+  // linha, como o kubelet/`crictl logs`). É o que torna `container logs
+  // --timestamps` possível — o formato simples (default) são bytes crus, sem
+  // carimbo. Confirmado por `container run --help` no 5.1.1 (`--log-cri`).
+  run: (o: { name: string; image: string; ports: string[]; env: string[]; volumes: string[]; memory?: string; cpus?: string; restart?: string; logCri?: boolean }): Argv => [
     "container", "run", "-d", "--name", o.name,
     ...o.ports.flatMap((p) => ["-p", p]),
     ...o.env.flatMap((e) => ["-e", e]),
@@ -321,6 +325,7 @@ export const cmd = {
     ...(o.memory ? ["--memory", o.memory] : []),
     ...(o.cpus ? ["--cpus", o.cpus] : []),
     ...(o.restart ? ["--restart", o.restart] : []),
+    ...(o.logCri ? ["--log-cri"] : []),
     o.image,
   ],
 };

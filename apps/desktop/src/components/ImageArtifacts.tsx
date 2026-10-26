@@ -3,7 +3,7 @@ import { useApp } from "../app/context";
 import { cmd, type Argv } from "../lib/cli";
 import { nativeDialogsAvailable, pickDirectory, pickFile, pickSavePath } from "../lib/native";
 import { saveTextViaDialog } from "../lib/fsx";
-import { parseHistory, parseScanSummary, scanTotal, type ScanSummary } from "../lib/build";
+import { parseHistory, parseScanSummary, scanTotal, SCAN_UPDATE_HINT, type ScanSummary } from "../lib/build";
 import type { LayerRow } from "../lib/build";
 import { Icon } from "./Icon";
 import { Chip, CliHint } from "./ui";
@@ -190,14 +190,27 @@ export function ImageArtifacts({ image }: { image: string }) {
             </div>
           )}
           {!out.loading && !out.error && out.kind === "scan" && out.scan && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "10px 0" }}>
-              <Chip tone="bad">Críticas {out.scan.critical}</Chip>
-              <Chip tone="bad" dot>Altas {out.scan.high}</Chip>
-              <Chip tone="warn">Médias {out.scan.medium}</Chip>
-              <Chip tone="neu">Baixas {out.scan.low}</Chip>
-              {scanTotal(out.scan) === 0 && <Chip tone="ok" dot>Sem vulnerabilidades conhecidas</Chip>}
-              {out.scan.packages != null && <Chip tone="inf">{out.scan.packages} pacotes</Chip>}
-            </div>
+            <>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "10px 0" }}>
+                <Chip tone="bad">Críticas {out.scan.critical}</Chip>
+                <Chip tone="bad" dot>Altas {out.scan.high}</Chip>
+                <Chip tone="warn">Médias {out.scan.medium}</Chip>
+                <Chip tone="neu">Baixas {out.scan.low}</Chip>
+                {/* O "sem vulnerabilidades" só é tranquilizador com um feed REAL.
+                    Com a base placeholder, não se mostra o selo verde. */}
+                {scanTotal(out.scan) === 0 && !out.scan.placeholder && <Chip tone="ok" dot>Sem vulnerabilidades conhecidas</Chip>}
+                {out.scan.packages != null && <Chip tone="inf">{out.scan.packages} pacotes</Chip>}
+              </div>
+              {out.scan.placeholder && (
+                <div className="note" style={{ background: "var(--warnb, rgba(234,179,8,.1))", borderColor: "var(--warn-line, var(--line))", color: "var(--tx)", marginTop: 4, padding: 10, borderRadius: 6, border: "1px solid var(--line)" }} role="alert">
+                  <strong style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Base de CVEs é um placeholder embebido — não é um feed real</strong>
+                  <span style={{ fontSize: 12 }}>
+                    O engine traz uma base de advisories de exemplo, não um feed de vulnerabilidades a sério. Um <em>«0 vulnerabilidades»</em> aqui <strong>não é de confiar</strong>. Para usar um feed real, sincronize-o primeiro:
+                  </span>
+                  <pre className="mono" style={{ margin: "6px 0 0", padding: "6px 8px", background: "var(--bg2, rgba(0,0,0,.04))", borderRadius: 4, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{SCAN_UPDATE_HINT}</pre>
+                </div>
+              )}
+            </>
           )}
           {!out.loading && !out.error && out.kind === "history" && out.layers && (
             <div style={{ marginTop: 8 }}>

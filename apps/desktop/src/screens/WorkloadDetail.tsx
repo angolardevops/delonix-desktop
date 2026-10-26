@@ -5,6 +5,7 @@ import { LazyTerminal as Terminal } from "../components/LazyTerminal";
 import { CliHint, Chip, ErrorNote, Planned, StateChip, Tabs, TypeChip } from "../components/ui";
 import type { ExecMode } from "../lib/client";
 import { cmd, show } from "../lib/cli";
+import { splitTimestamp } from "../lib/logs";
 import { runState, useDebounced, useResource } from "../lib/hooks";
 import { fmtBinBytes, fmtRate, latestRates, sampleFromRow, type Sample } from "../lib/metrics";
 import type { DashRow, WorkloadRow } from "../lib/types";
@@ -19,6 +20,9 @@ export function WorkloadDetail({ id }: { id: string }) {
   const [lines, setLines] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
   const [follow, setFollow] = useState(true);
+  // Timestamps por linha (só containers, e só se o container foi corrido com
+  // --log-cri — senão o engine recusa a flag; ver Novo workload).
+  const [timestamps, setTimestamps] = useState(false);
   const [vmErr, setVmErr] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -37,11 +41,15 @@ export function WorkloadDetail({ id }: { id: string }) {
     // 1.º membro). VMs usam a consola série (`vm console`), fora deste fluxo.
     if (tab !== "logs" || !w || (w.type !== "container" && w.type !== "pod")) return;
     setLines([]);
-    const argv = w.type === "pod" ? cmd.podLogsFollow(id) : cmd.logsFollow(id);
+    // Container com toggle de timestamps (`container logs -f [--timestamps]`);
+    // pod sem timestamps (`pod logs -f`, 1.º membro).
+    const argv = w.type === "pod"
+      ? cmd.podLogsFollow(id)
+      : cmd.containerLogs(id, { follow: true, timestamps });
     let stop: (() => void) | undefined;
     void client.stream(`detail-${id}`, argv, (l) => setLines((p) => [...p.slice(-1999), l])).then((s) => (stop = s));
     return () => stop?.();
-  }, [client, id, tab, w?.type]);
+  }, [client, id, tab, w?.type, timestamps]);
 
   useEffect(() => {
     if (follow) end.current?.scrollIntoView({ block: "end" });
@@ -100,10 +108,27 @@ export function WorkloadDetail({ id }: { id: string }) {
               <div className="toolbar" style={{ background: "var(--panel)" }}>
                 <input className="input mono" style={{ flex: "1 1 240px" }} placeholder="Pesquisar nos logs" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Pesquisar nos logs" />
                 <span className="muted" style={{ fontSize: 12 }}>{shown.length} linhas</span>
+                {w.type === "container" && (
+                  <button className="btn sm" type="button" style={{ color: timestamps ? "var(--inf)" : undefined }} onClick={() => setTimestamps((t) => !t)} title="Requer o container corrido com --log-cri (ligado por omissão em Novo workload). Sem isso, o engine recusa --timestamps.">
+                    Timestamps
+                  </button>
+                )}
                 <button className="btn sm" type="button" style={{ color: follow ? "var(--ok)" : undefined }} onClick={() => setFollow(!follow)}><span className="dot" />Seguir</button>
               </div>
               <div className="log" style={{ flex: 1, overflow: "auto", border: 0, minHeight: 360 }}>
-                {w.type === "vm" ? "Uma VM não expõe logs de guest ao engine — só a consola série. Abra o separador Terminal para a consola série real (apanha os logs de arranque e o login)." : shown.join("\n")}
+                {w.type === "vm"
+                  ? "Uma VM não expõe logs de guest ao engine — só a consola série. Abra o separador Terminal para a consola série real (apanha os logs de arranque e o login)."
+                  : timestamps && w.type === "container"
+                    ? shown.map((l, i) => {
+                        const { ts, text } = splitTimestamp(l);
+                        return (
+                          <div key={i} style={{ whiteSpace: "pre-wrap" }}>
+                            {ts && <span style={{ color: "var(--inf)", marginRight: 8 }}>{ts}</span>}
+                            {text}
+                          </div>
+                        );
+                      })
+                    : shown.join("\n")}
                 <div ref={end} />
               </div>
             </>
@@ -117,7 +142,7 @@ export function WorkloadDetail({ id }: { id: string }) {
           <section className="section">
             <h2>Equivalente na CLI</h2>
             <CliHint argv={cmd.describe(w.name)} />
-            <CliHint argv={w.type === "pod" ? cmd.podLogsFollow(w.name) : cmd.logsFollow(w.name)} />
+            <CliHint argv={w.type === "pod" ? cmd.podLogsFollow(w.name) : cmd.containerLogs(w.name, { follow: true, timestamps: w.type === "container" && timestamps })} />
           </section>
           <section className="section">
             <h2>Estado</h2>

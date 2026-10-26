@@ -28,6 +28,10 @@ export function CreateWorkload() {
   const [memory, setMemory] = useState("1g");
   const [cpus, setCpus] = useState("2");
   const [restart, setRestart] = useState("unless-stopped");
+  // Logs no formato CRI (--log-cri): LIGADO por omissão, para que
+  // `container logs --timestamps` (carimbos por linha) funcione depois no
+  // explorador de Logs. Sem isto, o engine grava bytes crus sem carimbo.
+  const [logCri, setLogCri] = useState(true);
 
   // Campos do VmSpec (contrato node.v1). Memória/disco em GiB no formulário.
   const [vmName, setVmName] = useState("fedora-ci");
@@ -42,7 +46,7 @@ export function CreateWorkload() {
   const [err, setErr] = useState<string | null>(null);
 
   const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
-  const argv = cmd.run({ name, image, ports: split(ports), env: split(env), volumes: split(volumes), memory, cpus, restart });
+  const argv = cmd.run({ name, image, ports: split(ports), env: split(env), volumes: split(volumes), memory, cpus, restart, logCri });
   const podArgv = cmd.podCreate(podManifest.trim());
 
   // O estado de cada tipo vem do catálogo de capacidades, não de texto fixo.
@@ -119,17 +123,26 @@ export function CreateWorkload() {
               ))}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-              {[
-                ["Imagem", image, setImage], ["Nome", name, setName], ["Portas (host:contentor)", ports, setPorts],
-                ["Variáveis (CHAVE=valor)", env, setEnv], ["Volumes (nome:/caminho)", volumes, setVolumes],
-                ["Memória", memory, setMemory], ["CPUs", cpus, setCpus], ["Reinício", restart, setRestart],
-              ].map(([label, value, set]) => (
-                <label key={label as string} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
-                  {label as string}
-                  <input className="input mono" value={value as string} onChange={(e) => (set as (v: string) => void)(e.target.value)} />
-                </label>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                {[
+                  ["Imagem", image, setImage], ["Nome", name, setName], ["Portas (host:contentor)", ports, setPorts],
+                  ["Variáveis (CHAVE=valor)", env, setEnv], ["Volumes (nome:/caminho)", volumes, setVolumes],
+                  ["Memória", memory, setMemory], ["CPUs", cpus, setCpus], ["Reinício", restart, setRestart],
+                ].map(([label, value, set]) => (
+                  <label key={label as string} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>
+                    {label as string}
+                    <input className="input mono" value={value as string} onChange={(e) => (set as (v: string) => void)(e.target.value)} />
+                  </label>
+                ))}
+              </div>
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: "var(--tx)" }}>
+                <input type="checkbox" checked={logCri} onChange={(e) => setLogCri(e.target.checked)} style={{ marginTop: 2 }} />
+                <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  Logs compatíveis com Kubernetes (<span className="mono">--log-cri</span>)
+                  <span style={{ fontSize: 12, color: "var(--tx2)" }}>Grava o log no formato CRI (carimbo por linha). É o que permite ligar os timestamps no explorador de Logs. Sem isto, os logs são bytes crus sem carimbo.</span>
+                </span>
+              </label>
             </div>
           )}
           {kind === "vm" && err && <ErrorNote error={err} />}

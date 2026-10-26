@@ -23,3 +23,22 @@ describe("cmd — namespace e secret inspect --reveal", () => {
     expect(cmd.secretInspect("db-pass", true).slice(0, 2)).toEqual(["secret", "inspect"]);
   });
 });
+
+// `container run --log-cri` grava o log no formato CRI (ver cli.ts). É o que
+// torna `container logs --timestamps` possível; a UI liga-o por omissão.
+describe("cmd.run — --log-cri", () => {
+  const base = { name: "db", image: "postgres:16", ports: [], env: [], volumes: [] };
+
+  it("acrescenta --log-cri (antes da imagem) quando logCri=true", () => {
+    const argv = cmd.run({ ...base, logCri: true });
+    expect(argv).toContain("--log-cri");
+    // A flag vem ANTES do argumento posicional da imagem.
+    expect(argv.indexOf("--log-cri")).toBeLessThan(argv.indexOf("postgres:16"));
+    expect(argv[argv.length - 1]).toBe("postgres:16");
+  });
+
+  it("omite --log-cri quando logCri=false ou ausente", () => {
+    expect(cmd.run({ ...base, logCri: false })).not.toContain("--log-cri");
+    expect(cmd.run(base)).not.toContain("--log-cri");
+  });
+});
