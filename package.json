@@ -1,7 +1,7 @@
 {
   "name": "delonix-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Delonix Desktop — a aplicação desktop oficial do ecossistema Delonix / N'GolaCloud.",
   "workspaces": [
     "packages/*",
