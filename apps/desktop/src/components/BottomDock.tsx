@@ -50,8 +50,8 @@ export function BottomDock({ tab, open, setTab, setOpen }: { tab: DockTab; open:
 }
 
 function LogsPanel() {
-  const { client } = useApp();
-  const workloads = useResource("workloads", () => client.workloads(), 10000).data ?? [];
+  const { client, namespace } = useApp();
+  const workloads = useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? [];
   const containers = workloads.filter((w) => w.type === "container");
   const [name, setName] = useState<string>("");
   const [lines, setLines] = useState<string[]>([]);
@@ -99,9 +99,9 @@ function LogsPanel() {
 }
 
 function TerminalPanel() {
-  const { client } = useApp();
+  const { client, namespace } = useApp();
   // Só containers A CORRER: o exec interativo liga-se a um PTY no container vivo.
-  const running = (useResource("workloads", () => client.workloads(), 10000).data ?? []).filter(
+  const running = (useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? []).filter(
     (w) => w.type === "container" && runState(w.status) === "running",
   );
   const [name, setName] = useState<string>("");

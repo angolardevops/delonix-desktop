@@ -20,6 +20,9 @@ let workloads: WorkloadRow[] = [
   { type: "vm", name: "fc-ci-runner-1", status: "Running", info: "2 vCPU, 1G", namespace: "default" },
   { type: "vm", name: "fc-ci-runner-2", status: "Running", info: "2 vCPU, 1G", namespace: "default" },
   { type: "vm", name: "fedora-kde-build", status: "Stopped", info: "8 vCPU, 8G", namespace: "default" },
+  // Noutra namespace: prova visível de que o seletor de namespace filtra a lista.
+  { type: "container", name: "team-a-api", status: "Up 1d", info: "ghcr.io/angolardevops/api:edge", namespace: "team-a" },
+  { type: "container", name: "team-a-worker", status: "Up 1d", info: "ghcr.io/angolardevops/worker:edge", namespace: "team-a" },
 ];
 
 // Snapshots simulados por VM (estado em memória do duplo local).
@@ -322,13 +325,27 @@ export class MockClient implements DelonixClient {
   dash = () => wait({ ...dashBase, rows: mockRows(), problems: mockProblems() });
   systemMetrics = () => wait(mockMetrics());
   systemResources = () => wait(mockResources());
-  workloads = () => wait(workloads);
+  // `namespace` filtra (como `workload ls -n`); sem argumento, todas — é a
+  // forma que o seletor global usa para DESCOBRIR as namespaces existentes.
+  workloads = (namespace?: string) => wait(namespace ? workloads.filter((w) => w.namespace === namespace) : workloads);
   images = () => wait(images);
-  volumes = () => wait(volumes);
+  // Os volumes do duplo local não têm namespace própria; o argumento é aceite
+  // por paridade de assinatura (o engine real filtra por `volume ls -n`).
+  volumes = (_namespace?: string) => wait(volumes);
   networks = () => wait(networks);
   networkDetail = (name: string) => wait(networks.find((n) => n.name === name) ?? { name, driver: "bridge", subnet: "", bridge: "", gateway: "", members: [] });
   networkDiagnose = () => wait(mockDiagnose());
   secrets = () => wait(secrets);
+  // O duplo local NUNCA tem valores reais. Com `reveal`, devolve um placeholder
+  // explícito por chave (para a UI funcionar no browser sem enganar); sem
+  // `reveal`, a máscara "••••••" do engine.
+  secretInspect = (name: string, reveal: boolean) => {
+    const s = secrets.find((x) => x.name === name);
+    const names = s?.names ?? [];
+    const keys: Record<string, string> = {};
+    for (const k of names) keys[k] = reveal ? `duplo-local-${k.toLowerCase()}` : "••••••";
+    return wait({ keys, revealed: reveal });
+  };
   backups = (_from?: string) => wait(backups);
   providers = () => wait(providers);
   doctor = () => wait(doctorItems);

@@ -351,6 +351,15 @@ export interface SecretRow {
   usedBy: string[]; // recursos que consomem o segredo
 }
 
+// Detalhe revelável de UM segredo (`secret inspect [--reveal] -o json`). O
+// engine devolve um array `[{name, keys[], data:{KEY:VALUE}, revealed}]`; a UI
+// consome só o mapa `keys` (chave→valor) e o flag `revealed`. Quando
+// `revealed=false`, os valores são a máscara "••••••" do próprio engine.
+export interface SecretReveal {
+  keys: Record<string, string>; // KEY → valor (em claro se revealed, senão "••••••")
+  revealed: boolean;
+}
+
 // --- Backups (§E) -----------------------------------------------------------
 // Um arquivo de UM recurso (container/pod/vm/stack). O `backup ls` do engine
 // 5.1.1 é TEXTO (não há `-o json`): colunas ARCHIVE KIND NAME CREATED SIZE HOST.

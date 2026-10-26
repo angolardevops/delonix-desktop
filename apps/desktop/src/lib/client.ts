@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { Argv } from "./cli";
 
@@ -15,9 +15,12 @@ export interface DelonixClient {
   // acionáveis (advice[]), o gargalo atual e a pressão PSI. Ambos READ.
   systemMetrics(): Promise<SystemMetrics>;
   systemResources(): Promise<SystemResources>;
-  workloads(): Promise<WorkloadRow[]>;
+  // `namespace` (opcional) filtra por `workload ls -n <ns>` / `volume ls -n <ns>`
+  // (os únicos verbos de lista escopados no 5.1.1); sem argumento lista todas as
+  // namespaces — usado também na DESCOBERTA de namespaces do seletor global.
+  workloads(namespace?: string): Promise<WorkloadRow[]>;
   images(): Promise<ImageRow[]>;
-  volumes(): Promise<VolumeRow[]>;
+  volumes(namespace?: string): Promise<VolumeRow[]>;
   networks(): Promise<NetworkRow[]>;
   // Detalhe de UMA rede (§8.6): `network inspect -o json` (gateway/bridge) +
   // `network describe` (membros COM IP — a única fonte por membro). Usado pela
@@ -26,8 +29,13 @@ export interface DelonixClient {
   // Estado VIVO do nó de rede (`network diagnose -o json`): control plane,
   // redes realizadas e registo de endereços. READ.
   networkDiagnose(): Promise<NetDiagnoseFinding[]>;
-  // Segredos (§E): SÓ metadados (nome/chaves/nomes-de-chaves/versão). Nunca valores.
+  // Segredos (§E): a LISTA traz só metadados (nome/chaves/versão), nunca valores.
   secrets(): Promise<SecretRow[]>;
+  // Detalhe de UM segredo (`secret inspect`): o mapa chave→valor. Com
+  // `reveal=false` os valores vêm redigidos ("••••••"); com `reveal=true` o
+  // engine devolve-os EM CLARO (--reveal). É uma ação EXPLÍCITA do utilizador —
+  // o valor revelado nunca é registado em histórico nem em log.
+  secretInspect(name: string, reveal: boolean): Promise<SecretReveal>;
   // Backups (§E): arquivos no diretório `from` (default: diretório atual do engine).
   backups(from?: string): Promise<BackupRow[]>;
   providers(): Promise<ProviderReport[]>;

@@ -13,10 +13,24 @@ const fFlag = (path?: string): Argv => (path && path.trim() ? ["-f", path.trim()
 
 export const cmd = {
   dash: (): Argv => ["dashboard", "--json"],
-  workloads: (): Argv => ["workload", "ls", "-o", "json"],
+  // Namespace OPCIONAL: `workload ls -n <ns>` filtra pela namespace de isolamento
+  // (confirmado por `--help` no 5.1.1); sem `-n` lista todas. O seletor global
+  // (app/context) passa a namespace ativa; a descoberta de namespaces usa a
+  // forma SEM `-n` (todas). `secret`/`network`/`image ls` NÃO aceitam `-n` no
+  // 5.1.1 — são recursos não-escopados, por isso ficam sem namespace.
+  workloads: (namespace?: string): Argv => [
+    "workload", "ls", ...(namespace ? ["-n", namespace] : []), "-o", "json",
+  ],
   describe: (name: string): Argv => ["workload", "describe", name],
   images: (): Argv => ["image", "ls", "-o", "json"],
-  volumes: (): Argv => ["volume", "ls", "-o", "json"],
+  // `volume ls -n <ns>` mostra os volumes DESSA namespace (confirmado por
+  // `--help` no 5.1.1); sem `-n`, os não-escopados.
+  volumes: (namespace?: string): Argv => [
+    "volume", "ls", ...(namespace ? ["-n", namespace] : []), "-o", "json",
+  ],
+  // `system info` (TEXTO, sem -o json no 5.1.1): host/engine para o popover de
+  // contexto da TitleBar. READ (classificado em cli.rs).
+  systemInfo: (): Argv => ["system", "info"],
   networks: (): Argv => ["network", "ls", "-o", "json"],
   providers: (): Argv => ["provider", "ls", "-o", "json"],
   providerDescribe: (id: string, kind?: string): Argv =>
@@ -131,8 +145,13 @@ export const cmd = {
 
   // --- Segredos (§E). SÓ verbos agrupados. ---------------------------------
   secretsLs: (): Argv => ["secret", "ls", "-o", "json"],
-  // inspect devolve METADADOS (nomes das chaves, valores redigidos); nunca `--reveal`.
-  secretInspect: (name: string): Argv => ["secret", "inspect", name, "-o", "json"],
+  // inspect devolve as chaves e os valores REDIGIDOS ("••••••"); com `--reveal`
+  // o engine devolve os valores EM CLARO (confirmado por `secret inspect --help`
+  // no 5.1.1: "--reveal is what unlocks the values, never the format"). A UI só
+  // pede `--reveal` por ação explícita do utilizador; o valor nunca é registado.
+  secretInspect: (name: string, reveal?: boolean): Argv => [
+    "secret", "inspect", name, ...(reveal ? ["--reveal"] : []), "-o", "json",
+  ],
   // O valor entra por `--from-literal KEY=value`. Um segredo é um mapa chave→valor.
   secretCreate: (o: { name: string; key: string; value: string; force?: boolean }): Argv => [
     "secret", "create", o.name, "--from-literal", `${o.key}=${o.value}`, ...(o.force ? ["-f"] : []),

@@ -86,9 +86,9 @@ function aggSeries(members: { name: string }[], seriesByName: Map<string, NetSer
 }
 
 export function Networks() {
-  const { client, act, go } = useApp();
+  const { client, act, go, namespace } = useApp();
   const { data, error, refresh } = useResource("networks", () => client.networks(), 15000);
-  const workloads = useResource("workloads", () => client.workloads(), 10000).data ?? [];
+  const workloads = useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? [];
   const { rateByName, seriesByName } = useNetBand();
   const rows = data ?? [];
 

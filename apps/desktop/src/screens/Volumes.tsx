@@ -9,8 +9,8 @@ import { useResource } from "../lib/hooks";
 import type { VolumeRow } from "../lib/types";
 
 export function Volumes() {
-  const { client, act, go } = useApp();
-  const { data, error, refresh } = useResource("volumes", () => client.volumes(), 15000);
+  const { client, act, go, namespace } = useApp();
+  const { data, error, refresh } = useResource(["volumes", namespace], () => client.volumes(namespace), 15000);
   const providers = useResource("providers", () => client.providers(), 60000).data ?? [];
   const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);

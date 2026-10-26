@@ -12,17 +12,17 @@ import { fmtBinBytes } from "../lib/metrics";
 import type { ResourceAdvice } from "../lib/types";
 
 export function Overview() {
-  const { client, go, act, openDock } = useApp();
+  const { client, go, act, openDock, namespace } = useApp();
   // Fontes do Dashboard SRE (§B) pelo store PARTILHADO (sem pollers duplicados):
   // frota estruturada, saúde do nó, rows+problems do dashboard, workloads e
   // providers. images/volumes alimentam a higiene de espaço.
   const metrics = useResource("system-metrics", () => client.systemMetrics(), 5000);
   const resources = useResource("system-resources", () => client.systemResources(), 15000);
   const dash = useResource("dashboard", () => client.dash(), 5000);
-  const wl = useResource("workloads", () => client.workloads(), 5000);
+  const wl = useResource(["workloads", namespace], () => client.workloads(namespace), 5000);
   const prov = useResource("providers", () => client.providers(), 60000);
   const images = useResource("images", () => client.images(), 30000);
-  const volumes = useResource("volumes", () => client.volumes(), 30000);
+  const volumes = useResource(["volumes", namespace], () => client.volumes(namespace), 30000);
 
   const m = metrics.data;
   const res = resources.data;

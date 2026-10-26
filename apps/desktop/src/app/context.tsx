@@ -38,6 +38,11 @@ export interface AppCtx {
   // Navegação colapsável (hamburger). Estado persistido em localStorage.
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  // Namespace de isolamento ATIVA (seletor global na TitleBar). Persistida em
+  // localStorage. As listas escopadas (`workload ls -n`, `volume ls -n`) e as
+  // suas chaves no resourceStore incluem-na, por isso mudar recarrega as telas.
+  namespace: string;
+  setNamespace: (ns: string) => void;
   // Mensagem efémera no canto (reutilizada pelo menu da TitleBar, p.ex. para
   // confirmar "Link copiado"). `ok` controla a cor da barra lateral do toast.
   toast: (text: string, ok?: boolean) => void;

@@ -11,8 +11,8 @@ import type { DashRow, WorkloadRow } from "../lib/types";
 type T = "logs" | "terminal" | "inspect" | "stats" | "snapshots";
 
 export function WorkloadDetail({ id }: { id: string }) {
-  const { client, go, act } = useApp();
-  const wl = useResource("workloads", () => client.workloads(), 3000);
+  const { client, go, act, namespace } = useApp();
+  const wl = useResource(["workloads", namespace], () => client.workloads(namespace), 3000);
   const w = wl.data?.find((x) => x.name === id);
   const [tab, setTab] = useState<T>("logs");
   const [lines, setLines] = useState<string[]>([]);
@@ -132,6 +132,7 @@ export function WorkloadDetail({ id }: { id: string }) {
               <dt>Info</dt><dd className="mono">{w.info}</dd>
               <dt>Namespace</dt><dd className="mono">{w.namespace}</dd>
             </dl>
+            {w.type === "vm" && <VmState name={w.name} />}
             {/\(137\)/.test(w.status) && <Chip tone="bad">Terminou por falta de memória (OOM)</Chip>}
           </section>
         </aside>
@@ -235,6 +236,45 @@ function Inspect({ name }: { name: string }) {
     void client.run(cmd.describe(name), false).then((r) => setOut(r.ok ? r.stdout : r.stderr || "sem saída (duplo local)"));
   }, [client, name]);
   return <pre className="log" style={{ flex: 1, border: 0, margin: 0 }}>{out}</pre>;
+}
+
+// Leitura RICA de uma VM pelo socket node.v1 (§5): `vmGet` (node_vm_get) traz
+// IP/imagem/provider/vcpus/memória/fase que a row da CLI (`workload ls`) não
+// tem. Chave de store `["vm", name]` (partilha com quem mais a peça). Distingue
+// node-api EM BAIXO ("inicie `delonix serve node-api`") de VM não encontrada —
+// e NÃO duplica o ciclo de vida (os botões Parar/Iniciar/Remover ficam no topo).
+function VmState({ name }: { name: string }) {
+  const { client } = useApp();
+  const vm = useResource(["vm", name], () => client.vmGet(name), 0);
+  const d = vm.data;
+
+  if (vm.error) {
+    // A mensagem do core já aponta o comando quando o socket está em baixo.
+    const down = /node-api/i.test(vm.error);
+    return (
+      <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        {down
+          ? <>Detalhe rico da VM indisponível — inicie <span className="mono">delonix serve node-api</span>.</>
+          : <>Não foi possível ler a VM pelo node-api: {vm.error}</>}
+      </p>
+    );
+  }
+  if (!d) return <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>A ler a VM…</p>;
+
+  // "VIRTUAL_MACHINE_PHASE_RUNNING" → "Running".
+  const phase = d.phase.replace(/^VIRTUAL_MACHINE_PHASE_/, "").toLowerCase().replace(/(^|_)(\w)/g, (_, _s, c) => c.toUpperCase());
+  const ips = d.ipAddresses.length ? d.ipAddresses.join(", ") : "—";
+
+  return (
+    <dl className="kv" style={{ marginTop: 8 }}>
+      <dt>Fase</dt><dd className="mono">{phase || "—"}</dd>
+      <dt>Provider</dt><dd className="mono">{d.provider || "—"}</dd>
+      <dt>Imagem</dt><dd className="mono" style={{ wordBreak: "break-all" }}>{d.image || "—"}</dd>
+      <dt>vCPUs</dt><dd className="mono">{d.vcpus || "—"}</dd>
+      <dt>Memória</dt><dd className="mono">{d.memoryBytes ? fmtBinBytes(d.memoryBytes) : "—"}</dd>
+      <dt>IP{d.ipPredicted ? " (previsto)" : ""}</dt><dd className="mono">{ips}</dd>
+    </dl>
+  );
 }
 
 // Painel de snapshots de VM pelo socket node.v1 (§5): listar / criar / restaurar

@@ -6,8 +6,9 @@ import { parseDoctor } from "./doctor";
 import { fmtUnix } from "./format";
 import { crossRefUsedBy, parseImages } from "./images";
 import { parseDescribeMembers } from "./network";
+import { parseSecretInspect } from "./secrets";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -308,8 +309,8 @@ export class TauriClient implements DelonixClient {
     };
   }
 
-  workloads() {
-    return json<WorkloadRow[]>(cmd.workloads());
+  workloads(namespace?: string) {
+    return json<WorkloadRow[]>(cmd.workloads(namespace));
   }
 
   // `image ls -o json` no 5.1.1 devolve {repo_tags[],id,created_unix,size_bytes,
@@ -322,8 +323,8 @@ export class TauriClient implements DelonixClient {
     return crossRefUsedBy(imgs, workloads);
   }
 
-  async volumes(): Promise<VolumeRow[]> {
-    const rows = asArray(await json<unknown>(cmd.volumes()));
+  async volumes(namespace?: string): Promise<VolumeRow[]> {
+    const rows = asArray(await json<unknown>(cmd.volumes(namespace)));
     return rows.map((o) => ({
       name: str(o, "name"),
       driver: str(o, "driver") || "local",
@@ -404,6 +405,14 @@ export class TauriClient implements DelonixClient {
       version: num(o, "version") ?? 0,
       usedBy: list(o, "used_by", "usedBy"),
     }));
+  }
+
+  // Detalhe revelável de UM segredo. `secret inspect [--reveal] -o json` devolve
+  // um array `[{data:{KEY:VALUE}, revealed}]`; o parsing é PURO (lib/secrets.ts).
+  // Classifica-se Read (prefixo `secret inspect`), por isso corre por `dlx_json`.
+  // O valor em claro só volta quando `reveal=true` e NUNCA é registado.
+  async secretInspect(name: string, reveal: boolean): Promise<SecretReveal> {
+    return parseSecretInspect(await json<unknown>(cmd.secretInspect(name, reveal)));
   }
 
   // --- Backups (§E) -------------------------------------------------------

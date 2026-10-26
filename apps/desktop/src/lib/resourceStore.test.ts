@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __reset, getSnapshot, subscribe } from "./resourceStore";
+import { __reset, getSnapshot, normKey, subscribe } from "./resourceStore";
 
 beforeEach(() => __reset());
 afterEach(() => {
@@ -95,6 +95,38 @@ describe("resourceStore (camada de dados partilhada)", () => {
     const s2 = getSnapshot("volumes");
     expect(s1).toBe(s2); // mesma referência → não provoca loop em useSyncExternalStore
     u();
+  });
+
+  it("re-chave por namespace: ['workloads', ns] são entradas INDEPENDENTES", async () => {
+    // O seletor global passa a namespace na chave; cada namespace tem a sua
+    // entrada no store (carga/cache própria) e mudar de namespace recarrega.
+    const byNs: Record<string, string[]> = {
+      default: ["pve92", "traefik"],
+      "team-a": ["team-a-api", "team-a-worker"],
+    };
+    let defCalls = 0;
+    let teamCalls = 0;
+    const load = (ns: string) => async () => {
+      if (ns === "default") defCalls++; else teamCalls++;
+      return byNs[ns];
+    };
+    // Chaves distintas (normKey junta por espaço) → entradas distintas.
+    const kDef = normKey(["workloads", "default"]);
+    const kTeam = normKey(["workloads", "team-a"]);
+    expect(kDef).not.toBe(kTeam);
+
+    const uDef = subscribe(kDef, load("default"), 0, () => {});
+    const uTeam = subscribe(kTeam, load("team-a"), 0, () => {});
+    await flush();
+
+    // Cada namespace carregou uma vez, com a SUA lista (mudar ns muda a lista).
+    expect(defCalls).toBe(1);
+    expect(teamCalls).toBe(1);
+    expect(getSnapshot<string[]>(kDef).data).toEqual(["pve92", "traefik"]);
+    expect(getSnapshot<string[]>(kTeam).data).toEqual(["team-a-api", "team-a-worker"]);
+
+    uDef();
+    uTeam();
   });
 
   it("um load que falha fica em error e não lança", async () => {

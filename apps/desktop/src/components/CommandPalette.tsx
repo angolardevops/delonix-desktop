@@ -8,8 +8,8 @@ import { Icon } from "./Icon";
 type Opt = { group: string; icon: string; label: string; hint?: string; run: () => void };
 
 export function CommandPalette({ onClose }: { onClose: () => void }) {
-  const { client, go, act, openDock } = useApp();
-  const workloads = useResource("workloads", () => client.workloads(), 0).data ?? [];
+  const { client, go, act, openDock, namespace } = useApp();
+  const workloads = useResource(["workloads", namespace], () => client.workloads(namespace), 0).data ?? [];
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
 

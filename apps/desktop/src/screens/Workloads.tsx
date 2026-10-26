@@ -10,8 +10,8 @@ import type { WorkloadRow } from "../lib/types";
 type TypeFilter = "all" | "container" | "pod" | "vm";
 
 export function Workloads() {
-  const { client, go, act, openDock } = useApp();
-  const { data, error, refresh } = useResource("workloads", () => client.workloads(), 3000);
+  const { client, go, act, openDock, namespace } = useApp();
+  const { data, error, refresh } = useResource(["workloads", namespace], () => client.workloads(namespace), 3000);
   const [type, setType] = useState<TypeFilter>("all");
   const [state, setState] = useState<RunState | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -126,7 +126,7 @@ export function Workloads() {
         }}
         footer={
           <div className="toolbar" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, background: "var(--panel)", fontSize: 12, color: "var(--mut)" }}>
-            <CliHint argv={cmd.workloads()} compact />
+            <CliHint argv={cmd.workloads(namespace)} compact />
             <span style={{ marginLeft: "auto" }}>Duplo clique abre o detalhe</span>
           </div>
         }

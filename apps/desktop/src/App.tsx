@@ -82,6 +82,13 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem("delonix.sidebar.collapsed") === "1"; } catch { return false; }
   });
+  const [namespace, setNamespaceState] = useState<string>(() => {
+    try { return localStorage.getItem("delonix.namespace") || "default"; } catch { return "default"; }
+  });
+  const setNamespace = useCallback((ns: string) => {
+    setNamespaceState(ns);
+    try { localStorage.setItem("delonix.namespace", ns); } catch { /* sem localStorage (ex.: SSR/testes) */ }
+  }, []);
 
   const openDock = useCallback((t: DockTab) => { setDockTab(t); setDockOpen(true); }, []);
   const notifyToast = useCallback((text: string, ok = true) => setToast({ ok, text }), []);
@@ -156,7 +163,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
 
-  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast };
+  const ctx: AppCtx = { client, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast, namespace, setNamespace };
 
   const screen = (() => {
     switch (route.name) {
