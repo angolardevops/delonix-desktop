@@ -1,0 +1,283 @@
+/* Regras de aparência desktop: sem cantos arredondados, hover a toda a largura,
+   divisórias finas em vez de cartões. Só usa variáveis de tokens.css. */
+* { border-radius: 0 !important; box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--tx); font: var(--fs-md)/1.45 var(--font-ui); overflow: hidden; -webkit-font-smoothing: antialiased; }
+a { color: var(--inf); text-decoration: none; }
+a:hover { color: var(--link-hover); }
+button { font: inherit; }
+:focus-visible { outline: 1px solid var(--acc); outline-offset: -1px; }
+.sr-only { position: absolute; left: -9999px; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--mut); }
+.lbl { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Estrutura da janela */
+.app { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--line); }
+.body { flex: 1; display: flex; min-height: 0; }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* Contentor do conteúdo da rota. As telas renderizam fragmentos diretamente
+   aqui; este wrapper dá-lhes o gutter da janela (deixam de colar às bordas),
+   centra-as e limita a largura em ecrãs largos (leitura), e é quem rola. */
+.page { flex: 1; min-width: 0; min-height: 0; width: 100%; max-width: var(--max-content); margin-inline: auto; padding: var(--gutter-y) var(--gutter-x); overflow: auto; display: flex; flex-direction: column; }
+
+/* Barra de título */
+.titlebar { display: flex; align-items: center; height: var(--h-titlebar); background: var(--side); border-bottom: 1px solid var(--line); user-select: none; }
+.titlebar .brand { display: flex; align-items: center; gap: 8px; padding: 0 14px; font-weight: 600; }
+.ctx { display: flex; height: 100%; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.mb { height: var(--h-titlebar); padding: 0 10px; border: 0; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.mb:hover { background: var(--bg); color: var(--tx); }
+.search { flex: 0 1 420px; margin: 0 auto; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); color: var(--mut); font-size: var(--fs-sm); cursor: pointer; }
+.wc { width: 46px; height: var(--h-titlebar); display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--tx2); cursor: pointer; }
+.wc:hover { background: var(--line); color: var(--tx-strong); }
+.wc.x:hover { background: var(--close-hover); color: var(--tx-strong); }
+
+/* Menu lateral: lista que ocupa a largura toda, hover = cor do body */
+.sidebar { width: var(--w-sidebar); flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding-top: 12px; overflow-y: auto; overflow-x: hidden; transition: width .16s ease; }
+.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.nav { display: flex; align-items: center; gap: 10px; width: 100%; height: var(--h-row); padding: 0 16px 0 14px; color: var(--tx2); border: 0; border-left: 2px solid transparent; background: transparent; cursor: pointer; text-align: left; position: relative; }
+.nav:hover { background: var(--bg); color: var(--tx); }
+.nav.on { background: var(--bg); color: var(--tx-on); border-left-color: var(--acc); }
+.nav .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .count { font-size: var(--fs-sm); color: var(--mut); }
+.nav-badge { margin-left: auto; height: 18px; padding: 0 6px; }
+.sidebar .lbl { padding: 18px 16px 6px; }
+.sidebar .lbl:first-child { padding-top: 6px; }
+.sidebar-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 10px 16px; }
+.sidebar-foot .foot-line { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+/* Rail: menu colapsado — só ícones, com o rótulo em tooltip (title). */
+.sidebar.rail { width: var(--w-sidebar-rail); }
+.sidebar.rail .lbl { padding: 10px 0 4px; text-align: center; font-size: 0; height: 1px; opacity: .25; }
+.sidebar.rail .nav { padding: 0; justify-content: center; }
+.sidebar.rail .nav .nav-label, .sidebar.rail .nav .count { display: none; }
+.sidebar.rail .nav-badge { position: absolute; top: 5px; right: 7px; min-width: 7px; width: 7px; height: 7px; padding: 0; margin: 0; font-size: 0; overflow: hidden; }
+.sidebar.rail .sidebar-foot { padding: 10px 0; text-align: center; }
+.sidebar.rail .sidebar-foot .foot-line { justify-content: center; }
+.sidebar.rail .sidebar-foot .foot-text { display: none; }
+.ham { cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
+/* Botões */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: var(--h-btn); padding: 0 12px; border: 1px solid var(--line); background: var(--side); color: var(--tx); font-weight: 500; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--btn-hover); color: var(--tx-strong); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.pri { background: var(--acc); border-color: var(--acc); color: var(--tx-strong); }
+.btn.pri:hover { background: var(--acc-hover); }
+.btn.sm { height: var(--h-btn-sm); padding: 0 8px; font-size: var(--fs-sm); }
+.btn.danger { color: var(--bad); }
+.btn.ico { width: 28px; height: 28px; padding: 0; justify-content: center; background: transparent; border-color: transparent; color: var(--tx2); }
+.btn.ico:hover { background: var(--bg); border-color: var(--line); color: var(--tx-strong); }
+
+/* Chips de estado */
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 7px; font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+.chip.ok { background: var(--okb); color: var(--ok); }
+.chip.warn { background: var(--warnb); color: var(--warn); }
+.chip.bad { background: var(--badb); color: var(--bad); }
+.chip.inf { background: var(--infb); color: var(--inf); }
+.chip.neu { background: var(--neub); color: var(--neu); }
+.dot { width: 6px; height: 6px; background: currentColor; flex: none; }
+.k { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid var(--line); font: 500 var(--fs-xs) var(--font-mono); color: var(--tx2); white-space: nowrap; }
+
+/* Cabeçalho de página e separadores */
+.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 0 0 14px; border-bottom: 1px solid var(--line); }
+.page-head h1 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.page-head p { margin: 2px 0 0; color: var(--mut); }
+.page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs { display: flex; flex-wrap: wrap; padding: 0; border-bottom: 1px solid var(--line); }
+.tab:first-child { padding-left: 0; }
+.tab { height: 36px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.tab:hover { color: var(--tx-strong); background: var(--side); }
+.tab.on { color: var(--tx-on); border-bottom-color: var(--acc); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.input { height: 28px; padding: 0 8px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); font: var(--fs-md) var(--font-ui); outline: none; }
+.input.mono { font-family: var(--font-mono); }
+
+/* Tabelas */
+.table-wrap { overflow: auto; }
+table { border-collapse: collapse; width: 100%; }
+th { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; position: sticky; top: 0; }
+td { padding: 7px 12px; border-bottom: 1px solid var(--line2); color: var(--tx-cell); white-space: nowrap; }
+/* Números alinham-se opticamente (dígitos de largura fixa) — listas e métricas
+   ficam a "ler" em coluna como num DataTable. */
+td.mono, td[style*="right"] { font-variant-numeric: tabular-nums; }
+/* Primeira/última coluna alinham-se à caixa de conteúdo (gutter já no .page). */
+th:first-child, td:first-child { padding-left: 0; }
+th:last-child, td:last-child { padding-right: 0; }
+tbody tr { transition: background .1s ease; }
+tr:hover td { background: var(--side); }
+tr.sel td { background: var(--sel); }
+.sub { display: block; font: var(--fs-xs) var(--font-mono); color: var(--mut); margin-top: 1px; }
+
+/* DataTable: densidade e truncagem para evitar scroll horizontal prematuro.
+   O scroll horizontal só surge em janelas mesmo estreitas, dentro do
+   .table-wrap (overflow:auto, o container próprio). */
+.dt { display: flex; flex-direction: column; min-width: 0; }
+.dt.fill { flex: 1; min-height: 0; }
+.dt.fill .table-wrap { flex: 1; }
+.dt-toolbar { gap: 8px; }
+.dt-search { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.dt-search .input { width: 280px; max-width: 42vw; }
+.dt-table { table-layout: auto; }
+/* Look DataTable: cabeçalho fixo com sombra de recorte ao rolar, listras zebra
+   subtis e ordenação com destaque. */
+.dt-table thead th { box-shadow: inset 0 -1px 0 var(--line); z-index: 1; }
+.dt-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--side) 32%, transparent); }
+.dt-table tbody tr:hover td { background: var(--side); }
+.dt-table tbody tr.sel td { background: var(--sel); }
+/* Célula truncável: elipse em vez de forçar largura (nowrap já é o default das td). */
+.dt-trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+th.dt-sort { cursor: pointer; user-select: none; }
+th.dt-sort:hover { color: var(--tx-strong); }
+th.dt-sort[aria-sort="ascending"], th.dt-sort[aria-sort="descending"] { color: var(--tx); }
+th.dt-sort[aria-sort="ascending"] .dt-sort-ind, th.dt-sort[aria-sort="descending"] .dt-sort-ind { opacity: 1; color: var(--acc); }
+.dt-sort-ind { margin-left: 4px; font-size: 9px; opacity: .5; }
+th.dt-actions, td.dt-actions { text-align: right; white-space: nowrap; }
+.dt-act-group { display: inline-flex; gap: 2px; align-items: center; justify-content: flex-end; }
+/* Ícones de ação mais compactos dentro da tabela. */
+.dt-act-group .btn.ico { width: 26px; height: 26px; }
+.dt-act-group .btn.sm { height: 24px; padding: 0 7px; }
+
+/* Select (combo-box dark + pesquisável, estilo select2). Correto em tema
+   claro e escuro: só usa tokens, nunca o popup nativo de <option>. */
+.sel { position: relative; display: inline-flex; min-width: 0; }
+.sel-btn { display: inline-flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 6px 0 8px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); font: var(--fs-md) var(--font-ui); cursor: pointer; }
+.sel-btn.mono { font-family: var(--font-mono); }
+.sel-btn.sm { height: 24px; font-size: var(--fs-sm); }
+.sel-btn:hover { background: var(--btn-hover); color: var(--tx-strong); }
+.sel-btn:focus-visible { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 35%, transparent); }
+.sel-btn[aria-expanded="true"] { border-color: var(--acc); }
+.sel-btn:disabled { opacity: .45; cursor: not-allowed; }
+.sel-btn .sel-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.sel-btn .ic { margin-left: auto; flex: none; opacity: .7; }
+.sel-pop { position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; min-width: 100%; display: flex; flex-direction: column; max-height: 288px; background: var(--side); border: 1px solid var(--dialog-line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+.sel-search { padding: 6px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.sel-search .input { width: 100%; }
+.sel-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 240px; }
+.sel-opt { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px 0 24px; color: var(--tx); cursor: pointer; white-space: nowrap; }
+.sel-opt.active, .sel-opt:hover { background: var(--bg); color: var(--tx-strong); }
+.sel-opt.on { background: var(--sel); color: var(--sel-tx); }
+/* Marca de visto (✓) à esquerda da opção selecionada — pista select2. */
+.sel-opt.on::before { content: "✓"; position: absolute; left: 8px; font-size: 11px; color: var(--acc); }
+.sel-opt.dis { opacity: .45; cursor: not-allowed; }
+.sel-empty { padding: 10px; color: var(--mut); font-size: var(--fs-sm); }
+
+/* Secções e painéis laterais */
+.split { display: flex; flex: 1; min-height: 0; }
+.split > .primary { flex: 3 1 0; min-width: 0; overflow: auto; }
+.split > .aside { flex: 0 0 340px; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
+.section { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.section h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line2); }
+.row:hover { background: var(--side); }
+pre.code, .log { margin: 0; padding: 10px 12px; background: var(--term); border: 1px solid var(--line2); font: 12px/1.7 var(--font-mono); color: var(--tx-term); white-space: pre-wrap; word-break: break-all; }
+.note { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0 0; padding: 10px 14px; background: var(--infb); border: 1px solid var(--sel-line); color: var(--sel-tx); }
+.note.planned { background: var(--neub); border-color: var(--line); color: var(--tx2); }
+dl.kv { margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 7px 12px; }
+dl.kv dt { color: var(--mut); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.bar { height: 4px; background: var(--track); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--chart-1); }
+
+/* Painel inferior */
+.dock { border-top: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+.dock-bar { display: flex; align-items: stretch; height: var(--h-dock-bar); }
+.dtab { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 0; border-top: 2px solid transparent; background: transparent; color: var(--tx2); font-size: var(--fs-sm); cursor: pointer; }
+.dtab:hover { color: var(--tx-strong); background: var(--side); }
+.dtab.on { background: var(--bg); color: var(--tx-strong); border-top-color: var(--acc); }
+.dock-body { height: 320px; display: flex; min-height: 0; border-top: 1px solid var(--line); background: var(--bg); }
+
+/* Barra de estado */
+.statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 0 12px; height: var(--h-statusbar); background: var(--side); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--mut); }
+
+/* Diálogos e paleta */
+.overlay { position: fixed; inset: 0; background: rgba(6, 7, 9, .72); display: flex; justify-content: center; align-items: flex-start; padding: 72px 16px 16px; z-index: 10; }
+.dialog { width: 100%; max-width: 680px; background: var(--side); border: 1px solid var(--dialog-line); box-shadow: 0 24px 64px rgba(0, 0, 0, .55); }
+.opt { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: 0 16px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--tx); cursor: pointer; text-align: left; }
+.opt:hover { background: var(--bg); }
+.opt.on { background: var(--sel); border-left-color: var(--acc); }
+.opt .r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.toast { position: fixed; right: 16px; bottom: 64px; max-width: 520px; padding: 10px 14px; background: var(--side); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); z-index: 20; }
+
+/* Painéis flutuantes (UI v2): gaveta deslizante da direita e popover ancorado.
+   Escala de z-index: conteúdo < drawer(8)/popover(9) < .overlay modais+paleta(10)
+   < toast(20). Os flutuantes sobrepõem-se à lista, mas ConfirmDialog e a
+   CommandPalette (.overlay) ficam SEMPRE por cima deles. */
+.drawer-root { position: fixed; inset: 0; z-index: 8; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(6, 7, 9, .42); animation: flt-fade .12s ease-out; }
+.drawer { position: absolute; top: 0; right: 0; height: 100%; max-width: 100vw; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--dialog-line); box-shadow: -14px 0 40px rgba(0, 0, 0, .5); animation: flt-slide .16s ease-out; }
+.drawer:focus { outline: none; }
+.drawer-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { margin: 0; flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; }
+.drawer-body { flex: 1; min-height: 0; overflow: auto; }
+.drawer-body > .section:last-child { border-bottom: 0; }
+.drawer-foot { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--side); }
+
+.popover { position: fixed; z-index: 9; min-width: 220px; max-width: min(92vw, 360px); background: var(--side); border: 1px solid var(--dialog-line); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); animation: flt-fade .1s ease-out; }
+.popover:focus { outline: none; }
+.popover > .section { border-bottom: 0; }
+
+@keyframes flt-slide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes flt-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-backdrop, .popover { animation: none; } }
+
+/* Architecture Studio (§11) — progresso ANIMADO do Apply. Só tokens de tema
+   (claro/escuro); todas as animações caem com prefers-reduced-motion. */
+.studio-prog-bar { position: relative; height: 8px; background: var(--track); overflow: hidden; }
+.studio-prog-fill { position: absolute; inset: 0 auto 0 0; width: 0; min-width: 2px; display: block; }
+.studio-prog-rows { display: flex; flex-direction: column; gap: 6px; }
+.studio-prog-row {
+  display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 10px;
+  padding: 6px 8px; border: 1px solid var(--line); background: var(--panel);
+  animation: studio-row-in .22s ease-out both;
+}
+.studio-prog-row.studio-st-ready, .studio-prog-row.studio-st-declarative { border-left: 2px solid var(--ok); }
+.studio-prog-row.studio-st-present { border-left: 2px solid var(--inf); }
+.studio-prog-row.studio-st-failed { border-left: 2px solid var(--bad); }
+.studio-prog-row.studio-st-pending { border-left: 2px solid var(--line); }
+.studio-prog-ic { display: inline-flex; align-items: center; justify-content: center; color: var(--mut); }
+.studio-prog-state { display: inline-flex; align-items: center; gap: 8px; }
+.studio-ind { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: none; }
+.studio-ind-ok { color: var(--ok); }
+.studio-ind-bad { color: var(--bad); }
+.studio-spin { color: var(--inf); animation: studio-spin 1s linear infinite; }
+.studio-check-path { stroke-dasharray: 14; stroke-dashoffset: 0; animation: studio-check .4s ease-out both; }
+/* Barra indeterminada (recurso criado, ainda a ficar saudável). */
+.studio-indet { position: relative; width: 28px; height: 4px; background: var(--track); overflow: hidden; border: 0; }
+.studio-indet > i { position: absolute; top: 0; bottom: 0; width: 40%; background: var(--inf); animation: studio-indet 1.1s ease-in-out infinite; }
+
+@keyframes studio-spin { to { transform: rotate(360deg); } }
+@keyframes studio-check { from { stroke-dashoffset: 14; } to { stroke-dashoffset: 0; } }
+@keyframes studio-indet { 0% { left: -40%; } 100% { left: 100%; } }
+@keyframes studio-row-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* KPIs ao vivo — ponto pulsante (sinal de "real-time") e halo na cabeça das
+   séries de tendência. Subtis e só decorativos (aria-hidden). */
+.kpi-card { transition: border-color .12s ease, background .12s ease, transform .12s ease; }
+.kpi-card:hover { border-color: var(--acc); }
+button.kpi-card:hover { transform: translateY(-1px); }
+.kpi-card:focus-visible { outline: none; border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 35%, transparent); }
+.dlx-live-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; box-shadow: 0 0 0 0 currentColor; animation: dlx-live 1.8s ease-out infinite; }
+.dlx-live-pulse { transform-box: fill-box; transform-origin: center; animation: dlx-halo 1.8s ease-out infinite; }
+@keyframes dlx-live {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes dlx-halo {
+  0% { opacity: .35; transform: scale(.7); }
+  70% { opacity: 0; transform: scale(1.8); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-prog-fill { transition: none !important; }
+  .studio-prog-row { animation: none; }
+  .studio-spin { animation: none; }
+  .studio-check-path { animation: none; stroke-dashoffset: 0; }
+  .studio-indet > i { animation: none; left: 0; width: 100%; opacity: .6; }
+  .dlx-live-dot, .dlx-live-pulse { animation: none; }
+  .dlx-live-pulse { opacity: 0; }
+  button.kpi-card:hover { transform: none; }
+}

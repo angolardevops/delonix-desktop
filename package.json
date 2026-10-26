@@ -1,7 +1,7 @@
 {
   "name": "delonix-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.6",
   "description": "Delonix Desktop — a aplicação desktop oficial do ecossistema Delonix / N'GolaCloud.",
   "workspaces": [
     "packages/*",
@@ -10,5 +10,8 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build:web": "npm run build -w apps/desktop"
+  },
+  "overrides": {
+    "@types/react": "18.3.31"
   }
 }

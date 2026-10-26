@@ -8,7 +8,7 @@
 
 use crate::cli_bridge::CliBridge;
 use crate::error::Result;
-use crate::model::{ApiRoot, Health, ListProviders, NodeInfo, Workload};
+use crate::model::{ApiRoot, Health, Image, ListProviders, NodeInfo, ResourceCounts, Workload};
 use crate::node_client::NodeClient;
 
 /// O contexto LOCAL (o runtime na própria máquina). O contexto REMOTO
@@ -64,7 +64,67 @@ impl LocalContext {
         }
     }
 
+    /// Todos os containers (inclui parados) — a lista da vista de Containers
+    /// precisa dos parados para oferecer o botão "Start". Mesma regra de ponte
+    /// que [`Self::containers`].
+    pub fn containers_all(&mut self) -> Result<Vec<Workload>> {
+        self.cli.containers_all()
+    }
+
     pub fn logs(&self, container: &str) -> Result<String> {
         self.cli.logs(container)
+    }
+
+    /// Imagens locais — pela ponte CLI-JSON (a raiz de `/v1` ainda não anuncia
+    /// `images`). Mesma regra de ponte que [`Self::containers_all`].
+    pub fn images(&self) -> Result<Vec<Image>> {
+        self.cli.images()
+    }
+
+    /// Remove uma imagem local (por id-digest ou `repo:tag`). A UI recarrega a
+    /// lista para observar o novo estado — nada de estado otimista.
+    pub fn remove_image(&self, img: &str) -> Result<()> {
+        self.cli.remove_image(img)
+    }
+
+    /// Puxa uma imagem de um registo (por `repo:tag`). Fala com a rede e pode
+    /// demorar; a UI mostra «A puxar…» até devolver e depois recarrega a lista
+    /// para ver a imagem nova. Mesma regra de ponte que [`Self::remove_image`].
+    pub fn pull_image(&self, img: &str) -> Result<()> {
+        self.cli.pull_image(img)
+    }
+
+    // Mutações de ciclo de vida da vista de Containers. Cada uma delega na
+    // ponte CLI-JSON (o contrato `node.v1` ainda não serve mutações de
+    // container) e devolve `Result` — a UI reporta o erro redigido e recarrega
+    // a lista para refletir o novo estado.
+    pub fn start_container(&self, name: &str) -> Result<()> {
+        self.cli.start(name)
+    }
+    pub fn stop_container(&self, name: &str) -> Result<()> {
+        self.cli.stop(name)
+    }
+    pub fn remove_container(&self, name: &str) -> Result<()> {
+        self.cli.remove(name)
+    }
+    /// Corre um novo container destacado e devolve o seu id.
+    pub fn run_container(&self, name: &str, image: &str, cmd: &[&str]) -> Result<String> {
+        self.cli.run_detached(name, image, cmd)
+    }
+
+    /// Contagens por recurso para os cartões de métricas do Dashboard.
+    ///
+    /// Tolerante por recurso: uma leitura que falhe (verbo ausente, CLI em
+    /// erro) degrada para `None` em vez de afundar o cartão inteiro — a UI
+    /// mostra um traço nesse cartão e os outros continuam vivos. Por isso não
+    /// devolve `Result`: o conjunto parcial já é a resposta honesta.
+    pub fn resource_counts(&self) -> ResourceCounts {
+        ResourceCounts {
+            containers_running: self.cli.containers_count().ok(),
+            containers_total: self.cli.containers_total_count().ok(),
+            pods: self.cli.pods_count().ok(),
+            images: self.cli.images_count().ok(),
+            volumes: self.cli.volumes_count().ok(),
+        }
     }
 }

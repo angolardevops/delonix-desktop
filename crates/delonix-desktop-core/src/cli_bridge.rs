@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::error::{CoreError, Result};
-use crate::model::Workload;
+use crate::model::{Image, Workload};
 
 /// Invoca o binário `delonix` com saída JSON.
 #[derive(Debug, Clone)]
@@ -45,6 +45,64 @@ impl CliBridge {
         self.json_array(&["workload", "ls", "-o", "json"])
     }
 
+    /// Imagens locais: `image ls -o json`. Forma própria (ver [`Image`]) —
+    /// análogo a [`Self::containers_all`], mas devolve imagens, não workloads.
+    pub fn images(&self) -> Result<Vec<Image>> {
+        self.json_array(&["image", "ls", "-o", "json"])
+    }
+
+    /// Remove uma imagem local: `image remove <ref>` (NB: o verbo é `remove`,
+    /// não `rm`). A `img` é um id-digest (`sha256:…`) ou `repo:tag`, validada
+    /// como referência de imagem. Sem `--force`: uma imagem ainda em uso recusa
+    /// e o erro redigido sobe à UI, como em [`Self::remove`] para containers.
+    pub fn remove_image(&self, img: &str) -> Result<()> {
+        let img = validate_ref(img)?;
+        self.run(&["image", "remove", img]).map(|_| ())
+    }
+
+    /// Puxa uma imagem de um registo: `image pull <ref>` (a forma comum —
+    /// repositório e tag, ex. `postgres:16` ou `ghcr.io/org/app:1.2.0`). A
+    /// `ref` é validada como referência de imagem (como em [`Self::remove_image`]).
+    ///
+    /// NB: fala com a rede e pode demorar — por isso [`Self::run`] não tem
+    /// timeout e quem chama (o comando Tauri) deve mostrar «A puxar…» até
+    /// esta devolver. Só quando o processo sai com código ≠ 0 é que há falha;
+    /// a UI recarrega a lista depois para ver a imagem nova.
+    pub fn pull_image(&self, img: &str) -> Result<()> {
+        let img = validate_ref(img)?;
+        self.run(&["image", "pull", img]).map(|_| ())
+    }
+
+    // Contagens por recurso para os cartões de métricas do Dashboard. Cada uma
+    // é uma leitura JSON independente: quem chama decide o que fazer quando uma
+    // falha (ver `LocalContext::resource_counts`, que degrada para `None`).
+
+    /// Quantos containers correndo: `container ps -o json`.
+    pub fn containers_count(&self) -> Result<usize> {
+        self.count(&["container", "ps", "-o", "json"])
+    }
+
+    /// Quantos containers no total (inclui parados): `container ps -a -o json`.
+    pub fn containers_total_count(&self) -> Result<usize> {
+        self.count(&["container", "ps", "-a", "-o", "json"])
+    }
+
+    /// Quantos pods: `get pods -o json` (os verbos genéricos por-Kind servem a
+    /// listagem; `pod` só tem lifecycle — create/logs/exec/…).
+    pub fn pods_count(&self) -> Result<usize> {
+        self.count(&["get", "pods", "-o", "json"])
+    }
+
+    /// Quantas imagens locais: `image ls -o json`.
+    pub fn images_count(&self) -> Result<usize> {
+        self.count(&["image", "ls", "-o", "json"])
+    }
+
+    /// Quantos volumes: `volume ls -o json`.
+    pub fn volumes_count(&self) -> Result<usize> {
+        self.count(&["volume", "ls", "-o", "json"])
+    }
+
     /// Logs de um container (nome validado: sem espaços nem flags).
     pub fn logs(&self, name: &str) -> Result<String> {
         let name = validate_name(name)?;
@@ -63,6 +121,14 @@ impl CliBridge {
         Ok(String::from_utf8_lossy(&out).trim().to_string())
     }
 
+    /// (Re)arranca um container parado: `container start <name>`. Distinto de
+    /// `run_detached` (que cria um novo a partir de uma imagem) — este reanima
+    /// um que já existe, o verbo natural do botão "Start" da lista.
+    pub fn start(&self, name: &str) -> Result<()> {
+        let name = validate_name(name)?;
+        self.run(&["container", "start", name]).map(|_| ())
+    }
+
     pub fn stop(&self, name: &str) -> Result<()> {
         let name = validate_name(name)?;
         self.run(&["container", "stop", name]).map(|_| ())
@@ -73,6 +139,14 @@ impl CliBridge {
     }
 
     // Helpers -------------------------------------------------------------
+
+    /// Conta os elementos de um array JSON sem os desserializar num tipo
+    /// concreto — basta o comprimento para uma métrica, e cada recurso tem a
+    /// sua própria forma (imagem ≠ volume ≠ container).
+    fn count(&self, args: &[&str]) -> Result<usize> {
+        let items: Vec<serde_json::Value> = self.json_array(args)?;
+        Ok(items.len())
+    }
 
     fn json_array<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<Vec<T>> {
         let out = self.run(args)?;

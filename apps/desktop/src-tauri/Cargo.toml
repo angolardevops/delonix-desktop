@@ -2,11 +2,29 @@
 # Compilar a janela Tauri exige libs de sistema que podem faltar no host
 # (ex.: libwebkit2gtk-4.1-dev). Instalar com o comando em docs/architecture/
 # (uma acção `sudo` do dono, não executada pelo agente).
+#
+# Sub-workspace autónomo: a tabela `[workspace]` vazia diz ao cargo para NÃO o
+# tratar como membro do workspace raiz (`crates/*`). Assim a janela compila
+# localmente quando as libs existem, sem o CI (`cargo build --workspace`) tentar
+# compilá-la nos runners sem webkit.
+[workspace]
+
 [package]
 name = "delonix-desktop"
-version = "0.1.0"
+version = "0.2.6"
 edition = "2021"
-description = "Delonix Desktop — shell Tauri"
+license = "Apache-2.0"
+description = "Delonix Desktop — ambiente de trabalho para Platform Engineering, SRE e DevOps sobre o Delonix Engine"
+
+# A app fala com o engine por DOIS contratos: a ponte CLI própria (src/cli.rs,
+# com classificação READ/SAFE_WRITE/DISRUPTIVE/DESTRUCTIVE) + streams
+# (src/stream.rs) para containers/imagens/etc.; e o socket `delonix.node.v1`
+# (src/node.rs) para o lifecycle de VM, via `delonix-desktop-core::NodeClient`
+# (dependência de caminho — o crate core vive no workspace raiz, fora deste
+# sub-workspace).
+[lib]
+name = "delonix_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -15,8 +33,23 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# A camada-core partilhada — toda a lógica cliente↔runtime vive aqui, não na UI.
+tokio = { version = "1", features = ["process", "io-util", "macros", "rt-multi-thread", "time"] }
+which = "6"
+portable-pty = "0.9"
 delonix-desktop-core = { path = "../../../crates/delonix-desktop-core" }
+
+# Integração nativa com o SO (eixo A) — plugins OFICIAIS do Tauri 2.x, não
+# reinvenções. Notificações do SO em eventos críticos, diálogo de ficheiros
+# nativo, persistência de geometria da janela e clipboard do sistema.
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-window-state = "2"
+# Explorador de ficheiros (eixo A): leitura do filesystem para o DevOps navegar
+# e localizar manifestos. A ESCRITA não usa este plugin — grava-se pelo comando
+# dedicado `dlx_save_text` (caminho escolhido no save-dialog nativo), para NÃO
+# conceder escrita ampla ao webview. Ver capabilities/default.json (scope).
+tauri-plugin-fs = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

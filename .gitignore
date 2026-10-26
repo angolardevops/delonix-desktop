@@ -4,3 +4,6 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# Tauri: esquemas ACL gerados em build (regenerados por `cargo build`).
+apps/desktop/src-tauri/gen/

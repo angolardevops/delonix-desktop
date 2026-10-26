@@ -18,7 +18,43 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 
 use crate::error::{CoreError, Result};
-use crate::model::{ApiRoot, Health, ListProviders, NodeInfo};
+use crate::model::{
+    ApiRoot, Health, ListProviders, NodeInfo, Operation, Snapshot, SnapshotList, Vm, VmCreate,
+    VmList,
+};
+
+/// O namespace de isolamento por defeito do contrato (empty = `default`). A
+/// vista de VM do desktop trabalha neste namespace; `*` (todos) é uma extensão
+/// futura da UI.
+const DEFAULT_NS: &str = "default";
+
+// --- Construtores de caminho REST (puros, testados) -------------------------
+//
+// Espelham as anotações `google.api.http` de `VirtualMachineService` em
+// `proto/delonix/node/v1/compute.proto`. Os nomes de VM/snapshot do engine são
+// DNS-like (sem `:`/`/`/espaços — o `transcode` recusaria um `:` no valor de um
+// `{var}` simples), por isso não são percent-encoded aqui.
+
+/// `.../virtualmachines` — List (GET) e Create (POST).
+fn vm_collection(ns: &str) -> String {
+    format!("/v1/namespaces/{ns}/virtualmachines")
+}
+/// `.../virtualmachines/{name}` — Get (GET) e Delete (DELETE).
+fn vm_resource(ns: &str, name: &str) -> String {
+    format!("/v1/namespaces/{ns}/virtualmachines/{name}")
+}
+/// `.../virtualmachines/{name}:{verb}` — Start/Stop/Pause/Resume (POST).
+fn vm_verb(ns: &str, name: &str, verb: &str) -> String {
+    format!("/v1/namespaces/{ns}/virtualmachines/{name}:{verb}")
+}
+/// `.../virtualmachines/{vm}/snapshots` — ListSnapshots (GET) e Create (POST).
+fn snapshot_collection(ns: &str, vm: &str) -> String {
+    format!("/v1/namespaces/{ns}/virtualmachines/{vm}/snapshots")
+}
+/// `.../snapshots/{snapshot}:restore` — RestoreSnapshot (POST).
+fn snapshot_restore(ns: &str, vm: &str, snapshot: &str) -> String {
+    format!("/v1/namespaces/{ns}/virtualmachines/{vm}/snapshots/{snapshot}:restore")
+}
 
 /// Um cliente do node-api ligado a um socket Unix concreto.
 #[derive(Debug, Clone)]
@@ -80,10 +116,87 @@ impl NodeClient {
         self.get("/v1/providers")
     }
 
-    /// HTTP/1.1 `GET`/… mínimo sobre o socket, `Connection: close`. Devolve o
-    /// corpo (bytes). Erros do servidor viram `CoreError::Http` com o problema
-    /// RFC 9457 anexado quando presente.
+    /// POST tipado de um corpo JSON, desserializando a resposta. Uma resposta
+    /// 2xx de corpo vazio (algum endpoint pode não devolver `Operation`) é lida
+    /// como `{}` — os campos opcionais dos DTOs degradam para o default.
+    pub fn post<T: DeserializeOwned>(&self, path: &str, body: &[u8]) -> Result<T> {
+        self.recv_typed("POST", path, Some(body))
+    }
+
+    /// DELETE tipado (sem corpo de pedido). Mesma tolerância a corpo de resposta
+    /// vazio que [`Self::post`].
+    pub fn delete<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        self.recv_typed("DELETE", path, None)
+    }
+
+    fn recv_typed<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&[u8]>,
+    ) -> Result<T> {
+        let raw = self.send(method, path, body)?;
+        let bytes: &[u8] = if raw.iter().all(u8::is_ascii_whitespace) {
+            b"{}"
+        } else {
+            &raw
+        };
+        serde_json::from_slice(bytes).map_err(CoreError::Json)
+    }
+
+    // --- VirtualMachineService (`delonix.node.v1` §5) -----------------------
+
+    /// `ListVirtualMachines` — `GET /v1/namespaces/{ns}/virtualmachines`.
+    pub fn vms(&self) -> Result<VmList> {
+        self.get(&vm_collection(DEFAULT_NS))
+    }
+    /// `GetVirtualMachine` — `GET /v1/namespaces/{ns}/virtualmachines/{name}`.
+    pub fn vm(&self, name: &str) -> Result<Vm> {
+        self.get(&vm_resource(DEFAULT_NS, name))
+    }
+    /// `CreateVirtualMachine` — `POST /v1/namespaces/{ns}/virtualmachines` (body `*`).
+    pub fn vm_create(&self, req: &VmCreate) -> Result<Operation> {
+        let body = serde_json::to_vec(req).map_err(CoreError::Json)?;
+        self.post(&vm_collection(DEFAULT_NS), &body)
+    }
+    /// `StartVirtualMachine` — `POST .../{name}:start` (body `*`).
+    pub fn vm_start(&self, name: &str) -> Result<Operation> {
+        self.post(&vm_verb(DEFAULT_NS, name, "start"), b"{}")
+    }
+    /// `StopVirtualMachine` — `POST .../{name}:stop` (body `*`). Mantém o disco
+    /// (destruir é [`Self::vm_delete`]).
+    pub fn vm_stop(&self, name: &str) -> Result<Operation> {
+        self.post(&vm_verb(DEFAULT_NS, name, "stop"), b"{}")
+    }
+    /// `DeleteVirtualMachine` — `DELETE .../{name}`.
+    pub fn vm_delete(&self, name: &str) -> Result<Operation> {
+        self.delete(&vm_resource(DEFAULT_NS, name))
+    }
+    /// `CreateSnapshot` — `POST .../{vm}/snapshots` (body `*`, `{snapshot}` no corpo).
+    pub fn vm_snapshot_create(&self, name: &str, snapshot: &str) -> Result<Operation> {
+        let body = serde_json::json!({ "snapshot": snapshot });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&snapshot_collection(DEFAULT_NS, name), &body)
+    }
+    /// `ListSnapshots` — `GET .../{vm}/snapshots`.
+    pub fn vm_snapshots(&self, name: &str) -> Result<SnapshotList> {
+        self.get(&snapshot_collection(DEFAULT_NS, name))
+    }
+    /// `RestoreSnapshot` — `POST .../{vm}/snapshots/{snapshot}:restore` (body `*`).
+    pub fn vm_snapshot_restore(&self, name: &str, snapshot: &str) -> Result<Operation> {
+        self.post(&snapshot_restore(DEFAULT_NS, name, snapshot), b"{}")
+    }
+
+    /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
+        self.send(method, path, None)
+    }
+
+    /// HTTP/1.1 mínimo sobre o socket, `Connection: close`. Com `body`, anexa
+    /// `Content-Type: application/json` + `Content-Length` e escreve o corpo.
+    /// Devolve o corpo da resposta (bytes). Erros do servidor viram
+    /// `CoreError::Http` com o problema RFC 9457 anexado quando presente.
+    fn send(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Vec<u8>> {
         let mut stream = UnixStream::connect(&self.socket).map_err(|e| CoreError::Connect {
             socket: self.socket.display().to_string(),
             source: e,
@@ -91,10 +204,20 @@ impl NodeClient {
         stream.set_read_timeout(Some(self.timeout)).ok();
         stream.set_write_timeout(Some(self.timeout)).ok();
 
-        let req = format!(
-            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+        let mut req = format!(
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n"
         );
+        if let Some(b) = body {
+            req.push_str(&format!(
+                "Content-Type: application/json\r\nContent-Length: {}\r\n",
+                b.len()
+            ));
+        }
+        req.push_str("\r\n");
         stream.write_all(req.as_bytes()).map_err(CoreError::Io)?;
+        if let Some(b) = body {
+            stream.write_all(b).map_err(CoreError::Io)?;
+        }
 
         let mut raw = Vec::new();
         stream.read_to_end(&mut raw).map_err(CoreError::Io)?;
@@ -135,4 +258,119 @@ fn split_http(raw: &[u8]) -> Result<(u16, &[u8])> {
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{VmNetworkAttachment, VmSpec};
+
+    #[test]
+    fn vm_routes_match_the_contract_templates() {
+        // Fonte: `google.api.http` de VirtualMachineService em
+        // proto/delonix/node/v1/compute.proto.
+        assert_eq!(
+            vm_collection("default"),
+            "/v1/namespaces/default/virtualmachines"
+        );
+        assert_eq!(
+            vm_resource("default", "web"),
+            "/v1/namespaces/default/virtualmachines/web"
+        );
+        assert_eq!(
+            vm_verb("default", "web", "start"),
+            "/v1/namespaces/default/virtualmachines/web:start"
+        );
+        assert_eq!(
+            vm_verb("default", "web", "stop"),
+            "/v1/namespaces/default/virtualmachines/web:stop"
+        );
+        assert_eq!(
+            snapshot_collection("default", "web"),
+            "/v1/namespaces/default/virtualmachines/web/snapshots"
+        );
+        assert_eq!(
+            snapshot_restore("default", "web", "nightly"),
+            "/v1/namespaces/default/virtualmachines/web/snapshots/nightly:restore"
+        );
+    }
+
+    #[test]
+    fn parses_a_list_response_with_proto3_json_int64_as_string() {
+        // Forma REAL: `preserve_proto_field_names()` (snake_case) e `int64`
+        // (memory_bytes/disk_bytes) como STRING.
+        let raw = r#"{
+          "virtual_machines": [
+            {
+              "meta": {"name": "web", "namespace": "default"},
+              "spec": {
+                "image": "ubuntu.qcow2", "vcpus": 2,
+                "memory_bytes": "2147483648", "disk_bytes": "0",
+                "networks": [{"network": "ingress", "ipv4_address": "10.0.0.2"}],
+                "provider": "cloud-hypervisor"
+              },
+              "status": {
+                "phase": "VIRTUAL_MACHINE_PHASE_RUNNING", "provider": "cloud-hypervisor",
+                "ip_addresses": ["10.0.0.2"], "ip_predicted": false
+              }
+            }
+          ],
+          "page": {"next_page_token": ""}
+        }"#;
+        let list: VmList = serde_json::from_str(raw).unwrap();
+        assert_eq!(list.virtual_machines.len(), 1);
+        let vm = &list.virtual_machines[0];
+        assert_eq!(vm.meta.name, "web");
+        assert_eq!(vm.spec.vcpus, 2);
+        assert_eq!(vm.spec.memory_bytes, 2_147_483_648);
+        assert_eq!(vm.spec.networks[0].network, "ingress");
+        assert_eq!(vm.status.phase, "VIRTUAL_MACHINE_PHASE_RUNNING");
+        assert!(!vm.status.ip_predicted);
+    }
+
+    #[test]
+    fn parses_a_snapshot_list() {
+        let raw = r#"{"snapshots":[{"name":"nightly","includes_memory":true,"state":"running"}]}"#;
+        let list: SnapshotList = serde_json::from_str(raw).unwrap();
+        assert_eq!(list.snapshots[0].name, "nightly");
+        assert!(list.snapshots[0].includes_memory);
+    }
+
+    #[test]
+    fn create_body_sends_int64_as_string_and_omits_namespace() {
+        let req = VmCreate {
+            name: "web".into(),
+            spec: VmSpec {
+                image: "ubuntu.qcow2".into(),
+                vcpus: 2,
+                memory_bytes: 2_147_483_648,
+                disk_bytes: 10_737_418_240,
+                networks: vec![VmNetworkAttachment {
+                    network: "ingress".into(),
+                    ipv4_address: String::new(),
+                }],
+                provider: String::new(),
+            },
+        };
+        let v = serde_json::to_value(&req).unwrap();
+        // int64 como STRING (proto3 JSON); o namespace NÃO vai no corpo.
+        assert_eq!(v["spec"]["memory_bytes"], serde_json::json!("2147483648"));
+        assert_eq!(v["spec"]["disk_bytes"], serde_json::json!("10737418240"));
+        assert_eq!(v["spec"]["vcpus"], serde_json::json!(2));
+        assert!(v.get("namespace").is_none());
+        // ipv4_address vazio é omitido; provider vazio é omitido.
+        assert!(v["spec"]["networks"][0].get("ipv4_address").is_none());
+        assert!(v["spec"].get("provider").is_none());
+    }
+
+    #[test]
+    fn create_body_accepts_int64_as_number_on_read_back() {
+        // O invoke do Tauri entrega números JS; o DTO tem de os aceitar.
+        let v = serde_json::json!({
+            "name": "web",
+            "spec": {"image": "u.qcow2", "vcpus": 1, "memory_bytes": 1024, "disk_bytes": 0}
+        });
+        let req: VmCreate = serde_json::from_value(v).unwrap();
+        assert_eq!(req.spec.memory_bytes, 1024);
+    }
 }
