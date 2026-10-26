@@ -19,6 +19,7 @@ export type Route =
   | { name: "registries" }
   | { name: "events" }
   | { name: "files" }
+  | { name: "ide"; path?: string }
   | { name: "capabilities" }
   | { name: "extensions" }
   | { name: "settings"; section?: "general" | "resources" | "ai" };

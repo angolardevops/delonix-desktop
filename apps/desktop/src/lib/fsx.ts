@@ -159,3 +159,13 @@ export async function saveTextViaDialog(
   await invoke("dlx_save_text", { path, content });
   return path;
 }
+
+// Grava TEXTO num caminho ABSOLUTO já conhecido (o ficheiro aberto no IDE, §10)
+// — é o Guardar/Ctrl+S do editor. Ao contrário de `saveTextViaDialog`, NÃO abre
+// diálogo: escreve direto onde o ficheiro foi aberto. Delega no comando dedicado
+// `dlx_write_text` (o plugin fs continua só-leitura; o backend revalida que o
+// caminho é absoluto e não-vazio). Lança fora do Tauri ou se o backend recusar.
+export async function writeTextFile(path: string, content: string): Promise<void> {
+  if (!isTauri()) return notAvailable();
+  await invoke("dlx_write_text", { path, content });
+}
