@@ -99,51 +99,109 @@ function LogsPanel() {
   );
 }
 
+// Terminal do painel inferior (§6). Separa CLARAMENTE as DUAS naturezas de
+// terminal (pedido do dono):
+//  - CONSOLA DO HOST (default): o shell de login da PRÓPRIA máquina — acesso
+//    total ao host, rotulado como tal. Não é um workload; não passa pelo engine.
+//  - SESSÃO: exec/attach DENTRO de um container a correr — um shell no workload,
+//    NÃO um shell do host.
 function TerminalPanel() {
   const { client, namespace } = useApp();
   // Só containers A CORRER: exec/attach ligam-se a um PTY no container vivo.
   const running = (useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? []).filter(
     (w) => w.type === "container" && runState(w.status) === "running",
   );
+  // Identidade do host para rotular a consola do host (walter@host · /bin/bash).
+  const host = useResource(["host-identity"], () => client.hostIdentity(), 0).data;
+  // ALVO: a consola do host (default) ou uma sessão num container.
+  const [target, setTarget] = useState<"host" | "session">("host");
   const [name, setName] = useState<string>("");
-  // Modo: "Shell novo (exec)" vs "Attach (processo principal)". O attach é só
-  // saída no 5.1.1 e fechá-lo NÃO mata o container.
-  const [mode, setMode] = useState<ExecMode>("container-exec");
+  // Sub-escolha SÓ para sessões: "Shell novo (exec)" vs "Attach (processo
+  // principal)". O attach é só saída no 5.1.1 e fechá-lo NÃO mata o container.
+  const [sessionMode, setSessionMode] = useState<ExecMode>("container-exec");
   useEffect(() => {
     if (running.length && !running.some((c) => c.name === name)) setName(running[0].name);
   }, [running, name]);
 
-  if (!running.length) {
-    return (
-      <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-        <Chip tone="warn">Sem containers a correr</Chip>
-        <p style={{ margin: 0, color: "var(--tx2)" }}>Inicie um container para abrir um terminal interativo (<span className="mono">delonix container exec -it &lt;nome&gt;</span>).</p>
-      </div>
-    );
-  }
-  const argv = mode === "container-attach" ? cmd.attach(name) : cmd.exec(name);
+  const hostLabel = host ? `${host.user}@${host.host}` : "a tua máquina";
+  const hostShell = host?.shell || "/bin/bash";
+  const onHost = target === "host";
+  const argv = sessionMode === "container-attach" ? cmd.attach(name) : cmd.exec(name);
+  const canSession = running.length > 0;
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-      <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)", gap: 8 }}>
-        <label className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Container
-          <Select
-            size="sm"
-            mono
-            ariaLabel="Escolher container para o terminal"
-            value={name}
-            onChange={setName}
-            options={running.map((c) => ({ value: c.name, label: c.name }))}
-            style={{ minWidth: 180 }}
-          />
-        </label>
-        <div role="tablist" aria-label="Tipo de sessão" style={{ display: "inline-flex", gap: 4 }}>
-          <button type="button" role="tab" aria-selected={mode === "container-exec"} className={`btn sm${mode === "container-exec" ? " pri" : ""}`} onClick={() => setMode("container-exec")}>Shell novo (exec)</button>
-          <button type="button" role="tab" aria-selected={mode === "container-attach"} className={`btn sm${mode === "container-attach" ? " pri" : ""}`} onClick={() => setMode("container-attach")}>Attach</button>
+      <div className="toolbar" style={{ padding: "6px 16px", background: "var(--panel)", gap: 10, flexWrap: "wrap" }}>
+        {/* Seletor de ALVO: host vs sessão, com distinção visual inequívoca. */}
+        <div role="tablist" aria-label="Alvo do terminal" style={{ display: "inline-flex", gap: 4 }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={onHost}
+            className={`btn sm${onHost ? " pri" : ""}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            onClick={() => setTarget("host")}
+          >
+            <Icon name="terminal" size={13} />
+            Consola do host
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!onHost}
+            className={`btn sm${!onHost ? " pri" : ""}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            disabled={!canSession}
+            title={canSession ? undefined : "Sem containers a correr"}
+            onClick={() => canSession && setTarget("session")}
+          >
+            <Icon name="logs" size={13} />
+            Sessão num container
+          </button>
         </div>
-        <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(argv)}</span>
+
+        {onHost ? (
+          <>
+            <Chip tone="warn" dot title="A consola do host tem acesso total à tua máquina">A tua máquina · acesso total</Chip>
+            <span className="mono muted" style={{ fontSize: 12 }}>{hostLabel}</span>
+            <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{hostShell} -l</span>
+          </>
+        ) : (
+          <>
+            <Chip tone="inf">Dentro do workload</Chip>
+            <label className="muted" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              Container
+              <Select
+                size="sm"
+                mono
+                ariaLabel="Escolher container para a sessão"
+                value={name}
+                onChange={setName}
+                options={running.map((c) => ({ value: c.name, label: c.name }))}
+                style={{ minWidth: 160 }}
+              />
+            </label>
+            <div role="tablist" aria-label="Tipo de sessão" style={{ display: "inline-flex", gap: 4 }}>
+              <button type="button" role="tab" aria-selected={sessionMode === "container-exec"} className={`btn sm${sessionMode === "container-exec" ? " pri" : ""}`} onClick={() => setSessionMode("container-exec")}>Shell novo (exec)</button>
+              <button type="button" role="tab" aria-selected={sessionMode === "container-attach"} className={`btn sm${sessionMode === "container-attach" ? " pri" : ""}`} onClick={() => setSessionMode("container-attach")}>Attach</button>
+            </div>
+            <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{name && show(argv)}</span>
+          </>
+        )}
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>{name && <Terminal key={`${name}-${mode}`} name={name} mode={mode} />}</div>
+
+      {/* Legenda que reforça a natureza do terminal ativo. */}
+      <div className="muted" style={{ padding: "2px 16px 6px", fontSize: 12, color: "var(--tx2)" }}>
+        {onHost
+          ? "Shell de login da máquina hospedeira — é o teu terminal do sistema, não um workload. Para kubectl, exporta o KUBECONFIG aqui."
+          : "Sessão DENTRO do container (não é um shell do host). Fechá-la não mata o workload."}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {onHost
+          ? <Terminal key="host-shell" name="" mode="host" />
+          : name && <Terminal key={`${name}-${sessionMode}`} name={name} mode={sessionMode} />}
+      </div>
     </div>
   );
 }

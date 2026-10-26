@@ -177,7 +177,8 @@ function TerminalTab({ w }: { w: WorkloadRow }) {
     const argv = sub === "container-attach" ? cmd.attach(w.name) : cmd.exec(w.name);
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div className="toolbar" style={{ background: "var(--panel)", gap: 8 }}>
+        <div className="toolbar" style={{ background: "var(--panel)", gap: 8, flexWrap: "wrap" }}>
+          <Chip tone="inf" title="Terminal DENTRO deste container — não é um shell do host">Sessão no container {w.name}</Chip>
           <div role="tablist" aria-label="Tipo de sessão" style={{ display: "inline-flex", gap: 4 }}>
             <button type="button" role="tab" aria-selected={sub === "container-exec"} className={`btn sm${sub === "container-exec" ? " pri" : ""}`} onClick={() => setSub("container-exec")}>Shell novo (exec)</button>
             <button type="button" role="tab" aria-selected={sub === "container-attach"} className={`btn sm${sub === "container-attach" ? " pri" : ""}`} onClick={() => setSub("container-attach")}>Attach (processo principal)</button>
@@ -185,7 +186,7 @@ function TerminalTab({ w }: { w: WorkloadRow }) {
           <span className="muted" style={{ fontSize: 12 }}>
             {sub === "container-attach"
               ? "Liga-se à saída do processo principal (só saída). Fechar NÃO mata o container."
-              : "Abre um shell novo dentro do container (bash→sh)."}
+              : "Abre um shell novo DENTRO do container (bash→sh) — não é a consola do host."}
           </span>
           <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(argv)}</span>
         </div>
@@ -199,9 +200,9 @@ function TerminalTab({ w }: { w: WorkloadRow }) {
   if (w.type === "pod") {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div className="toolbar" style={{ background: "var(--panel)" }}>
-          <Chip tone="inf">Shell num membro do pod</Chip>
-          <span className="muted" style={{ fontSize: 12 }}>Abre `sh` no 1.º membro (o COMMAND é obrigatório no engine).</span>
+        <div className="toolbar" style={{ background: "var(--panel)", gap: 8, flexWrap: "wrap" }}>
+          <Chip tone="inf" title="Terminal DENTRO de um membro do pod — não é um shell do host">Sessão no pod {w.name}</Chip>
+          <span className="muted" style={{ fontSize: 12 }}>Abre `sh` no 1.º membro (o COMMAND é obrigatório no engine) — não é a consola do host.</span>
           <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(cmd.podExec(w.name))}</span>
         </div>
         {running
@@ -214,9 +215,10 @@ function TerminalTab({ w }: { w: WorkloadRow }) {
   // VM: consola SÉRIE real. Funciona mesmo sem IP (logs de arranque, login).
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-      <div className="toolbar" style={{ background: "var(--panel)", gap: 8 }}>
+      <div className="toolbar" style={{ background: "var(--panel)", gap: 8, flexWrap: "wrap" }}>
+        <Chip tone="inf" title="Consola série DESTA VM — não é a consola do host">Sessão na VM {w.name}</Chip>
         <Chip tone="warn">Consola série — não é um shell autenticado</Chip>
-        <span className="muted" style={{ fontSize: 12 }}>Terminal série da VM (arranque/login). Ctrl-D sai sem desligar a VM.</span>
+        <span className="muted" style={{ fontSize: 12 }}>Terminal série da VM (arranque/login), não a consola do host. Ctrl-D sai sem desligar a VM.</span>
         <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(cmd.vmConsole(w.name))}</span>
       </div>
       {running

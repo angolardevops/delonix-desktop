@@ -140,6 +140,7 @@ pub fn run() {
             exec::dlx_exec_write,
             exec::dlx_exec_resize,
             exec::dlx_exec_stop,
+            exec::dlx_host_identity,
             node::node_vm_list,
             node::node_vm_get,
             node::node_vm_create,

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DelonixClient, ExecMode, ExecSession } from "./client";
+import type { DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
 import { cmd, kubectl, type Argv } from "./cli";
 import { buildEngineInfo, type EngineInfo } from "./engine";
 import { parseDoctor } from "./doctor";
@@ -625,6 +625,11 @@ export class TauriClient implements DelonixClient {
         void invoke("dlx_exec_stop", { id });
       },
     };
+  }
+
+  // Identidade do host para o rótulo da consola do host (backend `dlx_host_identity`).
+  hostIdentity(): Promise<HostIdentity> {
+    return invoke<HostIdentity>("dlx_host_identity");
   }
 
   // --- VMs pelo socket node.v1 (§5) ---------------------------------------

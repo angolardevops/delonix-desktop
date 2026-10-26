@@ -1,6 +1,6 @@
 // Duplo local: os mesmos dados dos mockups, para desenvolver no browser sem
 // Tauri nem engine. A UI mostra sempre uma faixa "duplo local" neste modo.
-import type { DelonixClient, ExecMode, ExecSession } from "./client";
+import type { DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import { buildEngineInfo } from "./engine";
@@ -629,7 +629,12 @@ export class MockClient implements DelonixClient {
     // Duplo local: cada modo tem a sua semântica simulada (sem engine).
     // - attach/vm-console: OUTPUT-ONLY (não há eco de stdin; o attach do engine
     //   recusa -i e a consola série não é um shell que ecoa aqui).
+    // - host: a CONSOLA DO HOST — simula o shell de login da máquina (eco local).
+    //   No duplo não há máquina real; o banner deixa claro que é a consola do host.
     // - exec/pod-exec: um shell que ecoa o que se escreve.
+    const prompt = mode === "host"
+      ? `\x1b[2mduplo local — CONSOLA DO HOST (shell de login da máquina; acesso total ao host)\x1b[0m\r\n$ `
+      : null;
     if (mode === "container-attach" || mode === "vm-console") {
       const banner = mode === "vm-console"
         ? `\x1b[2mduplo local — consola série de ${name} (Ctrl-D sai; não é shell autenticado)\x1b[0m\r\n`
@@ -640,7 +645,7 @@ export class MockClient implements DelonixClient {
       return { write: () => {}, resize: () => {}, stop: () => clearInterval(t) };
     }
     const where = mode === "pod-exec" ? `membro do pod ${name}` : name;
-    onData(`\x1b[2mduplo local — shell simulado em ${where}\x1b[0m\r\n$ `);
+    onData(prompt ?? `\x1b[2mduplo local — shell simulado em ${where}\x1b[0m\r\n$ `);
     let line = "";
     return {
       write: (data: string) => {
@@ -653,6 +658,11 @@ export class MockClient implements DelonixClient {
       resize: () => {},
       stop: () => {},
     };
+  }
+
+  // Identidade do host simulada (o browser não tem uma máquina real por trás).
+  hostIdentity(): Promise<HostIdentity> {
+    return wait({ user: "demo", host: "duplo-local", shell: "/bin/bash" });
   }
 
   // --- VMs pelo socket node.v1 (§5), simuladas ---------------------------

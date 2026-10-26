@@ -17,6 +17,8 @@ let execSeq = 0;
 function endMessage(mode: ExecMode, gotData: boolean): string {
   if (!gotData) {
     switch (mode) {
+      case "host":
+        return "[a consola do host fechou de imediato — o shell de login não arrancou]";
       case "container-attach":
         return "[sem saída — o processo principal ainda não escreveu nada, ou o container está parado]";
       case "vm-console":
@@ -28,6 +30,8 @@ function endMessage(mode: ExecMode, gotData: boolean): string {
     }
   }
   switch (mode) {
+    case "host":
+      return "[consola do host terminada — saíste do shell de login da máquina]";
     case "container-attach":
       return "[attach terminado — isto fecha só a ligação de saída; o workload continua a correr]";
     case "vm-console":

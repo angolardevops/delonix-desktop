@@ -83,9 +83,16 @@ export interface DelonixClient {
   events(onEvent: (e: EngineEvent) => void, onEnd?: () => void): Promise<() => void>;
   // Sessão interativa por PTY (§3/§6). `mode` escolhe a semântica: `shell novo`
   // (container exec), `attach` ao processo principal (output-only), `pod exec`
-  // (shell num membro) ou `consola série` de VM. Os bytes do PTY chegam por
-  // `onData`; o fim do processo por `onEnd`.
+  // (shell num membro), `consola série` de VM, ou a CONSOLA DO HOST (`host`) — o
+  // shell de login da própria máquina. Nos modos de SESSÃO, `name` é o recurso;
+  // no modo `host`, `name` é IGNORADO (o backend corre só o shell, nunca um
+  // comando vindo do frontend). Os bytes do PTY chegam por `onData`; o fim por
+  // `onEnd`.
   exec(id: string, name: string, mode: ExecMode, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession>;
+  // Identidade do host para ROTULAR a consola do host (user@host · shell). É
+  // informativa: não altera o que a consola executa (o shell de login é sempre
+  // fixado no backend). Best-effort — degrada para um rótulo genérico se faltar.
+  hostIdentity(): Promise<HostIdentity>;
   // VMs pelo contrato de socket node.v1 (§5). As ações e a criação passam pelo
   // socket (não pela CLI); a tabela de Workloads continua a vir de `workload ls`.
   vmList(): Promise<VmDetail[]>;
@@ -99,10 +106,21 @@ export interface DelonixClient {
   vmSnapshotRestore(name: string, snapshot: string): Promise<void>;
 }
 
-// Os quatro modos de sessão interativa por PTY (§6). Têm de casar EXATAMENTE
-// com `parse_mode` no backend (exec.rs) — qualquer outra string é recusada
-// (falha fechada), tanto no renderer como no Rust.
-export type ExecMode = "container-exec" | "container-attach" | "pod-exec" | "vm-console";
+// Os cinco modos de terminal por PTY (§6). Têm de casar EXATAMENTE com
+// `parse_mode` no backend (exec.rs) — qualquer outra string é recusada (falha
+// fechada), tanto no renderer como no Rust. DUAS naturezas distintas:
+//  - SESSÃO dentro de um workload: `container-exec` | `container-attach` |
+//    `pod-exec` | `vm-console` — ligam-se pelo engine `delonix`.
+//  - CONSOLA DO HOST: `host` — o shell de login da própria máquina (acesso TOTAL
+//    ao host, explícito e rotulado como tal; não passa pelo engine).
+export type ExecMode = "container-exec" | "container-attach" | "pod-exec" | "vm-console" | "host";
+
+// Identidade do host para rotular a consola do host (ex. `walter@maquina`).
+export interface HostIdentity {
+  user: string;
+  host: string;
+  shell: string;
+}
 
 // Uma sessão de exec viva: escreve stdin, redimensiona e termina o PTY.
 export interface ExecSession {
