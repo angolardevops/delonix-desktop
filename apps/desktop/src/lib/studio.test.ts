@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   canConnect,
+  CATALOG,
+  defaultDesign,
   designToManifest,
   diffDesignVsLive,
+  edgeLabel,
   emptyDesign,
   parseDesign,
   serializeDesign,
+  STUDIO_TEMPLATES,
   toYaml,
   validateDesign,
   type StudioDesign,
@@ -122,6 +126,85 @@ describe("serializeDesign / parseDesign — round-trip (.json)", () => {
   it("rejeita ficheiros que não são desenhos", () => {
     expect(() => parseDesign("não é json")).toThrow();
     expect(() => parseDesign(JSON.stringify({ version: 2 }))).toThrow();
+  });
+});
+
+describe("STUDIO_TEMPLATES — modelos prontos geram manifesto válido", () => {
+  it("o modelo por omissão é não-vazio (o canvas não abre vazio)", () => {
+    const d = defaultDesign();
+    expect(d.nodes.length).toBeGreaterThan(0);
+    expect(d.edges.length).toBeGreaterThan(0);
+    expect(validateDesign(d).filter((i) => i.level === "error")).toHaveLength(0);
+  });
+
+  it("todos os modelos produzem um desenho sem erros e um manifesto kind: Stack", () => {
+    for (const t of STUDIO_TEMPLATES) {
+      const d = t.make();
+      const errs = validateDesign(d).filter((i) => i.level === "error");
+      expect(errs, `modelo ${t.id}: ${errs.map((e) => e.message).join("; ")}`).toHaveLength(0);
+      const { yaml } = designToManifest(d);
+      expect(yaml).toContain("kind: Stack");
+    }
+  });
+
+  it("Web+BD emite rede, dois containers, volume montado e segredo ligado", () => {
+    const { yaml } = designToManifest(STUDIO_TEMPLATES[0].make());
+    expect(yaml).toContain("networks:");
+    expect(yaml).toContain("- name: web");
+    expect(yaml).toContain("- name: db");
+    expect(yaml).toContain("volumes:");
+    expect(yaml).toContain('- "pgdata:/var/lib/postgresql/data"');
+    expect(yaml).toContain("secrets:");
+    expect(yaml).toContain("- name: db-secret");
+    expect(yaml).toContain("POSTGRES_PASSWORD");
+  });
+});
+
+describe("adicionar do catálogo → propriedades no manifesto", () => {
+  // Invariante por trás do drag-drop / click-para-adicionar: um nó criado a
+  // partir de CATALOG[kind].defaults, depois de nomeado/editado e ligado a uma
+  // rede, materializa-se no YAML com as suas propriedades.
+  it("um container adicionado com imagem+portas aparece no stack ligado à rede", () => {
+    const d = emptyDesign("add-demo");
+    const net = { id: "nn", kind: "network" as const, name: "edge", x: 0, y: 0, props: { ...CATALOG.network.defaults } };
+    // Simula o que addNode faz: parte dos defaults do catálogo e edita os campos.
+    const web = { id: "cc", kind: "container" as const, name: "api", x: 0, y: 0, props: { ...CATALOG.container.defaults, image: "caddy:2", ports: "443:443" } };
+    d.nodes.push(net, web);
+    d.edges.push({ id: "e", source: "nn", target: "cc" });
+    expect(validateDesign(d).filter((i) => i.level === "error")).toHaveLength(0);
+    const { yaml } = designToManifest(d);
+    expect(yaml).toContain("- name: api");
+    expect(yaml).toContain('image: "caddy:2"');
+    expect(yaml).toContain("network: edge");
+    expect(yaml).toContain('- "443:443"');
+  });
+
+  it("cada tipo do catálogo tem defaults e campos declarados", () => {
+    for (const k of Object.keys(CATALOG) as (keyof typeof CATALOG)[]) {
+      const c = CATALOG[k];
+      expect(c.fields.length, `${k} sem campos`).toBeGreaterThan(0);
+      // Os defaults só precisam de cobrir chaves conhecidas (podem ser vazios).
+      for (const key of Object.keys(c.defaults)) {
+        expect(typeof c.defaults[key]).toBe("string");
+      }
+    }
+  });
+});
+
+describe("edgeLabel — rótulos derivados do par de extremos", () => {
+  const d = STUDIO_TEMPLATES[0].make();
+  const find = (src: string, tgt: string) => d.edges.find((e) => e.source === src && e.target === tgt)!;
+  it("liga container↔rede → 'rede'", () => {
+    expect(edgeLabel(d, find("net", "web"))).toBe("rede");
+  });
+  it("liga container↔volume → 'monta em <ponto>'", () => {
+    expect(edgeLabel(d, find("db", "data"))).toBe("monta em /var/lib/postgresql/data");
+  });
+  it("liga container↔segredo → 'segredo'", () => {
+    expect(edgeLabel(d, find("db", "sec"))).toBe("segredo");
+  });
+  it("devolve vazio para aresta com extremo inexistente", () => {
+    expect(edgeLabel(d, { id: "x", source: "nada", target: "web" })).toBe("");
   });
 });
 
