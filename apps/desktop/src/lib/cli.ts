@@ -227,6 +227,10 @@ export const cmd = {
   manifestValidate: (file: string, strict?: boolean): Argv => [
     "manifest", "validate", "-f", file, ...(strict ? ["--strict"] : []),
   ],
+  // `manifest schema` imprime o JSON Schema do manifesto Delonix, gerado dos
+  // tipos Rust (ADR-0007). HOST-FREE e só-leitura (classe Read) → corre por
+  // readText/dlx_run. O IDE usa-o para dar validação/completação/hover de YAML.
+  manifestSchema: (): Argv => ["manifest", "schema"],
 
   // Clusters/Kubernetes: `ls` é TEXTO (sem `-o json` no 5.1.1 — recusa `-o`
   // explicitamente); `health`/`kubeconfig`/`kube generate` imprimem texto/YAML.
