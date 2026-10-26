@@ -3,7 +3,8 @@ import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { LazyTerminal as Terminal } from "../components/LazyTerminal";
 import { CliHint, Chip, ErrorNote, Planned, StateChip, Tabs, TypeChip } from "../components/ui";
-import { cmd } from "../lib/cli";
+import type { ExecMode } from "../lib/client";
+import { cmd, show } from "../lib/cli";
 import { runState, useDebounced, useResource } from "../lib/hooks";
 import { fmtBinBytes, fmtRate, latestRates, sampleFromRow, type Sample } from "../lib/metrics";
 import type { DashRow, WorkloadRow } from "../lib/types";
@@ -102,18 +103,12 @@ export function WorkloadDetail({ id }: { id: string }) {
                 <button className="btn sm" type="button" style={{ color: follow ? "var(--ok)" : undefined }} onClick={() => setFollow(!follow)}><span className="dot" />Seguir</button>
               </div>
               <div className="log" style={{ flex: 1, overflow: "auto", border: 0, minHeight: 360 }}>
-                {w.type === "vm" ? "A consola série de VMs liga-se em `delonix vm console` (ver PROMPT.md §8.3)." : shown.join("\n")}
+                {w.type === "vm" ? "Uma VM não expõe logs de guest ao engine — só a consola série. Abra o separador Terminal para a consola série real (apanha os logs de arranque e o login)." : shown.join("\n")}
                 <div ref={end} />
               </div>
             </>
           )}
-          {tab === "terminal" && (
-            w.type === "vm"
-              ? <p className="muted" style={{ padding: 24 }}>A consola de VM usa `delonix vm console` (ver PROMPT.md §8.3).</p>
-              : w.type === "pod"
-                ? <p className="muted" style={{ padding: 24 }}>Um shell num membro do pod abre-se por `delonix pod exec {w.name} -- sh` (ver PROMPT.md §8.4).</p>
-                : <Terminal key={w.name} name={w.name} />
-          )}
+          {tab === "terminal" && <TerminalTab w={w} />}
           {tab === "inspect" && <Inspect name={w.name} />}
           {tab === "stats" && <Stats w={w} />}
           {tab === "snapshots" && <Snapshots name={w.name} />}
@@ -138,6 +133,71 @@ export function WorkloadDetail({ id }: { id: string }) {
         </aside>
       </div>
     </>
+  );
+}
+
+// Separador Terminal (§6): distingue CLARAMENTE as ligações interativas.
+// - Container: duas abas — "Shell novo (exec)" abre um shell NOVO dentro do
+//   container; "Attach (processo principal)" re-liga à saída do PID 1 (só
+//   saída no 5.1.1; fechar NÃO mata o workload).
+// - Pod: um shell num membro (`pod exec`).
+// - VM: a CONSOLA SÉRIE real (`vm console`), rotulada como tal — não é um shell
+//   autenticado; o detach é Ctrl-D e não desliga a VM.
+function TerminalTab({ w }: { w: WorkloadRow }) {
+  const [sub, setSub] = useState<ExecMode>(w.type === "vm" ? "vm-console" : w.type === "pod" ? "pod-exec" : "container-exec");
+  const st = runState(w.status);
+  const running = st === "running";
+
+  if (w.type === "container") {
+    const argv = sub === "container-attach" ? cmd.attach(w.name) : cmd.exec(w.name);
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <div className="toolbar" style={{ background: "var(--panel)", gap: 8 }}>
+          <div role="tablist" aria-label="Tipo de sessão" style={{ display: "inline-flex", gap: 4 }}>
+            <button type="button" role="tab" aria-selected={sub === "container-exec"} className={`btn sm${sub === "container-exec" ? " pri" : ""}`} onClick={() => setSub("container-exec")}>Shell novo (exec)</button>
+            <button type="button" role="tab" aria-selected={sub === "container-attach"} className={`btn sm${sub === "container-attach" ? " pri" : ""}`} onClick={() => setSub("container-attach")}>Attach (processo principal)</button>
+          </div>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {sub === "container-attach"
+              ? "Liga-se à saída do processo principal (só saída). Fechar NÃO mata o container."
+              : "Abre um shell novo dentro do container (bash→sh)."}
+          </span>
+          <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(argv)}</span>
+        </div>
+        {running
+          ? <div style={{ flex: 1, minHeight: 0 }}><Terminal key={`${w.name}-${sub}`} name={w.name} mode={sub} /></div>
+          : <p className="muted" style={{ padding: 24 }}>O container está parado. Inicie-o para abrir {sub === "container-attach" ? "o attach à saída" : "um shell"}.</p>}
+      </div>
+    );
+  }
+
+  if (w.type === "pod") {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <div className="toolbar" style={{ background: "var(--panel)" }}>
+          <Chip tone="inf">Shell num membro do pod</Chip>
+          <span className="muted" style={{ fontSize: 12 }}>Abre `sh` no 1.º membro (o COMMAND é obrigatório no engine).</span>
+          <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(cmd.podExec(w.name))}</span>
+        </div>
+        {running
+          ? <div style={{ flex: 1, minHeight: 0 }}><Terminal key={`${w.name}-pod`} name={w.name} mode="pod-exec" /></div>
+          : <p className="muted" style={{ padding: 24 }}>O pod está parado. Inicie-o para abrir um shell num membro.</p>}
+      </div>
+    );
+  }
+
+  // VM: consola SÉRIE real. Funciona mesmo sem IP (logs de arranque, login).
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div className="toolbar" style={{ background: "var(--panel)", gap: 8 }}>
+        <Chip tone="warn">Consola série — não é um shell autenticado</Chip>
+        <span className="muted" style={{ fontSize: 12 }}>Terminal série da VM (arranque/login). Ctrl-D sai sem desligar a VM.</span>
+        <span className="mono muted" style={{ marginLeft: "auto", fontSize: 12 }}>{show(cmd.vmConsole(w.name))}</span>
+      </div>
+      {running
+        ? <div style={{ flex: 1, minHeight: 0 }}><Terminal key={`${w.name}-console`} name={w.name} mode="vm-console" /></div>
+        : <p className="muted" style={{ padding: 24 }}>A VM está parada. Inicie-a para abrir a consola série (apanha os logs de arranque).</p>}
+    </div>
   );
 }
 

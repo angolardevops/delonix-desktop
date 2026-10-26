@@ -19,6 +19,7 @@ export type Route =
   | { name: "networks" }
   | { name: "registries" }
   | { name: "events" }
+  | { name: "logs" }
   | { name: "files" }
   | { name: "ide"; path?: string }
   | { name: "capabilities" }

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DelonixClient, ExecSession } from "./client";
+import type { DelonixClient, ExecMode, ExecSession } from "./client";
 import { cmd, kubectl, type Argv } from "./cli";
 import { parseDoctor } from "./doctor";
 import { fmtUnix } from "./format";
@@ -586,7 +586,7 @@ export class TauriClient implements DelonixClient {
     };
   }
 
-  async exec(id: string, name: string, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession> {
+  async exec(id: string, name: string, mode: ExecMode, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession> {
     const unData = await listen<{ id: string; data: string }>("dlx-exec", (e) => {
       if (e.payload.id === id) onData(e.payload.data);
     });
@@ -597,7 +597,7 @@ export class TauriClient implements DelonixClient {
         unEnd();
       }
     });
-    await invoke("dlx_exec_start", { id, name });
+    await invoke("dlx_exec_start", { id, name, mode });
     return {
       write: (data: string) => void invoke("dlx_exec_write", { id, data }),
       resize: (cols: number, rows: number) => void invoke("dlx_exec_resize", { id, cols, rows }),
