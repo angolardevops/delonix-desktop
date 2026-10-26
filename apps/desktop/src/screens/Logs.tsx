@@ -154,7 +154,7 @@ function LogsExplorer() {
             </button>
           )}
           {meta.timestamps && (
-            <button className="btn sm" type="button" style={{ color: timestamps ? "var(--inf)" : undefined }} onClick={() => setTimestamps((t) => !t)} title="Requer `--log-cri` no run (container logs --timestamps)">
+            <button className="btn sm" type="button" style={{ color: timestamps ? "var(--inf)" : undefined }} onClick={() => setTimestamps((t) => !t)} title="Requer o container corrido com --log-cri (ligado por omissão em Novo workload). Sem isso, o engine recusa --timestamps.">
               Timestamps
             </button>
           )}
@@ -217,7 +217,7 @@ function LogsExplorer() {
                 : <p className="mono muted" style={{ fontSize: 12 }}>kubectl logs &lt;pod&gt; -n &lt;ns&gt; --tail 1000 (kubeconfig em cache; o engine 5.1.1 não tem passthrough)</p>}
           {meta.timestamps && (
             <p className="muted" style={{ fontSize: 12 }}>
-              <span className="mono">--timestamps</span> só funciona em containers corridos com <span className="mono">--log-cri</span> (o formato simples é bytes crus, sem carimbo por linha). Sem isso, o engine devolve um erro a nomear a flag.
+              <span className="mono">--timestamps</span> só funciona em containers corridos com <span className="mono">--log-cri</span> (o formato simples é bytes crus, sem carimbo por linha). Sem isso, o engine devolve um erro a nomear a flag — <strong>recrie o container</strong> em <span className="mono">Novo workload</span> com a opção «Logs compatíveis com Kubernetes (<span className="mono">--log-cri</span>)», que já vem ligada.
             </p>
           )}
           {meta.note && !meta.streams && source !== "cluster" && (

@@ -20,6 +20,24 @@ export interface ScanSummary {
   packages: number | null;
   /** Nº total de vulnerabilidades; null se a linha não veio. */
   vulnerabilities: number | null;
+  /**
+   * A base de CVEs usada é o PLACEHOLDER embebido (não um feed real). O próprio
+   * engine 5.1.1 avisa: `database source: EMBEDDED database (placeholder)` +
+   * `warning EMBEDDED CVE database (placeholder, …) — NOT a real feed; a "no
+   * vulnerabilities" is not to be trusted`. Quando true, um "0 vulnerabilidades"
+   * NÃO é de confiar e a UI tem de o dizer, sugerindo `image scan --update`.
+   */
+  placeholder: boolean;
+}
+
+// Deteta se a saída de um scan veio da base embebida placeholder (ver acima).
+// Olha tanto para a linha `database source:` como para o aviso textual — basta
+// uma delas nomear "EMBEDDED"/"placeholder" para não confiarmos no resultado.
+export function scanUsesPlaceholderDb(stdout: string): boolean {
+  return /database source:\s*EMBEDDED/i.test(stdout)
+    || /EMBEDDED CVE database/i.test(stdout)
+    || /placeholder/i.test(stdout)
+    || /not a real feed/i.test(stdout);
 }
 
 export function parseScanSummary(stdout: string): ScanSummary | null {
@@ -38,8 +56,14 @@ export function parseScanSummary(stdout: string): ScanSummary | null {
     low: sev("LOW"),
     packages: pkg ? Number(pkg[1]) : null,
     vulnerabilities: vuln ? Number(vuln[1]) : null,
+    placeholder: scanUsesPlaceholderDb(stdout),
   };
 }
+
+// Comando sugerido para sincronizar o feed de CVEs (deixa de ser placeholder).
+// Confirmado por `image scan --help` no 5.1.1: `--update [--feed <URL|FICHEIRO>]`
+// (ou $DELONIX_ADVISORY_FEED). O URL é um exemplo — o utilizador põe o seu feed.
+export const SCAN_UPDATE_HINT = "delonix image scan --update --feed <URL do feed OSV/JSON>";
 
 // Total de achados com severidade conhecida (para o badge "limpa"/"N achados").
 export const scanTotal = (s: ScanSummary): number => s.critical + s.high + s.medium + s.low;
@@ -106,4 +130,70 @@ export function fmtDuration(ms: number | null): string {
 // Hora local curta (HH:MM) de um instante ms — para a coluna "Hora".
 export function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit" });
+}
+
+// --- Persistência do histórico de builds -----------------------------------
+// A LISTA de builds (tag/estado/duração/hora/argv) persiste em localStorage e é
+// reposta no arranque, para "Re-executar" sobreviver a um reinício da app. Os
+// LOGS (lines) NÃO se persistem: são grandes, efémeros, e só fazem sentido na
+// sessão viva — por isso "Ver logs" de um build reposto mostra "(sem logs
+// guardados)". Cap de 50 entradas (as mais recentes primeiro).
+export const BUILD_HISTORY_KEY = "delonix.build.history";
+export const BUILD_HISTORY_CAP = 50;
+
+// A forma guardada: tudo menos as linhas de log.
+type BuildMeta = Omit<BuildRecord, "lines">;
+
+function isBuildMeta(x: unknown): x is BuildMeta {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return typeof r.id === "string"
+    && typeof r.tag === "string"
+    && (r.state === "building" || r.state === "ok" || r.state === "fail")
+    && typeof r.startedAt === "number"
+    && (r.durationMs === null || typeof r.durationMs === "number")
+    && Array.isArray(r.argv)
+    && (r.argv as unknown[]).every((a) => typeof a === "string");
+}
+
+// localStorage de forma segura (ausente em testes/SSR ou bloqueado) — devolve
+// null em vez de rebentar. Permite injetar um Storage nos testes.
+function safeStorage(store?: Storage): Storage | null {
+  if (store) return store;
+  try {
+    return typeof localStorage !== "undefined" ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function loadBuildHistory(store?: Storage): BuildRecord[] {
+  const s = safeStorage(store);
+  if (!s) return [];
+  try {
+    const raw = s.getItem(BUILD_HISTORY_KEY);
+    if (!raw) return [];
+    const arr: unknown = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(isBuildMeta)
+      // Um build "a construir" guardado é de uma sessão que já morreu: ao repor,
+      // nunca pode continuar a correr → marca-se como falhado (honesto).
+      .map((m) => ({ ...m, state: m.state === "building" ? "fail" as const : m.state, lines: [] }))
+      .slice(0, BUILD_HISTORY_CAP);
+  } catch {
+    return [];
+  }
+}
+
+export function saveBuildHistory(records: BuildRecord[], store?: Storage): void {
+  const s = safeStorage(store);
+  if (!s) return;
+  try {
+    // Descarta as linhas (não se persistem) e aplica o cap.
+    const slim: BuildMeta[] = records.slice(0, BUILD_HISTORY_CAP).map(({ lines, ...meta }) => { void lines; return meta; });
+    s.setItem(BUILD_HISTORY_KEY, JSON.stringify(slim));
+  } catch {
+    /* quota cheia ou storage indisponível — o histórico fica só-sessão */
+  }
 }
