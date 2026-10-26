@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-desktop"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "delonix-desktop-core",
  "portable-pty",
