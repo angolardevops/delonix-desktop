@@ -27,6 +27,7 @@ export function Sidebar() {
       { route: { name: "registries" }, icon: "registries", label: "Registries" },
     ] },
     { title: "Operar", items: [
+      { route: { name: "studio" }, icon: "studio", label: "Architecture Studio" },
       { route: { name: "events" }, icon: "events", label: "Eventos e métricas" },
       { route: { name: "files" }, icon: "files", label: "Ficheiros" },
       { route: route, icon: "assistant", label: "Assistente", dock: true },

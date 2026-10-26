@@ -14,6 +14,7 @@ export type Route =
   | { name: "secrets" }
   | { name: "backups" }
   | { name: "declarative" }
+  | { name: "studio" }
   | { name: "kubernetes" }
   | { name: "networks" }
   | { name: "registries" }
