@@ -166,6 +166,78 @@ export const ALL_KINDS: StudioKind[] = Object.keys(CATALOG) as StudioKind[];
 // Tipos que se materializam no manifesto de stack (os outros são de desenho).
 export const STACK_KINDS: StudioKind[] = ALL_KINDS.filter((k) => CATALOG[k].emitsToStack);
 
+// --- Modelos (templates) ----------------------------------------------------
+// Desenhos de arranque PRONTOS. São puros (sem React) para os testes poderem
+// provar que cada modelo gera um manifesto que o engine valida. O estúdio abre
+// no primeiro ("web-db") para o canvas NÃO parecer vazio; "Vazio" limpa.
+
+export interface StudioTemplate {
+  id: string;
+  label: string;
+  blurb: string;
+  make: () => StudioDesign;
+}
+
+export const STUDIO_TEMPLATES: StudioTemplate[] = [
+  {
+    id: "web-db",
+    label: "Web + Base de dados",
+    blurb: "Front-end numa rede, base de dados com volume persistente e segredo.",
+    make: (): StudioDesign => ({
+      version: 1,
+      name: "web-db",
+      namespace: "",
+      nodes: [
+        { id: "net", kind: "network", name: "app", x: 360, y: 40, props: { driver: "bridge", subnet: "10.89.0.0/24" } },
+        { id: "web", kind: "container", name: "web", x: 120, y: 260, props: { image: "nginx:latest", ports: "8080:80", env: "", command: "" } },
+        { id: "db", kind: "container", name: "db", x: 600, y: 260, props: { image: "postgres:16", ports: "", env: "POSTGRES_PASSWORD=change-me", command: "" } },
+        { id: "data", kind: "volume", name: "pgdata", x: 600, y: 480, props: { size: "5G", driver: "local", mount: "/var/lib/postgresql/data" } },
+        { id: "sec", kind: "secret", name: "db-secret", x: 360, y: 480, props: { keys: "POSTGRES_PASSWORD" } },
+      ],
+      edges: [
+        { id: "e1", source: "net", target: "web" },
+        { id: "e2", source: "net", target: "db" },
+        { id: "e3", source: "db", target: "data" },
+        { id: "e4", source: "db", target: "sec" },
+      ],
+    }),
+  },
+  {
+    id: "pod-net",
+    label: "Pod numa rede",
+    blurb: "Um pod (rede partilhada entre containers) ligado a uma rede.",
+    make: (): StudioDesign => ({
+      version: 1,
+      name: "pod-stack",
+      namespace: "",
+      nodes: [
+        { id: "net", kind: "network", name: "mesh", x: 320, y: 60, props: { driver: "bridge", subnet: "" } },
+        { id: "pod", kind: "pod", name: "cache", x: 320, y: 280, props: { image: "redis:7", ports: "6379" } },
+      ],
+      edges: [{ id: "e1", source: "net", target: "pod" }],
+    }),
+  },
+  {
+    id: "vm-net",
+    label: "VM numa rede",
+    blurb: "microVM ligada a uma rede bridge — ponto de partida para um host.",
+    make: (): StudioDesign => ({
+      version: 1,
+      name: "vm-stack",
+      namespace: "",
+      nodes: [
+        { id: "net", kind: "network", name: "lan", x: 320, y: 60, props: { driver: "bridge", subnet: "" } },
+        { id: "vm", kind: "vm", name: "host", x: 320, y: 280, props: { disk: "ubuntu-22.04", vcpus: "2", memory: "2G" } },
+      ],
+      edges: [{ id: "e1", source: "net", target: "vm" }],
+    }),
+  },
+];
+
+export function defaultDesign(): StudioDesign {
+  return STUDIO_TEMPLATES[0].make();
+}
+
 // --- Ligações tipadas -------------------------------------------------------
 // Pares VÁLIDOS (não-orientados). Uma ligação container↔container, por exemplo,
 // não tem significado no modelo e é recusada.
@@ -194,6 +266,23 @@ export function connectionError(a: StudioKind, b: StudioKind): string | null {
   if (canConnect(a, b)) return null;
   if (a === b) return `Dois ${CATALOG[a].label.toLowerCase()} não se ligam diretamente.`;
   return `${CATALOG[a].label} e ${CATALOG[b].label} não formam uma ligação válida.`;
+}
+
+// Rótulo curto para a aresta, derivado dos tipos dos extremos (e do ponto de
+// montagem do volume, quando aplicável). Dá significado visível à ligação no
+// canvas — "rede", "monta em /data", "segredo", "expõe". Puro e testável.
+export function edgeLabel(design: StudioDesign, edge: StudioEdge): string {
+  const byId = new Map(design.nodes.map((n) => [n.id, n]));
+  const s = byId.get(edge.source);
+  const t = byId.get(edge.target);
+  if (!s || !t) return "";
+  const kinds = new Set<StudioKind>([s.kind, t.kind]);
+  const vol = s.kind === "volume" ? s : t.kind === "volume" ? t : null;
+  if (vol) return `monta em ${vol.props.mount?.trim() || `/mnt/${vol.name.trim()}`}`;
+  if (kinds.has("secret")) return "segredo";
+  if (kinds.has("gateway")) return "expõe";
+  if (kinds.has("network")) return "rede";
+  return "";
 }
 
 // --- Validação do desenho ---------------------------------------------------

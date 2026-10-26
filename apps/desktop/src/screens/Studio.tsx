@@ -10,22 +10,25 @@
 // O canvas (reactflow) está num chunk à parte (lazy). O desenho é a fonte
 // canónica; guarda-se/carrega-se em .json. A geração do manifesto é pura
 // (lib/studio.ts) e validada ao vivo pelo engine antes do apply.
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { Chip, CliHint, ErrorNote, PageHead, Tabs } from "../components/ui";
 import { cmd } from "../lib/cli";
-import { readTextFile, saveTextViaDialog } from "../lib/fsx";
+import { fsAvailable, homeDir, readTextFile, saveTextViaDialog, writeTextFile } from "../lib/fsx";
+import { joinPath } from "../lib/fsx";
 import { nativeDialogsAvailable, pickFile, YAML_FILTERS } from "../lib/native";
 import {
   ALL_KINDS,
   CATALOG,
+  defaultDesign,
   designToManifest,
   diffDesignVsLive,
   emptyDesign,
   liveToDesign,
   parseDesign,
   serializeDesign,
+  STUDIO_TEMPLATES,
   validateDesign,
   type Issue,
   type PlanRow,
@@ -45,34 +48,13 @@ interface History {
   future: StudioDesign[];
 }
 
-const TEMPLATES: { id: string; label: string; make: () => StudioDesign }[] = [
-  {
-    id: "web-db",
-    label: "Web + Base de dados",
-    make: () => {
-      const d = emptyDesign("web-db");
-      d.nodes = [
-        { id: "net", kind: "network", name: "app", x: 320, y: 40, props: { driver: "bridge", subnet: "10.89.0.0/24" } },
-        { id: "web", kind: "container", name: "web", x: 120, y: 240, props: { image: "nginx:latest", ports: "8080:80", env: "", command: "" } },
-        { id: "db", kind: "container", name: "db", x: 540, y: 240, props: { image: "postgres:16", ports: "", env: "POSTGRES_PASSWORD=change-me", command: "" } },
-        { id: "data", kind: "volume", name: "pgdata", x: 540, y: 440, props: { size: "5G", driver: "local", mount: "/var/lib/postgresql/data" } },
-      ];
-      d.edges = [
-        { id: "e1", source: "net", target: "web" },
-        { id: "e2", source: "net", target: "db" },
-        { id: "e3", source: "db", target: "data" },
-      ];
-      return d;
-    },
-  },
-];
-
 export function Studio() {
   const { client, act, toast } = useApp();
   const [mode, setMode] = useState<Mode>("design");
-  const [hist, setHist] = useState<History>({ past: [], present: emptyDesign("minha-arquitetura"), future: [] });
+  // Abre num modelo PEQUENO não-vazio para o canvas não parecer vazio.
+  const [hist, setHist] = useState<History>({ past: [], present: defaultDesign(), future: [] });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const seq = useRef(1);
+  const seq = useRef(100);
 
   const design = hist.present;
   const issues = useMemo(() => validateDesign(design), [design]);
@@ -132,6 +114,39 @@ export function Studio() {
     commit({ ...design, edges: [...design.edges, { id: uid("e"), source, target }] });
   }, [commit, design]);
 
+  // Click-para-adicionar: alternativa ÓBVIA ao drag-and-drop. Coloca o nó numa
+  // grelha escalonada perto do centro, deslocando conforme o nº de nós.
+  const addNodeCentered = useCallback((kind: StudioKind) => {
+    const i = design.nodes.length;
+    addNode(kind, 240 + (i % 4) * 60, 140 + (i % 6) * 50);
+  }, [addNode, design.nodes.length]);
+
+  // Importar a topologia LIVE para um desenho editável (copia e abre em Design).
+  const importDesign = useCallback((d: StudioDesign) => {
+    setHist({ past: [], present: { ...d, name: d.name === "runtime" ? "runtime-import" : d.name }, future: [] });
+    setSelectedId(null);
+    setMode("design");
+    toast("Topologia do runtime importada para Design.");
+  }, [toast]);
+
+  // Atalhos globais: Ctrl/Cmd+Z desfazer, Ctrl+Shift+Z / Ctrl+Y refazer,
+  // Ctrl+D duplicar o nó selecionado. Ignorados quando se escreve num campo.
+  useEffect(() => {
+    if (mode !== "design") return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+      else if (k === "d" && selectedId) { e.preventDefault(); duplicateNode(selectedId); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, undo, redo, duplicateNode, selectedId]);
+
   // --- Guardar / carregar o desenho (.json) ---------------------------------
   const saveDesign = async () => {
     const path = await saveTextViaDialog(serializeDesign(design), {
@@ -183,14 +198,14 @@ export function Studio() {
       {mode === "design" && (
         <DesignMode
           design={design} issues={issues} selectedId={selectedId}
-          onSelect={setSelectedId} onAdd={addNode} onMove={moveNode} onDelete={deleteNodes} onDeleteEdge={deleteEdges}
+          onSelect={setSelectedId} onAdd={addNode} onAddCentered={addNodeCentered} onMove={moveNode} onDelete={deleteNodes} onDeleteEdge={deleteEdges}
           onConnect={connectNodes} onPatch={patchNode} onDuplicate={duplicateNode}
           onTemplate={(d) => { setHist({ past: [], present: d, future: [] }); setSelectedId(null); }}
           onNew={() => { setHist({ past: [], present: emptyDesign("minha-arquitetura"), future: [] }); setSelectedId(null); }}
         />
       )}
-      {mode === "live" && <LiveMode client={client} />}
-      {mode === "plan" && <PlanMode client={client} design={design} />}
+      {mode === "live" && <LiveMode client={client} onImport={importDesign} />}
+      {mode === "plan" && <PlanMode client={client} design={design} issues={issues} toast={toast} />}
       {mode === "apply" && <ApplyMode design={design} issues={issues} act={act} client={client} toast={toast} />}
     </>
   );
@@ -204,6 +219,7 @@ function DesignMode(props: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onAdd: (k: StudioKind, x: number, y: number) => void;
+  onAddCentered: (k: StudioKind) => void;
   onMove: (id: string, x: number, y: number) => void;
   onDelete: (ids: string[]) => void;
   onDeleteEdge: (ids: string[]) => void;
@@ -217,31 +233,37 @@ function DesignMode(props: {
   const selected = design.nodes.find((n) => n.id === selectedId) ?? null;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 280px", gap: 0, height: "calc(100vh - 220px)", minHeight: 440, padding: "12px 24px 0" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "190px 1fr 280px", gap: 0, height: "calc(100vh - 220px)", minHeight: 440, padding: "12px 24px 0" }}>
       {/* Catálogo */}
       <aside style={{ borderRight: "1px solid var(--line)", paddingRight: 10, overflowY: "auto" }}>
         <div className="lbl" style={{ marginBottom: 6 }}>Catálogo</div>
-        <p className="muted" style={{ fontSize: 11, margin: "0 0 10px" }}>Arrasta para a tela.</p>
+        <p className="muted" style={{ fontSize: 11, margin: "0 0 10px" }}>Clica para adicionar, ou arrasta para a tela.</p>
         {ALL_KINDS.map((k) => {
           const c = CATALOG[k];
           return (
             <div
               key={k}
+              role="button"
+              tabIndex={0}
               draggable
               onDragStart={(e) => { e.dataTransfer.setData("application/delonix-kind", k); e.dataTransfer.effectAllowed = "copy"; }}
-              title={c.blurb}
+              onClick={() => props.onAddCentered(k)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onAddCentered(k); } }}
+              title={`${c.blurb}\n\nClica para adicionar ou arrasta para a tela.`}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", marginBottom: 6, border: `1px solid var(--line)`, borderLeft: `4px solid ${c.color}`, borderRadius: 6, cursor: "grab", background: "var(--panel)" }}
             >
               <Icon name={c.icon} size={14} />
               <span style={{ fontSize: 12 }}>{c.label}</span>
-              {!c.emitsToStack && <span className="chip neu" style={{ marginLeft: "auto", fontSize: 9 }} title="Só desenho — não entra no manifesto de stack">desenho</span>}
+              {!c.emitsToStack
+                ? <span className="chip neu" style={{ marginLeft: "auto", fontSize: 9 }} title="Só desenho — não entra no manifesto de stack">desenho</span>
+                : <span style={{ marginLeft: "auto", opacity: 0.55, display: "inline-flex" }}><Icon name="plus" size={12} /></span>}
             </div>
           );
         })}
         <div className="lbl" style={{ margin: "14px 0 6px" }}>Modelos</div>
         <button className="btn sm" type="button" style={{ width: "100%", marginBottom: 6 }} onClick={props.onNew}>Vazio</button>
-        {TEMPLATES.map((t) => (
-          <button key={t.id} className="btn sm" type="button" style={{ width: "100%", marginBottom: 6 }} onClick={() => props.onTemplate(t.make())}>{t.label}</button>
+        {STUDIO_TEMPLATES.map((t) => (
+          <button key={t.id} className="btn sm" type="button" title={t.blurb} style={{ width: "100%", marginBottom: 6 }} onClick={() => props.onTemplate(t.make())}>{t.label}</button>
         ))}
       </aside>
 
@@ -255,16 +277,37 @@ function DesignMode(props: {
           />
         </Suspense>
         {design.nodes.length === 0 && (
-          <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none", color: "var(--mut)", fontSize: 13 }}>
-            Arrasta um componente do catálogo para aqui, ou escolhe um modelo.
+          <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none", color: "var(--mut)", fontSize: 13, textAlign: "center", padding: 24 }}>
+            Clica num componente do catálogo (ou arrasta-o para aqui),<br />ou escolhe um modelo à esquerda.
           </div>
         )}
+        <Legend />
       </div>
 
       {/* Propriedades */}
       <aside style={{ paddingLeft: 12, overflowY: "auto" }}>
         <PropertyPanel node={selected} issues={issues} onPatch={props.onPatch} onDuplicate={props.onDuplicate} onDelete={props.onDelete} />
+        <div className="muted" style={{ fontSize: 10, marginTop: 14, lineHeight: 1.6, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+          <b style={{ color: "var(--mut)" }}>Atalhos</b><br />
+          Ctrl+Z desfazer · Ctrl+Shift+Z / Ctrl+Y refazer<br />
+          Ctrl+D duplicar · Delete apagar o selecionado<br />
+          Arrasta de uma pega a outra para ligar nós.
+        </div>
       </aside>
+    </div>
+  );
+}
+
+// Legenda flutuante com a cor/ícone de cada tipo (canto inferior esquerdo).
+function Legend() {
+  return (
+    <div style={{ position: "absolute", left: 10, bottom: 10, display: "flex", flexWrap: "wrap", gap: 6, maxWidth: 360, padding: "6px 8px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 8, pointerEvents: "none", opacity: 0.95 }}>
+      {ALL_KINDS.map((k) => (
+        <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--mut)" }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: CATALOG[k].color, display: "inline-block" }} />
+          {CATALOG[k].label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -332,7 +375,7 @@ function PropertyPanel({ node, issues, onPatch, onDuplicate, onDelete }: {
 
 // --- Modo Live --------------------------------------------------------------
 
-function LiveMode({ client }: { client: ReturnType<typeof useApp>["client"] }) {
+function LiveMode({ client, onImport }: { client: ReturnType<typeof useApp>["client"]; onImport: (d: StudioDesign) => void }) {
   const [design, setDesign] = useState<StudioDesign | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -360,6 +403,9 @@ function LiveMode({ client }: { client: ReturnType<typeof useApp>["client"] }) {
     <div style={{ padding: "12px 24px 0", height: "calc(100vh - 220px)", minHeight: 440, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10 }}>
         <button className="btn pri" type="button" disabled={busy} onClick={() => void load()}><Icon name="restart" size={13} /> {design ? "Atualizar" : "Descobrir runtime"}</button>
+        {design && design.nodes.length > 0 && (
+          <button className="btn" type="button" onClick={() => onImport(design)} title="Copia a topologia observada para um desenho editável"><Icon name="copy" size={13} /> Importar para Design</button>
+        )}
         <span className="muted" style={{ fontSize: 12 }}>Topologia observada (network + workload + vm ls). Só-leitura.</span>
         {!client.live && <Chip tone="warn" dot>Duplo local</Chip>}
       </div>
@@ -383,10 +429,28 @@ function LiveMode({ client }: { client: ReturnType<typeof useApp>["client"] }) {
 
 // --- Modo Plan --------------------------------------------------------------
 
-function PlanMode({ client, design }: { client: ReturnType<typeof useApp>["client"]; design: StudioDesign }) {
+// Escreve o manifesto num caminho de trabalho SEM diálogo quando o sistema de
+// ficheiros está disponível (modo Tauri); caso contrário cai no save-dialog.
+async function persistForCli(yaml: string, name: string): Promise<string | null> {
+  if (fsAvailable()) {
+    const path = joinPath(await homeDir(), `.${name || "studio"}.delonix-plan.yaml`);
+    await writeTextFile(path, yaml);
+    return path;
+  }
+  return saveTextViaDialog(yaml, { title: "Guardar manifesto para o plano", defaultPath: `${name || "studio"}.delonix.yaml`, filters: YAML_FILTERS });
+}
+
+function PlanMode({ client, design, issues, toast }: {
+  client: ReturnType<typeof useApp>["client"];
+  design: StudioDesign;
+  issues: Issue[];
+  toast: ReturnType<typeof useApp>["toast"];
+}) {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [finePlan, setFinePlan] = useState<string | null>(null);
+  const errorCount = issues.filter((i) => i.level === "error").length;
 
   const compute = useCallback(async () => {
     setBusy(true);
@@ -404,16 +468,43 @@ function PlanMode({ client, design }: { client: ReturnType<typeof useApp>["clien
     }
   }, [client, design]);
 
+  // Plano FINO: materializa o manifesto e corre `stack plan -f` (diff de campos).
+  const computeFine = useCallback(async () => {
+    setBusy(true);
+    setFinePlan(null);
+    try {
+      const { yaml } = designToManifest(design);
+      const path = await persistForCli(yaml, design.name);
+      if (!path) return;
+      const r = await client.readText(cmd.stackPlan(path));
+      setFinePlan([r.stdout, r.stderr].filter((s) => s.trim()).join("\n") || "(sem saída)");
+    } catch (e) {
+      setFinePlan(String(e));
+      toast("Falha no stack plan — vê a saída.", false);
+    } finally {
+      setBusy(false);
+    }
+  }, [client, design, toast]);
+
   const tone = (a: PlanRow["action"]) => (a === "create" ? "inf" : a === "remove" ? "bad" : "neu");
   const verb = (a: PlanRow["action"]) => (a === "create" ? "criar" : a === "remove" ? "remover" : "manter");
+  const counts = rows ? { create: rows.filter((r) => r.action === "create").length, keep: rows.filter((r) => r.action === "keep").length, remove: rows.filter((r) => r.action === "remove").length } : null;
 
   return (
     <div style={{ padding: "14px 24px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, flexWrap: "wrap" }}>
         <button className="btn pri" type="button" disabled={busy} onClick={() => void compute()}><Icon name="overview" size={13} /> Comparar com o runtime</button>
-        <span className="muted" style={{ fontSize: 12 }}>Diff de presença (tipo + nome) entre o Design e o Live. O diff fino de campos vem do <span className="mono">stack plan</span> no Apply.</span>
+        <button className="btn" type="button" disabled={busy || errorCount > 0} title={errorCount > 0 ? "Corrige os erros do desenho primeiro" : "Diff fino de campos (stack plan -f)"} onClick={() => void computeFine()}><Icon name="declarative" size={13} /> Plano fino (stack plan)</button>
+        <span className="muted" style={{ fontSize: 12 }}>Diff de presença (tipo + nome) entre o Design e o Live. O plano fino de campos vem de <span className="mono">stack plan -f</span>.</span>
       </div>
       {error && <ErrorNote error={error} />}
+      {counts && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <Chip tone="inf">criar {counts.create}</Chip>
+          <Chip tone="neu">manter {counts.keep}</Chip>
+          <Chip tone="bad">remover {counts.remove}</Chip>
+        </div>
+      )}
       {rows && (
         <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -432,6 +523,12 @@ function PlanMode({ client, design }: { client: ReturnType<typeof useApp>["clien
             ))}
           </tbody>
         </table>
+      )}
+      {finePlan && (
+        <>
+          <div className="lbl" style={{ margin: "14px 0 4px" }}>Plano fino (stack plan -f)</div>
+          <pre className="mono" style={{ margin: 0, padding: 10, background: "var(--bg2, rgba(0,0,0,.04))", border: "1px solid var(--line)", borderRadius: 6, overflow: "auto", maxHeight: 320, fontSize: 11, whiteSpace: "pre-wrap" }}>{finePlan}</pre>
+        </>
       )}
     </div>
   );

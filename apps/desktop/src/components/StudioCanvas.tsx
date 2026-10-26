@@ -24,7 +24,7 @@ import ReactFlow, {
   type OnNodesChange,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { CATALOG, canConnect, type Issue, type StudioDesign, type StudioKind, type StudioNode } from "../lib/studio";
+import { CATALOG, canConnect, edgeLabel, type Issue, type StudioDesign, type StudioKind, type StudioNode } from "../lib/studio";
 
 export interface StudioCanvasProps {
   design: StudioDesign;
@@ -107,10 +107,15 @@ function Inner(props: StudioCanvasProps) {
         id: e.id,
         source: e.source,
         target: e.target,
+        label: edgeLabel(design, e) || undefined,
+        labelBgPadding: [5, 2] as [number, number],
+        labelBgBorderRadius: 4,
+        labelStyle: { fill: "var(--tx)", fontSize: 10 },
+        labelBgStyle: { fill: "var(--panel)", stroke: "var(--line)" },
         style: { stroke: "var(--mut)", strokeWidth: 1.5 },
         markerEnd: { type: MarkerType.ArrowClosed, color: "var(--mut)" },
       })),
-    [design.edges],
+    [design],
   );
 
   // Movimento: só aplicamos ao soltar (onNodeDragStop) para a tela registar um
