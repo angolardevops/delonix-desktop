@@ -56,6 +56,21 @@ fn snapshot_restore(ns: &str, vm: &str, snapshot: &str) -> String {
     format!("/v1/namespaces/{ns}/virtualmachines/{vm}/snapshots/{snapshot}:restore")
 }
 
+// Rotas de `ContainerService` (`delonix.node.v1`). As leituras de container
+// (List/Get) partilham o mesmo transporte HTTP/JSON das VMs; o streaming de
+// Logs (gRPC) é um transporte à parte no crate do desktop. Os nomes de
+// container do engine são DNS-like (sem `:`/`/`), por isso não são
+// percent-encoded, tal como os de VM.
+
+/// `.../containers` — ListContainers (GET).
+fn container_collection(ns: &str) -> String {
+    format!("/v1/namespaces/{ns}/containers")
+}
+/// `.../containers/{name}` — GetContainer (GET).
+fn container_resource(ns: &str, name: &str) -> String {
+    format!("/v1/namespaces/{ns}/containers/{name}")
+}
+
 /// Um cliente do node-api ligado a um socket Unix concreto.
 #[derive(Debug, Clone)]
 pub struct NodeClient {
@@ -187,6 +202,23 @@ impl NodeClient {
         self.post(&snapshot_restore(DEFAULT_NS, name, snapshot), b"{}")
     }
 
+    // --- ContainerService (`delonix.node.v1`) -------------------------------
+    //
+    // Leituras (List/Get) pelo mesmo transporte HTTP/JSON das VMs. Devolvem o
+    // JSON CRU do contrato (meta/spec/status): a UI serializa-o na aba
+    // "Inspecionar" sem um DTO tipado — o contrato de container é mais largo que
+    // a `WorkloadRow` e a aba mostra-o tal como vem. Um 501 DX-6001
+    // (ContainerService não servido) sobe como `CoreError::Http { status: 501 }`.
+
+    /// `ListContainers` — `GET /v1/namespaces/{ns}/containers`.
+    pub fn containers(&self, ns: &str) -> Result<serde_json::Value> {
+        self.get_raw(&container_collection(ns))
+    }
+    /// `GetContainer` — `GET /v1/namespaces/{ns}/containers/{name}`.
+    pub fn container(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.get_raw(&container_resource(ns, name))
+    }
+
     /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
         self.send(method, path, None)
@@ -292,6 +324,20 @@ mod tests {
         assert_eq!(
             snapshot_restore("default", "web", "nightly"),
             "/v1/namespaces/default/virtualmachines/web/snapshots/nightly:restore"
+        );
+    }
+
+    #[test]
+    fn container_routes_match_the_contract_templates() {
+        // Fonte: `google.api.http` de ContainerService em
+        // proto/delonix/node/v1/compute.proto (List/Get).
+        assert_eq!(
+            container_collection("default"),
+            "/v1/namespaces/default/containers"
+        );
+        assert_eq!(
+            container_resource("default", "odoo-16"),
+            "/v1/namespaces/default/containers/odoo-16"
         );
     }
 

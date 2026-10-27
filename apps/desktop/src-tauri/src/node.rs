@@ -18,6 +18,9 @@
 use delonix_desktop_core::model::{Operation, SnapshotList, Vm, VmCreate, VmList};
 use delonix_desktop_core::{CoreError, NodeClient};
 
+/// Namespace default do contrato quando o frontend não o passa.
+const DEFAULT_NS: &str = "default";
+
 /// Converte um erro do core numa string acionável para a UI. Em especial, a
 /// falha de ligação ao socket aponta explicitamente para o comando que o serve.
 fn redact(e: CoreError) -> String {
@@ -86,4 +89,29 @@ pub async fn node_vm_snapshot_restore(
     snapshot: String,
 ) -> Result<Operation, String> {
     on_node(move |c| c.vm_snapshot_restore(&name, &snapshot)).await
+}
+
+// --- ContainerService (`delonix.node.v1`) -----------------------------------
+//
+// As LEITURAS de container pelo contrato de socket, ao lado das VMs. A aba
+// "Inspecionar" do detalhe (WorkloadDetail) usa `node_container` em vez de
+// `workload describe` (CLI): devolve o JSON cru do contrato (meta/spec/status).
+// Um 501 DX-6001 (ContainerService não servido ainda por este engine) sobe como
+// erro para a UI mostrar a razão — a ponte CLI continua disponível para VMs/pods.
+
+/// `ListContainers` — `GET /v1/namespaces/{ns}/containers`.
+#[tauri::command]
+pub async fn node_containers(namespace: Option<String>) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.containers(&ns)).await
+}
+
+/// `GetContainer` — `GET /v1/namespaces/{ns}/containers/{name}`.
+#[tauri::command]
+pub async fn node_container(
+    namespace: Option<String>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container(&ns, &name)).await
 }

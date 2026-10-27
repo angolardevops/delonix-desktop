@@ -104,6 +104,12 @@ export interface DelonixClient {
   vmSnapshotList(name: string): Promise<VmSnapshot[]>;
   vmSnapshotCreate(name: string, snapshot: string): Promise<void>;
   vmSnapshotRestore(name: string, snapshot: string): Promise<void>;
+  // Inspeção de um CONTAINER pelo contrato node.v1 (REST GetContainer:
+  // `GET /v1/namespaces/{ns}/containers/{name}`), não por `delonix describe`
+  // (CLI). Devolve o JSON cru do contrato (meta/spec/status); a aba
+  // "Inspecionar" serializa-o. Lança se o engine não servir ContainerService
+  // (501 DX-6001) ou o container não existir — a aba mostra a razão.
+  containerInspect(namespace: string, name: string): Promise<unknown>;
 }
 
 // Os cinco modos de terminal por PTY (§6). Têm de casar EXATAMENTE com

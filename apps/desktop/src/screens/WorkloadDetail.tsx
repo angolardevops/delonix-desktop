@@ -134,7 +134,7 @@ export function WorkloadDetail({ id }: { id: string }) {
             </>
           )}
           {tab === "terminal" && <TerminalTab w={w} />}
-          {tab === "inspect" && <Inspect name={w.name} />}
+          {tab === "inspect" && <Inspect w={w} />}
           {tab === "stats" && <Stats w={w} />}
           {tab === "snapshots" && <Snapshots name={w.name} />}
         </div>
@@ -316,12 +316,25 @@ function Stats({ w }: { w: WorkloadRow }) {
   );
 }
 
-function Inspect({ name }: { name: string }) {
+// Aba "Inspecionar": containers pelo contrato node.v1 (REST GetContainer),
+// VMs/pods pela ponte CLI (`workload describe`), que o contrato ainda não cobre
+// para esses tipos. O container mostra o JSON cru do contrato (meta/spec/status);
+// um node-api em baixo ou um 501 DX-6001 aparecem como texto de erro na própria aba.
+function Inspect({ w }: { w: WorkloadRow }) {
   const { client } = useApp();
   const [out, setOut] = useState("A ler…");
   useEffect(() => {
-    void client.run(cmd.describe(name), false).then((r) => setOut(r.ok ? r.stdout : r.stderr || "sem saída (duplo local)"));
-  }, [client, name]);
+    let alive = true;
+    const show = (s: string) => { if (alive) setOut(s); };
+    if (w.type === "container") {
+      client.containerInspect(w.namespace || "default", w.name)
+        .then((j) => show(JSON.stringify(j, null, 2)))
+        .catch((e) => show(String(e)));
+    } else {
+      void client.run(cmd.describe(w.name), false).then((r) => show(r.ok ? r.stdout : r.stderr || "sem saída (duplo local)"));
+    }
+    return () => { alive = false; };
+  }, [client, w.type, w.name, w.namespace]);
   return <pre className="log" style={{ flex: 1, border: 0, margin: 0 }}>{out}</pre>;
 }
 

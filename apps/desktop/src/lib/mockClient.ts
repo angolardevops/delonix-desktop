@@ -738,6 +738,17 @@ export class MockClient implements DelonixClient {
     return wait(undefined);
   }
 
+  // Duplo local: a forma de um Container do contrato node.v1 (meta/spec/status),
+  // para a aba "Inspecionar" mostrar JSON plausível sem node-api no browser.
+  async containerInspect(namespace: string, name: string): Promise<unknown> {
+    const w = workloads.find((x) => x.name === name);
+    return wait({
+      meta: { name, namespace: w?.namespace || namespace || "default" },
+      spec: { image: w?.info ?? "" },
+      status: { phase: /^(Up|Running)/.test(w?.status ?? "") ? "CONTAINER_PHASE_RUNNING" : "CONTAINER_PHASE_EXITED" },
+    });
+  }
+
   async events(onEvent: (e: EngineEvent) => void, _onEnd?: () => void) {
     void _onEnd; // o duplo local não termina o fluxo — sem reconexão a simular
     // `ts` em epoch (segundos); os dois eventos "15:06:03" partilham o MESMO ts

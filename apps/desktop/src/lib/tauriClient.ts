@@ -688,6 +688,13 @@ export class TauriClient implements DelonixClient {
     await invoke("node_vm_snapshot_restore", { name, snapshot });
   }
 
+  // Inspeção de um container pelo contrato node.v1 (REST GetContainer sobre o
+  // socket Unix do node-api). Lança se o engine não servir ContainerService
+  // (501 DX-6001) ou o container não existir — a aba trata o erro.
+  containerInspect(namespace: string, name: string): Promise<unknown> {
+    return invoke<unknown>("node_container", { namespace, name });
+  }
+
   events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {
     return this.stream("engine-events", cmd.events(), (line) => {
       try {
