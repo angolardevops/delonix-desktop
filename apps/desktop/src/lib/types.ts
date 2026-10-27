@@ -311,8 +311,8 @@ export interface PodCreateInput {
 }
 
 // Entrada do formulário "Novo container" (node.v1 CreateContainer + Start). Os
-// campos-texto são separados por linha/vírgula. `ports` ainda NÃO é servido pelo
-// contrato (precisa do slirp) — se preenchido, o engine recusa com UNIMPLEMENTED.
+// campos-texto são separados por linha/vírgula. `ports` são publicadas pelo
+// slirp próprio do container (rootless), formato [ip:]host:contentor[/udp].
 export interface ContainerCreateInput {
   name: string;
   image: string;

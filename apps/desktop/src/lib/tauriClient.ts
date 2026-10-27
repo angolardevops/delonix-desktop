@@ -1017,9 +1017,8 @@ export class TauriClient implements DelonixClient {
 
   // CreateContainer + StartContainer pelo contrato (decisão B). Constrói o
   // ContainerSpec do formulário: env (map), mounts (volumes), resources
-  // (memória/cpus), restart (enum), log_format. As PORTS vão no spec como o
-  // utilizador as deu — o engine ainda NÃO as serve (precisam do slirp) e
-  // recusa com UNIMPLEMENTED, que lançamos tal como qualquer falha.
+  // (memória/cpus), restart (enum), log_format, e PORTS (o engine publica-as
+  // pelo slirp próprio do container; formato [ip:]host:contentor[/udp]).
   async containerCreate(input: ContainerCreateInput): Promise<void> {
     const ns = input.namespace ?? DEFAULT_NS;
     const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);

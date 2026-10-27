@@ -145,8 +145,8 @@ export interface DelonixClient {
   // não por `delonix` (CLI). Lançam se o engine não servir ContainerService
   // (501) — a tela mostra a razão. VMs usam `vm*`; pods continuam na CLI.
   // Cria E inicia um container pelo contrato node.v1 (CreateContainer+Start),
-  // sem CLI (decisão B). Ports NÃO são servidos (gap do contrato) — se o input
-  // os trouxer, lança o UNIMPLEMENTED do engine. Lança em qualquer falha.
+  // sem CLI (decisão B). Volumes e PORTAS são servidos (as portas pelo slirp
+  // próprio do container, rootless). Lança em qualquer falha.
   containerCreate(input: ContainerCreateInput): Promise<void>;
   containerStart(namespace: string, name: string): Promise<void>;
   containerStop(namespace: string, name: string): Promise<void>;

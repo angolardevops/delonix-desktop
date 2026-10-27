@@ -218,8 +218,8 @@ export function CreateWorkload() {
                 ))}
               </div>
               {ports.trim() && (
-                <p className="muted" style={{ margin: 0, fontSize: 12, color: "var(--warn, #b8860b)" }}>
-                  Nota: publicar portas ainda não é servido pelo <span className="mono">node.v1</span> (precisa do slirp do container). Com portas preenchidas, o engine recusa — deixa vazio, ou usa <b>Compose</b>/<b>Manifesto</b> para publicar portas.
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                  Portas publicadas pelo <span className="mono">node.v1</span> (slirp próprio do container, rootless). Formato <span className="mono">[ip:]host:contentor[/udp]</span> — ex.: <span className="mono">127.0.0.1:18080:80</span>.
                 </p>
               )}
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: "var(--tx)" }}>
