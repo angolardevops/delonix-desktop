@@ -314,6 +314,19 @@ pub async fn node_pods(namespace: Option<String>) -> Result<serde_json::Value, S
     on_node(move |c| c.pods(&ns)).await
 }
 
+/// `DeletePod` — `DELETE /v1/namespaces/{ns}/pods/{name}`. `name` é o id
+/// `pod-<nome>` do ListPods; `force` remove um pod a correr.
+#[tauri::command]
+pub async fn node_pod_delete(
+    name: String,
+    namespace: Option<String>,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    let force = force.unwrap_or(false);
+    on_node(move |c| c.pod_delete(&ns, &name, force)).await
+}
+
 // --- StackService (`delonix.node.v1`) ---------------------------------------
 //
 // O manifesto vive num ficheiro no host (o Studio grava-o antes). O comando

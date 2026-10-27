@@ -29,15 +29,20 @@ export function Workloads() {
 
   const doAct = async (argv: Argv, label: string) => { await act(argv, label); void refresh(); };
 
-  // Ação de ciclo de vida por recurso: CONTAINERS pelo contrato node.v1
-  // (decisão B — sem CLI), VMs e pods ainda pela ponte CLI (`act`). A confirmação
-  // de remoção de container é feita no local de chamada (window.confirm); os
-  // caminhos CLI têm a sua própria confirmação por risco em `act`.
+  // Ação de ciclo de vida por recurso: CONTAINERS e PODS(remover) pelo contrato
+  // node.v1 (decisão B — sem CLI); VMs ainda pela ponte CLI (`act`). Os pods não
+  // têm stop/start no contrato (derivam dos membros), por isso só expõem logs +
+  // remover (ver `actions`). A confirmação de remoção é feita no local de
+  // chamada (window.confirm); os caminhos CLI confirmam por risco em `act`.
   const CMD: Record<Life, (w: WorkloadRow) => Argv> = { stop: cmd.stop, start: cmd.start, restart: cmd.restart, remove: cmd.remove };
   const rowAct = async (w: WorkloadRow, kind: Life, label: string) => {
-    if (w.type !== "container") { await doAct(CMD[kind](w), `${label} ${w.name}`); return; }
+    if (w.type === "vm") { await doAct(CMD[kind](w), `${label} ${w.name}`); return; }
     try {
-      if (kind === "stop") await client.containerStop(w.namespace, w.name);
+      if (w.type === "pod") {
+        // Só a remoção é servida para pods; `--force` para um pod a correr.
+        if (kind === "remove") await client.podDelete(w.name, w.namespace, true);
+        else return; // stop/start/restart não se aplicam a um pod
+      } else if (kind === "stop") await client.containerStop(w.namespace, w.name);
       else if (kind === "start") await client.containerStart(w.namespace, w.name);
       else if (kind === "restart") await client.containerRestart(w.namespace, w.name);
       else await client.containerRemove(w.namespace, w.name);
@@ -125,7 +130,7 @@ export function Workloads() {
                 <button className="btn sm" type="button" onClick={() => void bulk("stop", "Parar")}>Parar</button>
                 <button className="btn sm" type="button" onClick={() => void bulk("start", "Iniciar")}>Iniciar</button>
                 <button className="btn sm" type="button" onClick={() => void bulk("restart", "Reiniciar")}>Reiniciar</button>
-                <button className="btn sm danger" type="button" onClick={() => { if (!sel.some((w) => w.type === "container") || window.confirm(`Remover ${sel.filter((w) => w.type === "container").length} container(s)?`)) void bulk("remove", "Remover"); }}>Remover</button>
+                <button className="btn sm danger" type="button" onClick={() => { const n = sel.filter((w) => w.type === "container" || w.type === "pod").length; if (n === 0 || window.confirm(`Remover ${n} container(s)/pod(s)?`)) void bulk("remove", "Remover"); }}>Remover</button>
                 <span style={{ marginLeft: "auto" }}><CliHint argv={["stop", ...sel.map((s) => s.name)]} compact /></span>
               </div>
             );
@@ -133,14 +138,17 @@ export function Workloads() {
         }}
         actions={(w) => {
           const st = runState(w.status);
+          // Pods não têm stop/start/restart no contrato node.v1 (derivam dos
+          // membros) — só logs + remover.
+          const hasLifecycle = w.type !== "pod";
           return (
             <>
               <button className="btn ico" type="button" aria-label={`Logs de ${w.name}`} onClick={() => { go({ name: "workload", id: w.name }); openDock("logs"); }}><Icon name="logs" /></button>
-              {st === "running"
+              {hasLifecycle && (st === "running"
                 ? <button className="btn ico" type="button" aria-label={`Parar ${w.name}`} onClick={() => void rowAct(w, "stop", "Parar")}><Icon name="stop" /></button>
-                : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void rowAct(w, "start", "Iniciar")}><Icon name="play" /></button>}
-              <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void rowAct(w, "restart", "Reiniciar")}><Icon name="restart" /></button>
-              <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => { if (w.type !== "container" || window.confirm(`Remover o container ${w.name}?`)) void rowAct(w, "remove", "Remover"); }}><Icon name="trash" /></button>
+                : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void rowAct(w, "start", "Iniciar")}><Icon name="play" /></button>)}
+              {hasLifecycle && <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void rowAct(w, "restart", "Reiniciar")}><Icon name="restart" /></button>}
+              <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => { if (w.type === "vm" || window.confirm(`Remover o ${w.type === "pod" ? "pod" : "container"} ${w.name}?`)) void rowAct(w, "remove", "Remover"); }}><Icon name="trash" /></button>
             </>
           );
         }}

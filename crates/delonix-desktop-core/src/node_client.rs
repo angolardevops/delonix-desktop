@@ -102,6 +102,11 @@ fn volume_resource(ns: &str, name: &str) -> String {
 fn pod_collection(ns: &str) -> String {
     format!("/v1/namespaces/{ns}/pods")
 }
+/// `.../pods/{name}` — GetPod (GET) e DeletePod (DELETE). O `name` é o id
+/// `pod-<nome>` que o ListPods expõe; o engine despe o prefixo.
+fn pod_resource(ns: &str, name: &str) -> String {
+    format!("/v1/namespaces/{ns}/pods/{name}")
+}
 
 /// Um cliente do node-api ligado a um socket Unix concreto.
 #[derive(Debug, Clone)]
@@ -367,6 +372,18 @@ impl NodeClient {
     /// `ListPods` — `GET /v1/namespaces/{ns}/pods` (devolve `{pods: [...]}`).
     pub fn pods(&self, ns: &str) -> Result<serde_json::Value> {
         self.get_raw(&pod_collection(ns))
+    }
+    /// `DeletePod` — `DELETE /v1/namespaces/{ns}/pods/{name}[?force=true]`.
+    /// O `name` é o id `pod-<nome>` do ListPods; `force` para um pod a correr.
+    /// Devolve a Operation já terminal (o engine corre a remoção síncrona).
+    pub fn pod_delete(&self, ns: &str, name: &str, force: bool) -> Result<serde_json::Value> {
+        let path = pod_resource(ns, name);
+        let path = if force {
+            format!("{path}?force=true")
+        } else {
+            path
+        };
+        self.delete(&path)
     }
 
     // --- ImageService (`delonix.node.v1`) -----------------------------------

@@ -69,6 +69,9 @@ export interface DelonixClient {
   // JÁ TERMINAL (síncrona, sem progresso ao vivo) — lançam em caso de falha.
   stackApply(manifest?: string): Promise<void>;
   stackDestroy(manifest?: string): Promise<void>;
+  // Remove um pod pelo contrato node.v1 (DeletePod). `name` é o id `pod-<nome>`
+  // que a lista expõe; `force` remove um pod a correr. Lança em caso de falha.
+  podDelete(name: string, namespace?: string, force?: boolean): Promise<void>;
   // Clusters/Kubernetes: `cluster ls` é TEXTO (sem -o json no 5.1.1); parseado
   // por nome de coluna. `all` inclui clusters totalmente parados (-A).
   clusters(all?: boolean): Promise<ClusterRow[]>;

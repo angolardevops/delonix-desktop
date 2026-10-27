@@ -486,6 +486,18 @@ export class TauriClient implements DelonixClient {
     return asArray(pick(resp, "pods")).map(nodePodToRow);
   }
 
+  // DeletePod pelo contrato (DELETE .../pods/{name}). O engine corre a remoção
+  // síncrona e devolve uma Operation já terminal; se falhou, lançamos a razão.
+  async podDelete(name: string, namespace?: string, force?: boolean): Promise<void> {
+    const op = (await invoke<Obj>("node_pod_delete", {
+      name,
+      namespace: namespace ?? DEFAULT_NS,
+      force: force ?? false,
+    })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
+  }
+
   async workloads(namespace?: string): Promise<WorkloadRow[]> {
     const [containers, pods, cliAll] = await Promise.all([
       this.nodeContainers(namespace).catch(() => [] as WorkloadRow[]),
