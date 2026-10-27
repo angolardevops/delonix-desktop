@@ -58,7 +58,7 @@ const baseOf = (p: string): string => {
 
 export function Editor({ initialPath }: { initialPath?: string }) {
   const available = fsAvailable();
-  const { client, act, toast } = useApp();
+  const { client, actRun, toast } = useApp();
 
   // --- Explorador (reutiliza fsx, como a tela Ficheiros) --------------------
   const [cwd, setCwd] = useState("/");
@@ -289,12 +289,13 @@ export function Editor({ initialPath }: { initialPath?: string }) {
 
   const applyManifest = useCallback(() => {
     if (!active) return;
-    // APLICAR À INFRA (≠ guardar): ação de escrita, passa pelo `act` → pede
-    // confirmação de risco (stack apply = SafeWrite; a UI mostra o CLI).
-    void act(cmd.stackApply(active.path), `Aplicar manifesto (${active.name})`).then((ok) => {
+    // APLICAR À INFRA (≠ guardar): ação de escrita por node.v1 (`ApplyStack`,
+    // Operation síncrona). Passa pelo `actRun` → pede confirmação de risco
+    // (DISRUPTIVE) e mostra o resultado. A UI continua a exibir o CLI equivalente.
+    void actRun(`Aplicar manifesto (${active.name})`, "DISRUPTIVE", () => client.stackApply(active.path)).then((ok) => {
       if (ok) setOutput({ title: "stack apply", text: "Aplicado. Vê Workloads/Eventos para o resultado.", ok: true });
     });
-  }, [active, act]);
+  }, [active, actRun, client]);
 
   // Salta o cursor para a linha/coluna de uma marca (botão "ir para" no painel).
   const goToMarker = useCallback((m: MonacoNS.IMarker) => {

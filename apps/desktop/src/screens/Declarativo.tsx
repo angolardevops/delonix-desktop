@@ -76,7 +76,7 @@ const actionTone = (a: string): "ok" | "warn" | "bad" | "inf" | "neu" => {
 };
 
 function StacksPanel() {
-  const { client, act } = useApp();
+  const { client, actRun } = useApp();
   const [manifest, setManifest] = useState("");
   const [rows, setRows] = useState<StackPlanRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -169,16 +169,16 @@ function StacksPanel() {
           <button
             className="btn pri"
             type="button"
-            disabled={busy}
-            onClick={() => void act(cmd.stackApply(manifest), `Aplicar stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
+            disabled={busy || !manifest}
+            onClick={() => void actRun(`Aplicar stack${manifest ? ` (${manifest})` : ""}`, "DISRUPTIVE", () => client.stackApply(manifest)).then((ok) => { if (ok) void plan(); })}
           >
             <Icon name="play" size={13} /> Aplicar
           </button>
           <button
             className="btn danger"
             type="button"
-            disabled={busy}
-            onClick={() => void act(cmd.stackDestroy(manifest), `Destruir stack${manifest ? ` (${manifest})` : ""}`).then((ok) => { if (ok) void plan(); })}
+            disabled={busy || !manifest}
+            onClick={() => void actRun(`Destruir stack${manifest ? ` (${manifest})` : ""}`, "DESTRUCTIVE", () => client.stackDestroy(manifest)).then((ok) => { if (ok) void plan(); })}
           >
             <Icon name="trash" size={13} /> Destruir
           </button>

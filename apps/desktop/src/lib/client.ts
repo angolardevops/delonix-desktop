@@ -65,6 +65,10 @@ export interface DelonixClient {
   // Stacks: leitura estruturada de `stack plan -o json` (o que um apply faria).
   // O manifesto entra por caminho (-f); sem caminho usa o diretório do processo.
   stackPlan(manifest?: string): Promise<StackPlanRow[]>;
+  // Stacks apply/destroy (node.v1): materializa/remove o manifesto. Uma Operation
+  // JÁ TERMINAL (síncrona, sem progresso ao vivo) — lançam em caso de falha.
+  stackApply(manifest?: string): Promise<void>;
+  stackDestroy(manifest?: string): Promise<void>;
   // Clusters/Kubernetes: `cluster ls` é TEXTO (sem -o json no 5.1.1); parseado
   // por nome de coluna. `all` inclui clusters totalmente parados (-A).
   clusters(all?: boolean): Promise<ClusterRow[]>;

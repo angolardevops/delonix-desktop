@@ -241,7 +241,11 @@ export function StudioApply({ design, issues, act, client, toast, namespace }: {
     } catch { /* transitório — a próxima iteração reavalia */ }
   }, [client]);
 
-  // APPLY → WAIT → progresso até Ready. Tudo por stream, com confirmação.
+  // APPLY por node.v1: `ApplyStack` é uma Operation SÍNCRONA (bloqueia até o
+  // apply terminar) — sem stream nem `stack wait`, com spinner, como o pull de
+  // imagem (decisão B). No fim, um snapshot único de `stack ls` mostra o estado
+  // dos recursos. Nota: o contrato não tem `WaitStack`, por isso não esperamos
+  // por Ready — os recursos podem ainda estar a arrancar no snapshot.
   const apply = async () => {
     const path = savedPath ?? (await persist());
     if (!path) return;
@@ -249,51 +253,20 @@ export function StudioApply({ design, issues, act, client, toast, namespace }: {
     if (!(await confirmRisk(argv, `Aplicar arquitetura (${design.name})`))) return;
 
     setPhase("applying");
-    setLogs([`$ ${show(argv)}`]);
+    setLogs([`$ ${show(argv)}  (node.v1 — Operation síncrona)`]);
     setProgress(null);
     stopStream.current?.();
-    void client
-      .stream("studio-apply", argv, appendLog, (code) => {
-        if (code !== 0) {
-          appendLog(`\n✗ stack apply saiu com código ${code ?? "?"} (fail-fast, sem rollback — o que ficou criado permanece)`);
-          setPhase("failed");
-          toast("stack apply falhou — vê os logs.", false);
-          return;
-        }
-        appendLog("\n✓ stack apply concluído — a aguardar que cada recurso fique Ready (stack wait)…");
-        startWait(path);
-      })
-      .then((s) => (stopStream.current = s))
-      .catch((e) => { appendLog(String(e)); setPhase("failed"); });
-  };
-
-  // `stack wait` bloqueia até Ready; em paralelo fazemos poll de `stack ls`
-  // para a vista de progresso (o wait em si imprime pouco até terminar).
-  const startWait = (path: string) => {
-    setPhase("waiting");
-    void pollProgress(path);
-    if (pollTimer.current) clearInterval(pollTimer.current);
-    pollTimer.current = setInterval(() => void pollProgress(path), 2000);
-
-    const waitArgv = cmd.stackWait(path, 180);
-    appendLog(`$ ${show(waitArgv)}`);
-    stopStream.current?.();
-    void client
-      .stream("studio-wait", waitArgv, appendLog, (code) => {
-        if (pollTimer.current) clearInterval(pollTimer.current);
-        void pollProgress(path);
-        if (code === 0) {
-          appendLog("\n✓ tudo Ready — a arquitetura convergiu.");
-          setPhase("done");
-          toast("Arquitetura aplicada e Ready.");
-        } else {
-          appendLog(`\n✗ stack wait expirou/falhou (código ${code ?? "?"}) — nem tudo ficou Ready a tempo.`);
-          setPhase("failed");
-          toast("stack wait não convergiu — vê o progresso.", false);
-        }
-      })
-      .then((s) => (stopStream.current = s))
-      .catch((e) => { appendLog(String(e)); setPhase("failed"); if (pollTimer.current) clearInterval(pollTimer.current); });
+    try {
+      await client.stackApply(path);
+      appendLog("\n✓ stack apply concluído (node.v1).");
+      await pollProgress(path); // snapshot único do estado dos recursos
+      setPhase("done");
+      toast("Arquitetura aplicada.");
+    } catch (e) {
+      appendLog(`\n✗ stack apply falhou: ${String(e)}`);
+      setPhase("failed");
+      toast("stack apply falhou — vê os logs.", false);
+    }
   };
 
   const loadHistory = async () => {

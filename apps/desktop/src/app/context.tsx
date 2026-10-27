@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { DelonixClient } from "../lib/client";
 import type { EngineInfo } from "../lib/engine";
 import type { Argv } from "../lib/cli";
+import type { RiskLevel } from "../lib/types";
 
 export type Route =
   | { name: "overview" }
@@ -42,6 +43,10 @@ export interface AppCtx {
   // Executa uma ação do CLI: pede confirmação se o risco o exige, regista no
   // histórico e mostra o resultado. Devolve true se correu bem.
   act: (argv: Argv, label: string) => Promise<boolean>;
+  // Como `act`, mas corre uma operação ARBITRÁRIA (ex.: node.v1) em vez de um
+  // argv do CLI: pede confirmação segundo `risk`, regista no histórico e mostra
+  // o resultado. A `fn` lança em caso de falha. Devolve true se correu bem.
+  actRun: (label: string, risk: RiskLevel, fn: () => Promise<unknown>) => Promise<boolean>;
   history: HistoryEntry[];
   // Navegação colapsável (hamburger). Estado persistido em localStorage.
   sidebarCollapsed: boolean;

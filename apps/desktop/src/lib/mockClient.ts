@@ -392,6 +392,8 @@ export class MockClient implements DelonixClient {
   providers = () => wait(providers);
   doctor = () => wait(doctorItems);
   stackPlan = (_manifest?: string) => wait(mockPlan());
+  stackApply = (_manifest?: string) => wait(undefined).then(() => { stackApplied = true; });
+  stackDestroy = (_manifest?: string) => wait(undefined).then(() => { stackApplied = false; });
   clusters = (_all?: boolean) => wait(mockClusters);
 
   // Recursos DENTRO de um cluster (kubectl READ), simulados.

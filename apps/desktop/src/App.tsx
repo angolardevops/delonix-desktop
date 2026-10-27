@@ -109,29 +109,51 @@ export default function App() {
     });
   }, []);
 
-  const act = useCallback(async (argv: Argv, label: string) => {
-    const risk = await client.risk(argv);
+  // Núcleo partilhado: confirma segundo o risco, corre `fn` (CLI ou node.v1),
+  // regista no histórico e mostra o resultado. `argv` é só para a confirmação e
+  // o registo; `fn` é quem faz o trabalho e devolve ok/stderr/código.
+  const actCore = useCallback(async (
+    label: string,
+    risk: RiskLevel,
+    command: string,
+    confirmArgv: Argv | null,
+    fn: () => Promise<{ ok: boolean; stderr?: string; code?: number }>,
+  ) => {
     let confirm = false;
     if (risk === "DISRUPTIVE" || risk === "DESTRUCTIVE") {
-      confirm = await new Promise<boolean>((resolve) => setPending({ argv, label, risk, resolve }));
+      confirm = await new Promise<boolean>((resolve) => setPending({ argv: confirmArgv ?? [], label, risk, resolve }));
       setPending(null);
       if (!confirm) return false;
     }
     try {
-      const r = await client.run(argv, confirm);
-      setHistory((h) => [{ at: new Date(), label, command: show(argv), ok: r.ok }, ...h].slice(0, 200));
+      const r = await fn();
+      setHistory((h) => [{ at: new Date(), label, command, ok: r.ok }, ...h].slice(0, 200));
       // Erro ESTRUTURADO: normaliza o stderr (+ código) numa mensagem acionável
       // (código DX, hint, sem ruído INFO) em vez do stderr cru / "código N".
-      setToast({ ok: r.ok, text: r.ok ? `${label} · feito` : `${label} falhou: ${describeCliError(r.stderr, r.code)}` });
+      setToast({ ok: r.ok, text: r.ok ? `${label} · feito` : `${label} falhou: ${describeCliError(r.stderr ?? "", r.code)}` });
       return r.ok;
     } catch (e) {
-      setHistory((h) => [{ at: new Date(), label, command: show(argv), ok: false }, ...h]);
+      setHistory((h) => [{ at: new Date(), label, command, ok: false }, ...h]);
       // Rejeição do invoke (inclui o marcador de TIMEOUT do backend): também
       // passa pelo normalizador, por isso um timeout aparece como tal.
       setToast({ ok: false, text: describeCliError(String(e)) });
       return false;
     }
-  }, [client]);
+  }, []);
+
+  const act = useCallback(async (argv: Argv, label: string) => {
+    const risk = (await client.risk(argv)) ?? "READ";
+    return actCore(label, risk, show(argv), argv, (confirmed => () => client.run(argv, confirmed))(risk === "DISRUPTIVE" || risk === "DESTRUCTIVE"));
+  }, [client, actCore]);
+
+  // Como `act`, mas corre uma operação node.v1 (`fn`) em vez de um argv do CLI.
+  // Uma `fn` que lança conta como falha; o `label` dá a confirmação e o registo.
+  const actRun = useCallback(async (label: string, risk: RiskLevel, fn: () => Promise<unknown>) => {
+    return actCore(label, risk, label, null, async () => {
+      await fn();
+      return { ok: true };
+    });
+  }, [actCore]);
 
   useEffect(() => {
     if (!toast) return;
@@ -180,7 +202,7 @@ export default function App() {
   // contexto para a StatusBar/ContextPicker.
   const engine = useResource(["engine"], () => client.engine(), 0).data;
 
-  const ctx: AppCtx = { client, engine: engine ?? null, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, history, sidebarCollapsed, toggleSidebar, toast: notifyToast, namespace, setNamespace };
+  const ctx: AppCtx = { client, engine: engine ?? null, route, go: setRoute, openDock, openPalette: () => setPalette(true), act, actRun, history, sidebarCollapsed, toggleSidebar, toast: notifyToast, namespace, setNamespace };
 
   const screen = (() => {
     switch (route.name) {

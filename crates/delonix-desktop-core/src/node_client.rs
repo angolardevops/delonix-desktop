@@ -98,6 +98,10 @@ fn volume_collection(ns: &str) -> String {
 fn volume_resource(ns: &str, name: &str) -> String {
     format!("/v1/namespaces/{ns}/volumes/{name}")
 }
+/// `.../pods` — ListPods (GET). Os pods são DERIVADOS dos containers no engine.
+fn pod_collection(ns: &str) -> String {
+    format!("/v1/namespaces/{ns}/pods")
+}
 
 /// Um cliente do node-api ligado a um socket Unix concreto.
 #[derive(Debug, Clone)]
@@ -355,6 +359,16 @@ impl NodeClient {
         self.delete(&volume_resource(ns, name))
     }
 
+    // --- PodService (`delonix.node.v1`) -------------------------------------
+    //
+    // Os pods são DERIVADOS dos containers no engine (sem store próprio). Só a
+    // leitura é servida; create/delete ficam 501 → a GUI só os LISTA.
+
+    /// `ListPods` — `GET /v1/namespaces/{ns}/pods` (devolve `{pods: [...]}`).
+    pub fn pods(&self, ns: &str) -> Result<serde_json::Value> {
+        self.get_raw(&pod_collection(ns))
+    }
+
     // --- ImageService (`delonix.node.v1`) -----------------------------------
     //
     // Imagens são NODE-WIDE (não-namespaced): `/v1/images`, `/v1/images:get`,
@@ -377,6 +391,46 @@ impl NodeClient {
         let body = serde_json::json!({ "reference": reference });
         let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
         self.post("/v1/images:delete", &body)
+    }
+
+    // --- StackService (`delonix.node.v1`) -----------------------------------
+    //
+    // O manifesto é `bytes` (proto3 JSON = base64). As rotas são custom-verb em
+    // `/v1/stacks/{stack}:plan|apply|destroy`. Plan devolve um StackPlan; apply e
+    // destroy uma Operation (já terminal — o engine corre a bem/mal síncrono).
+
+    /// `PlanStack` — o que um apply MUDARIA, sem mudar nada.
+    pub fn stack_plan(
+        &self,
+        stack: &str,
+        manifest: &[u8],
+        prune: bool,
+    ) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "manifest": base64_encode(manifest), "prune": prune });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&format!("/v1/stacks/{stack}:plan"), &body)
+    }
+    /// `ApplyStack` — materializa o manifesto.
+    pub fn stack_apply(
+        &self,
+        stack: &str,
+        manifest: &[u8],
+        prune: bool,
+        replace: &[String],
+    ) -> Result<serde_json::Value> {
+        let body = serde_json::json!({
+            "manifest": base64_encode(manifest),
+            "prune": prune,
+            "replace": replace,
+        });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&format!("/v1/stacks/{stack}:apply"), &body)
+    }
+    /// `DestroyStack` — remove tudo o que o stack possui.
+    pub fn stack_destroy(&self, stack: &str, manifest: &[u8]) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "manifest": base64_encode(manifest) });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&format!("/v1/stacks/{stack}:destroy"), &body)
     }
 
     /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
@@ -450,6 +504,48 @@ fn split_http(raw: &[u8]) -> Result<(u16, &[u8])> {
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Base64 standard (RFC 4648, com padding) — para os campos `bytes` do proto3
+/// JSON (o manifesto do StackService). Inline para não arrastar a crate `base64`
+/// só por um campo.
+fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+#[cfg(test)]
+mod base64_tests {
+    use super::base64_encode;
+    #[test]
+    fn base64_matches_rfc_examples() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
 }
 
 #[cfg(test)]

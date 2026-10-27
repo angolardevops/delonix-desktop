@@ -38,6 +38,19 @@ const operationError = (op: Obj): string | null => {
   if (/fail|error/i.test(state)) return str(op, "result") || `operação ${state}`;
   return null;
 };
+// Ação de uma PlannedChange do StackService → a palavra que a UI usa. O proto3
+// JSON serializa a enum pelo NOME (`CHANGE_ACTION_CREATE`); também aceitamos já
+// a palavra crua (robustez). NO_OP/UNSPECIFIED → "noop".
+const planActionWord = (raw: string): string => {
+  const a = raw.replace(/^CHANGE_ACTION_/, "").toLowerCase().replace(/_/g, "");
+  if (a === "create") return "create";
+  if (a === "update") return "update";
+  if (a === "replace") return "replace";
+  if (a === "delete") return "delete";
+  if (a === "adopt") return "adopt";
+  if (a === "conflict") return "conflict";
+  return "noop"; // noop / unspecified / vazio
+};
 // Número numérico-real, ou null (mantém "não medido" distinto de 0).
 const num = (o: Obj, ...keys: string[]): number | null => {
   const v = pick(o, ...keys);
@@ -200,6 +213,28 @@ const nodeContainerToRow = (o: Obj): WorkloadRow => {
     name: str(meta, "name"),
     status: phaseToStatus(status),
     info: str(spec, "image"),
+    namespace: str(meta, "namespace") || DEFAULT_NS,
+  };
+};
+
+// Pod do PodService (node.v1) → linha de workload. O estado deriva da condição
+// "Ready" (o engine põe-na True quando todos os membros correm); o info conta os
+// membros e quantos estão a correr. Os pods são DERIVADOS dos containers.
+const nodePodToRow = (o: Obj): WorkloadRow => {
+  const meta = (pick(o, "meta") ?? {}) as Obj;
+  const members = asArray(pick(o, "members"));
+  const conditions = asArray(pick(o, "conditions"));
+  const ready = conditions.find((c) => str(c, "type") === "Ready");
+  const isReady = str(ready ?? {}, "status") === "CONDITION_STATUS_TRUE";
+  const running = members.filter(
+    (m) => str((pick(m, "status") ?? {}) as Obj, "phase") === "CONTAINER_PHASE_RUNNING",
+  ).length;
+  const total = members.length;
+  return {
+    type: "pod",
+    name: str(meta, "name"),
+    status: isReady ? "Ready" : `${running}/${total} up`,
+    info: `${total} ${total === 1 ? "container" : "containers"}`,
     namespace: str(meta, "namespace") || DEFAULT_NS,
   };
 };
@@ -444,13 +479,23 @@ export class TauriClient implements DelonixClient {
     return (await this.nodeContainersRaw(namespace)).map(nodeContainerToRow);
   }
 
+  // Pods pelo contrato node.v1 (PodService.ListPods, REST) — derivados dos
+  // containers no engine. Só leitura; se o node-api não servir, fica vazio.
+  private async nodePods(namespace?: string): Promise<WorkloadRow[]> {
+    const resp = (await invoke<Obj>("node_pods", { namespace: namespace ?? DEFAULT_NS })) ?? {};
+    return asArray(pick(resp, "pods")).map(nodePodToRow);
+  }
+
   async workloads(namespace?: string): Promise<WorkloadRow[]> {
-    const [containers, cliAll] = await Promise.all([
+    const [containers, pods, cliAll] = await Promise.all([
       this.nodeContainers(namespace).catch(() => [] as WorkloadRow[]),
+      this.nodePods(namespace).catch(() => [] as WorkloadRow[]),
       json<WorkloadRow[]>(cmd.workloads(namespace)).catch(() => [] as WorkloadRow[]),
     ]);
-    const nonContainer = cliAll.filter((w) => w.type !== "container");
-    return [...containers, ...nonContainer];
+    // Containers e pods vêm do node.v1 (decisão B); da CLI ficam só os restantes
+    // tipos (VMs), que ainda não têm fatia node.v1.
+    const other = cliAll.filter((w) => w.type !== "container" && w.type !== "pod");
+    return [...containers, ...pods, ...other];
   }
 
   // Imagens pelo contrato node.v1 (ListImages, REST) — sem CLI (decisão B). O
@@ -634,32 +679,45 @@ export class TauriClient implements DelonixClient {
     return parseDoctor([r.stdout, r.stderr].filter(Boolean).join("\n"));
   }
 
-  // --- Camada declarativa (§E) --------------------------------------------
-  // `stack plan -o json` devolve um array [{kind,name,action,changed,diffs[],
-  // planDigest}]. O engine pode imprimir um `warning` em TEXTO antes do JSON
-  // (ex.: "kind: Container … kind: Pod"), por isso corre por dlx_run e corta a
-  // partir do primeiro `[`, em vez de dlx_json (que exigiria stdout JSON puro).
+  // --- Camada declarativa (§E) — StackService (node.v1) -------------------
+  // Plan/Apply/Destroy passam pelo contrato `delonix.node.v1` (decisão B): o
+  // backend Tauri lê o manifesto do caminho, base64-encoda-o e chama
+  // `/v1/stacks/{stack}:plan|apply|destroy`. O nome do stack deriva do nome do
+  // ficheiro. Plan devolve um StackPlan `{changes:[{target,action,fields[]}],
+  // has_changes}`; apply/destroy uma Operation já terminal.
   async stackPlan(manifest?: string): Promise<StackPlanRow[]> {
-    const r = await invoke<CliResult>("dlx_run", { args: cmd.stackPlan(manifest), confirm: false });
-    const start = r.stdout.indexOf("[");
-    if (start < 0) {
-      if (!r.ok) throw new Error(r.stderr.trim() || `stack plan saiu com código ${r.code}`);
-      return [];
-    }
-    let arr: unknown;
-    try {
-      arr = JSON.parse(r.stdout.slice(start));
-    } catch {
-      throw new Error(r.stderr.trim() || "stack plan: saída não-JSON");
-    }
-    return asArray(arr).map((o) => ({
-      kind: str(o, "kind"),
-      name: str(o, "name"),
-      action: str(o, "action"),
-      changed: bool(o, "changed") ?? false,
-      diffs: asArray(pick(o, "diffs")).length,
-      planDigest: str(o, "planDigest", "plan_digest"),
-    }));
+    if (!manifest) throw new Error("indica o caminho do manifesto da stack");
+    const plan = (await invoke<Obj>("node_stack_plan", { path: manifest })) ?? {};
+    return asArray(pick(plan, "changes")).map((c) => {
+      // `target` = "Kind/name" → separa no 1.º "/".
+      const target = str(c, "target");
+      const slash = target.indexOf("/");
+      const action = planActionWord(str(c, "action"));
+      return {
+        kind: slash >= 0 ? target.slice(0, slash) : target,
+        name: slash >= 0 ? target.slice(slash + 1) : "",
+        action,
+        changed: action !== "noop" && action !== "",
+        diffs: asArray(pick(c, "fields")).length,
+        planDigest: "", // o contrato não leva digest; o apply node.v1 não o exige
+      };
+    });
+  }
+
+  // Apply/Destroy pelo contrato: o engine corre a síncrona e devolve uma
+  // Operation já terminal; se falhou, lançamos a razão (sem progresso ao vivo —
+  // a UI mostra um spinner até terminar, como o pull de imagem).
+  async stackApply(manifest?: string): Promise<void> {
+    if (!manifest) throw new Error("indica o caminho do manifesto da stack");
+    const op = (await invoke<Obj>("node_stack_apply", { path: manifest })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
+  }
+  async stackDestroy(manifest?: string): Promise<void> {
+    if (!manifest) throw new Error("indica o caminho do manifesto da stack");
+    const op = (await invoke<Obj>("node_stack_destroy", { path: manifest })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
   }
 
   // `cluster ls` é TEXTO (sem -o json): parseado por nome de coluna.

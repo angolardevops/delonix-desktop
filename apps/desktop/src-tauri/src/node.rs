@@ -301,3 +301,63 @@ pub async fn node_image_pull(
 pub async fn node_image_delete(reference: String) -> Result<serde_json::Value, String> {
     on_node(move |c| c.image_delete(&reference)).await
 }
+
+// --- PodService (`delonix.node.v1`) -----------------------------------------
+//
+// Só leitura: os pods são derivados dos containers no engine. A lista Workloads
+// funde-os com os containers.
+
+/// `ListPods` — `GET /v1/namespaces/{ns}/pods`.
+#[tauri::command]
+pub async fn node_pods(namespace: Option<String>) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.pods(&ns)).await
+}
+
+// --- StackService (`delonix.node.v1`) ---------------------------------------
+//
+// O manifesto vive num ficheiro no host (o Studio grava-o antes). O comando
+// lê-o aqui e passa os bytes ao core (que os base64-encoda). Plan devolve um
+// StackPlan; apply/destroy uma Operation já terminal (sem progresso ao vivo).
+
+/// Lê o manifesto do caminho e deriva o nome do stack do nome do ficheiro.
+fn read_manifest(path: &str) -> Result<(String, Vec<u8>), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("a ler o manifesto {path}: {e}"))?;
+    let stack = std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("stack")
+        .to_string();
+    Ok((stack, bytes))
+}
+
+/// `PlanStack` — `POST /v1/stacks/{stack}:plan`.
+#[tauri::command]
+pub async fn node_stack_plan(
+    path: String,
+    prune: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let (stack, manifest) = read_manifest(&path)?;
+    let prune = prune.unwrap_or(false);
+    on_node(move |c| c.stack_plan(&stack, &manifest, prune)).await
+}
+
+/// `ApplyStack` — `POST /v1/stacks/{stack}:apply`.
+#[tauri::command]
+pub async fn node_stack_apply(
+    path: String,
+    prune: Option<bool>,
+    replace: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    let (stack, manifest) = read_manifest(&path)?;
+    let prune = prune.unwrap_or(false);
+    let replace = replace.unwrap_or_default();
+    on_node(move |c| c.stack_apply(&stack, &manifest, prune, &replace)).await
+}
+
+/// `DestroyStack` — `POST /v1/stacks/{stack}:destroy`.
+#[tauri::command]
+pub async fn node_stack_destroy(path: String) -> Result<serde_json::Value, String> {
+    let (stack, manifest) = read_manifest(&path)?;
+    on_node(move |c| c.stack_destroy(&stack, &manifest)).await
+}
