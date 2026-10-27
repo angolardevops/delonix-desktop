@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
+import type { ContainerStatsSample, DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
 import { cmd, kubectl, type Argv } from "./cli";
 import { buildEngineInfo, type EngineInfo } from "./engine";
 import { parseDoctor } from "./doctor";
@@ -775,6 +775,20 @@ export class TauriClient implements DelonixClient {
 
   async containerRemove(namespace: string, name: string): Promise<void> {
     await invoke("node_container_delete", { namespace, name });
+  }
+
+  async containerStats(namespace: string, name: string): Promise<ContainerStatsSample> {
+    const s = (await invoke<Obj>("node_container_stats", { namespace, name })) ?? {};
+    return {
+      cpuUsageNanos: num(s, "cpu_usage_nanos") ?? 0,
+      memoryWorkingSetBytes: num(s, "memory_working_set_bytes") ?? 0,
+      memoryLimitBytes: num(s, "memory_limit_bytes") ?? 0,
+      pids: num(s, "pids") ?? 0,
+      networkRxBytes: num(s, "network_rx_bytes") ?? 0,
+      networkTxBytes: num(s, "network_tx_bytes") ?? 0,
+      writableLayerBytes: num(s, "writable_layer_bytes") ?? 0,
+      unmeasured: list(s, "unmeasured"),
+    };
   }
 
   events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {

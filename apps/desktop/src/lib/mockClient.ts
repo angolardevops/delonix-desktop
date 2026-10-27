@@ -1,6 +1,6 @@
 // Duplo local: os mesmos dados dos mockups, para desenvolver no browser sem
 // Tauri nem engine. A UI mostra sempre uma faixa "duplo local" neste modo.
-import type { DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
+import type { ContainerStatsSample, DelonixClient, ExecMode, ExecSession, HostIdentity } from "./client";
 import type { Argv } from "./cli";
 import { show } from "./cli";
 import { buildEngineInfo } from "./engine";
@@ -776,6 +776,23 @@ export class MockClient implements DelonixClient {
     workloads = workloads.filter((w) => w.name !== name);
     return wait(undefined);
   }
+
+  // Duplo local: contadores que crescem a cada amostra (para as taxas não serem 0).
+  async containerStats(_namespace: string, _name: string): Promise<ContainerStatsSample> {
+    this.statsTick += 1;
+    const t = this.statsTick;
+    return wait({
+      cpuUsageNanos: t * 180_000_000, // ~18% de um núcleo entre amostras de 1s
+      memoryWorkingSetBytes: 64 * 1024 * 1024,
+      memoryLimitBytes: 0,
+      pids: 7,
+      networkRxBytes: t * 12_000,
+      networkTxBytes: t * 3_000,
+      writableLayerBytes: 2 * 1024 * 1024,
+      unmeasured: [],
+    });
+  }
+  private statsTick = 0;
 
   async events(onEvent: (e: EngineEvent) => void, _onEnd?: () => void) {
     void _onEnd; // o duplo local não termina o fluxo — sem reconexão a simular

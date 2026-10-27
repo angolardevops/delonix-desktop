@@ -3,12 +3,12 @@ import { useApp } from "../app/context";
 import { Icon } from "../components/Icon";
 import { LazyTerminal as Terminal } from "../components/LazyTerminal";
 import { CliHint, Chip, ErrorNote, Planned, StateChip, Tabs, TypeChip } from "../components/ui";
-import type { ExecMode } from "../lib/client";
+import type { ContainerStatsSample, ExecMode } from "../lib/client";
 import { cmd, show } from "../lib/cli";
 import { splitTimestamp } from "../lib/logs";
 import { runState, useDebounced, useResource } from "../lib/hooks";
-import { fmtBinBytes, fmtRate, latestRates, sampleFromRow, type Sample } from "../lib/metrics";
-import type { DashRow, WorkloadRow } from "../lib/types";
+import { fmtBinBytes, fmtRate, latestRates, sampleFromStats, type Sample } from "../lib/metrics";
+import type { WorkloadRow } from "../lib/types";
 
 type T = "logs" | "terminal" | "inspect" | "stats" | "snapshots";
 
@@ -256,25 +256,32 @@ function Metric({ label, value, note }: { label: string; value: string; note?: s
   );
 }
 
+// Aba "Estatísticas": containers pelo `ContainerService.Stats` (gRPC, node.v1),
+// não pelo `dashboard --json` (CLI) — decisão B. As taxas (CPU, rede) vêm da
+// diferença entre amostras sucessivas; mem é instantânea. VMs ficam no caminho
+// do provider (por fazer). Um node-api em baixo / container parado aparece como
+// erro na própria aba.
 function Stats({ w }: { w: WorkloadRow }) {
   const { client } = useApp();
   const [hist, setHist] = useState<Sample[]>([]);
-  // undefined = ainda a carregar; null = recurso sem row no dashboard.
-  const [row, setRow] = useState<DashRow | null | undefined>(undefined);
+  const [last, setLast] = useState<ContainerStatsSample | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (w.type === "vm") return;
     setHist([]);
-    setRow(undefined);
+    setLast(null);
+    setErr(null);
     let alive = true;
     const tick = async () => {
       try {
-        const d = await client.dash();
+        const s = await client.containerStats(w.namespace || "default", w.name);
         if (!alive) return;
-        const r = (d.rows ?? []).find((x) => x.name === w.name) ?? null;
-        setRow(r);
-        if (r) setHist((p) => [...p, sampleFromRow(r, Date.now())].slice(-MAX_SAMPLES));
-      } catch {
-        /* polling: ignora falha pontual */
+        setErr(null);
+        setLast(s);
+        setHist((p) => [...p, sampleFromStats(s, Date.now())].slice(-MAX_SAMPLES));
+      } catch (e) {
+        if (alive) setErr(String(e));
       }
     };
     void tick();
@@ -283,23 +290,24 @@ function Stats({ w }: { w: WorkloadRow }) {
       alive = false;
       clearInterval(t);
     };
-  }, [client, w.name]);
+  }, [client, w.type, w.name, w.namespace]);
 
-  // VMs: as rows não trazem cpu/mem → caminho do provider (front D) por fazer.
+  // VMs: o contrato de Stats é de container; as métricas de VM precisam do
+  // caminho do provider (por fazer).
   if (w.type === "vm") {
     return (
       <div style={{ padding: 24 }}>
         <Planned what="Métricas de VM por recurso" dependsOn="caminho do provider (vm stats via socket, §5/D)" />
         <p className="muted" style={{ marginTop: 12 }}>
-          O <span className="mono">dashboard --json</span> não preenche cpu/mem para VMs; as métricas de VM precisam do caminho do provider (CPU/memória não medida aqui).
+          O <span className="mono">ContainerService.Stats</span> é de container; as métricas de VM precisam do caminho do provider (CPU/memória não medida aqui).
         </p>
       </div>
     );
   }
 
-  if (row === undefined) return <p className="muted" style={{ padding: 24 }}>A recolher amostras…</p>;
-  if (row === null)
-    return <p className="muted" style={{ padding: 24 }}>Sem métricas para <span className="mono">{w.name}</span> no dashboard (recurso parado ou não medível em rootless).</p>;
+  if (err && hist.length === 0)
+    return <div style={{ padding: 24 }}><ErrorNote error={err} /></div>;
+  if (hist.length === 0) return <p className="muted" style={{ padding: 24 }}>A recolher amostras…</p>;
 
   const r = latestRates(hist);
   const cpu = r.cpu;
@@ -314,12 +322,12 @@ function Stats({ w }: { w: WorkloadRow }) {
           note={cpu ? `${cpu.cores.toFixed(2).replace(".", ",")} núcleos${cpu.pctCapacity != null ? ` · ${cpu.pctCapacity.toFixed(1).replace(".", ",")} % capacidade` : ""}` : first ? "sem dados (primeira amostra)" : "sem dados"}
         />
         <Metric
-          label="Memória (atual)"
+          label="Memória (working set)"
           value={fmtBinBytes(r.mem)}
-          note="memory.current · sem limite por recurso"
+          note={last && last.memoryLimitBytes > 0 ? `limite ${fmtBinBytes(last.memoryLimitBytes)}` : "sem limite por recurso"}
         />
-        <Metric label="IO leitura" value={fmtRate(r.ioRead)} note={first ? "sem dados (primeira amostra)" : "bytes/s (não IOPS)"} />
-        <Metric label="IO escrita" value={fmtRate(r.ioWrite)} note={first ? "sem dados (primeira amostra)" : "bytes/s (não IOPS)"} />
+        <Metric label="PIDs" value={last ? String(last.pids) : "—"} note="processos no cgroup do container" />
+        <Metric label="Camada gravável" value={last ? fmtBinBytes(last.writableLayerBytes) : "—"} note="writable_layer_bytes (tamanho, não taxa)" />
         <Metric label="Rede rx" value={fmtRate(r.netRx)} note={first ? "sem dados (primeira amostra)" : "taxa (de contador acumulado)"} />
         <Metric label="Rede tx" value={fmtRate(r.netTx)} note={first ? "sem dados (primeira amostra)" : "taxa (de contador acumulado)"} />
       </div>

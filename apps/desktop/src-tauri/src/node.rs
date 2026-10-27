@@ -146,3 +146,39 @@ pub async fn node_container_delete(namespace: Option<String>, name: String) -> R
     let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
     on_node(move |c| c.container_delete(&ns, &name).map(|_| ())).await
 }
+
+/// Amostra de métricas de um container (`ContainerService.Stats`, gRPC) — a aba
+/// de Estatísticas. Forma serializável (snake_case) do `pb::ContainerStats`; as
+/// taxas (CPU, rede) são calculadas no frontend a partir de amostras sucessivas.
+#[derive(serde::Serialize)]
+pub struct ContainerStatsDto {
+    pub cpu_usage_nanos: i64,
+    pub memory_working_set_bytes: i64,
+    pub memory_limit_bytes: i64,
+    pub pids: i64,
+    pub network_rx_bytes: i64,
+    pub network_tx_bytes: i64,
+    pub writable_layer_bytes: i64,
+    pub unmeasured: Vec<String>,
+}
+
+/// `Stats` por gRPC (não CLI). Ao contrário das leituras unárias (HTTP/JSON do
+/// NodeClient), o Stats vem pelo canal tonic do crate::grpc.
+#[tauri::command]
+pub async fn node_container_stats(
+    namespace: Option<String>,
+    name: String,
+) -> Result<ContainerStatsDto, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    let s = crate::grpc::stats_once(&name, &ns).await?;
+    Ok(ContainerStatsDto {
+        cpu_usage_nanos: s.cpu_usage_nanos,
+        memory_working_set_bytes: s.memory_working_set_bytes,
+        memory_limit_bytes: s.memory_limit_bytes,
+        pids: s.pids,
+        network_rx_bytes: s.network_rx_bytes,
+        network_tx_bytes: s.network_tx_bytes,
+        writable_layer_bytes: s.writable_layer_bytes,
+        unmeasured: s.unmeasured,
+    })
+}

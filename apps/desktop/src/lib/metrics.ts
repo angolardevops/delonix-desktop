@@ -8,6 +8,7 @@
 //  - io_* / net_*: contadores CUMULATIVOS em bytes; a taxa é Δbytes/Δt.
 //  - Campos a null/ausentes quando não medível (rootless, ou VMs — as rows de
 //    VM NÃO preenchem cpu/mem; essas chegam aqui como null).
+import type { ContainerStatsSample } from "./client";
 import type { DashRow, SystemMetrics } from "./types";
 
 // Uma amostra tirada num instante `t` (epoch em milissegundos).
@@ -104,6 +105,22 @@ export function sampleFromRow(r: DashRow, t: number): Sample {
     io_write_bytes: r.io_write_bytes,
     net_rx_bytes: r.net_rx_bytes,
     net_tx_bytes: r.net_tx_bytes,
+  };
+}
+
+// Uma amostra a partir do `ContainerStats` do contrato node.v1 (gRPC): cpu em
+// NANOs (→ usec, ÷1000, a unidade do Sample); mem = working set; rede = rx/tx.
+// O contrato não separa IO de leitura/escrita (só `writable_layer_bytes`, um
+// TAMANHO, não contador) → io fica null (a UI mostra "não medido" sem inventar).
+export function sampleFromStats(s: ContainerStatsSample, t: number): Sample {
+  return {
+    t,
+    cpu_usage_usec: s.cpuUsageNanos / 1000,
+    mem_bytes: s.memoryWorkingSetBytes,
+    io_read_bytes: null,
+    io_write_bytes: null,
+    net_rx_bytes: s.networkRxBytes,
+    net_tx_bytes: s.networkTxBytes,
   };
 }
 

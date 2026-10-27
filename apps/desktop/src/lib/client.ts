@@ -122,6 +122,24 @@ export interface DelonixClient {
   containerStop(namespace: string, name: string): Promise<void>;
   containerRestart(namespace: string, name: string): Promise<void>;
   containerRemove(namespace: string, name: string): Promise<void>;
+  // Uma amostra de métricas de container pelo `ContainerService.Stats` (gRPC),
+  // não pelo `dashboard --json` (CLI) — decisão B. As taxas (CPU, rede) são
+  // calculadas no frontend a partir de amostras sucessivas. Lança se o engine
+  // não servir ContainerService ou o container estiver parado.
+  containerStats(namespace: string, name: string): Promise<ContainerStatsSample>;
+}
+
+// Amostra crua de `ContainerStats` (node.v1): contadores ACUMULADOS (cpu_nanos,
+// net rx/tx) que viram taxa no frontend, + instantâneos (mem, pids, writable).
+export interface ContainerStatsSample {
+  cpuUsageNanos: number;
+  memoryWorkingSetBytes: number;
+  memoryLimitBytes: number;
+  pids: number;
+  networkRxBytes: number;
+  networkTxBytes: number;
+  writableLayerBytes: number;
+  unmeasured: string[];
 }
 
 // Os cinco modos de terminal por PTY (§6). Têm de casar EXATAMENTE com
