@@ -157,6 +157,42 @@ const toVm = (o: Obj): VmDetail => {
   };
 };
 
+// Namespace default do contrato quando a UI não passa um (seletor global).
+const DEFAULT_NS = "default";
+
+// `ContainerPhase` do contrato node.v1 → o texto de estado que a UI classifica
+// (runState em hooks.ts: "Running"/"Up …" → running; "Exited (N)" N≠0 → error).
+// O `(137)` em EXITED mantém o detetor de OOM da tela (chip "morto por OOM").
+const phaseToStatus = (status: Obj): string => {
+  const phase = str(status, "phase");
+  const code = pick(status, "exit_code");
+  const reason = str(status, "reason");
+  switch (phase) {
+    case "CONTAINER_PHASE_RUNNING": return "Running";
+    case "CONTAINER_PHASE_CREATED": return "Created";
+    case "CONTAINER_PHASE_PAUSED": return "Paused";
+    case "CONTAINER_PHASE_EXITED":
+    case "CONTAINER_PHASE_DEAD":
+      return `Exited (${code ?? "?"})${reason ? ` ${reason}` : ""}`;
+    default: return phase.replace(/^CONTAINER_PHASE_/, "") || "—";
+  }
+};
+
+// Um Container do contrato node.v1 (meta/spec/status) → WorkloadRow (a forma que
+// a lista de Workloads consome).
+const nodeContainerToRow = (o: Obj): WorkloadRow => {
+  const meta = (pick(o, "meta") ?? {}) as Obj;
+  const spec = (pick(o, "spec") ?? {}) as Obj;
+  const status = (pick(o, "status") ?? {}) as Obj;
+  return {
+    type: "container",
+    name: str(meta, "name"),
+    status: phaseToStatus(status),
+    info: str(spec, "image"),
+    namespace: str(meta, "namespace") || DEFAULT_NS,
+  };
+};
+
 // --- Normalização do `-o json` do kubectl (items[]) ------------------------
 // Um nó: nome, condição Ready, agendável (!unschedulable), papéis (das labels
 // node-role.kubernetes.io/*) e versão do kubelet.
@@ -327,8 +363,23 @@ export class TauriClient implements DelonixClient {
     };
   }
 
-  workloads(namespace?: string) {
-    return json<WorkloadRow[]>(cmd.workloads(namespace));
+  // Containers SÓ pelo contrato node.v1 (ContainerService.ListContainers) — sem
+  // fallback CLI (decisão B). Se o engine não servir ContainerService (501), a
+  // lista de containers fica vazia; o detalhe (Inspecionar/Logs) mostra o erro.
+  // VMs e pods continuam a vir da CLI (`workload ls`) enquanto essas fatias não
+  // migram — por isso ficam disponíveis mesmo com o node-api em baixo.
+  private async nodeContainers(namespace?: string): Promise<WorkloadRow[]> {
+    const resp = (await invoke<Obj>("node_containers", { namespace: namespace ?? DEFAULT_NS })) ?? {};
+    return asArray(pick(resp, "containers")).map(nodeContainerToRow);
+  }
+
+  async workloads(namespace?: string): Promise<WorkloadRow[]> {
+    const [containers, cliAll] = await Promise.all([
+      this.nodeContainers(namespace).catch(() => [] as WorkloadRow[]),
+      json<WorkloadRow[]>(cmd.workloads(namespace)).catch(() => [] as WorkloadRow[]),
+    ]);
+    const nonContainer = cliAll.filter((w) => w.type !== "container");
+    return [...containers, ...nonContainer];
   }
 
   // `image ls -o json` no 5.1.1 devolve {repo_tags[],id,created_unix,size_bytes,
@@ -693,6 +744,22 @@ export class TauriClient implements DelonixClient {
   // (501 DX-6001) ou o container não existir — a aba trata o erro.
   containerInspect(namespace: string, name: string): Promise<unknown> {
     return invoke<unknown>("node_container", { namespace, name });
+  }
+
+  async containerStart(namespace: string, name: string): Promise<void> {
+    await invoke("node_container_start", { namespace, name });
+  }
+
+  async containerStop(namespace: string, name: string): Promise<void> {
+    await invoke("node_container_stop", { namespace, name });
+  }
+
+  async containerRestart(namespace: string, name: string): Promise<void> {
+    await invoke("node_container_restart", { namespace, name });
+  }
+
+  async containerRemove(namespace: string, name: string): Promise<void> {
+    await invoke("node_container_delete", { namespace, name });
   }
 
   events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {

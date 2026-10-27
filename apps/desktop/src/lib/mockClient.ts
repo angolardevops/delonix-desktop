@@ -749,6 +749,27 @@ export class MockClient implements DelonixClient {
     });
   }
 
+  // Ciclo de vida de container no duplo local: muta o array (como as VMs).
+  async containerStart(_namespace: string, name: string): Promise<void> {
+    workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Up 1 second" } : w));
+    return wait(undefined);
+  }
+
+  async containerStop(_namespace: string, name: string): Promise<void> {
+    workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Exited (0) 1 second ago" } : w));
+    return wait(undefined);
+  }
+
+  async containerRestart(_namespace: string, name: string): Promise<void> {
+    workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Up 1 second" } : w));
+    return wait(undefined);
+  }
+
+  async containerRemove(_namespace: string, name: string): Promise<void> {
+    workloads = workloads.filter((w) => w.name !== name);
+    return wait(undefined);
+  }
+
   async events(onEvent: (e: EngineEvent) => void, _onEnd?: () => void) {
     void _onEnd; // o duplo local não termina o fluxo — sem reconexão a simular
     // `ts` em epoch (segundos); os dois eventos "15:06:03" partilham o MESMO ts

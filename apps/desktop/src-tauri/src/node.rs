@@ -115,3 +115,34 @@ pub async fn node_container(
     let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
     on_node(move |c| c.container(&ns, &name)).await
 }
+
+// Ações de ciclo de vida de container pelo contrato (decisão B: sem CLI). A UI
+// só precisa de sucesso/erro, por isso descartamos o corpo (Container/Operation).
+
+/// `StartContainer` — `POST .../{name}:start`.
+#[tauri::command]
+pub async fn node_container_start(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container_start(&ns, &name).map(|_| ())).await
+}
+
+/// `StopContainer` — `POST .../{name}:stop` (paragem graciosa).
+#[tauri::command]
+pub async fn node_container_stop(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container_stop(&ns, &name).map(|_| ())).await
+}
+
+/// Reiniciar (stop + start — o contrato não tem RPC Restart).
+#[tauri::command]
+pub async fn node_container_restart(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container_restart(&ns, &name).map(|_| ())).await
+}
+
+/// `DeleteContainer` — `DELETE .../{name}`.
+#[tauri::command]
+pub async fn node_container_delete(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container_delete(&ns, &name).map(|_| ())).await
+}

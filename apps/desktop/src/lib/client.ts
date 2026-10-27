@@ -110,6 +110,14 @@ export interface DelonixClient {
   // "Inspecionar" serializa-o. Lança se o engine não servir ContainerService
   // (501 DX-6001) ou o container não existir — a aba mostra a razão.
   containerInspect(namespace: string, name: string): Promise<unknown>;
+  // Ciclo de vida de um CONTAINER pelo contrato node.v1 (ContainerService
+  // Start/Stop/Delete; "reiniciar" = stop+start, o contrato não tem RPC Restart),
+  // não por `delonix` (CLI). Lançam se o engine não servir ContainerService
+  // (501) — a tela mostra a razão. VMs usam `vm*`; pods continuam na CLI.
+  containerStart(namespace: string, name: string): Promise<void>;
+  containerStop(namespace: string, name: string): Promise<void>;
+  containerRestart(namespace: string, name: string): Promise<void>;
+  containerRemove(namespace: string, name: string): Promise<void>;
 }
 
 // Os cinco modos de terminal por PTY (§6). Têm de casar EXATAMENTE com

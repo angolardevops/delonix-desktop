@@ -66,9 +66,13 @@ fn snapshot_restore(ns: &str, vm: &str, snapshot: &str) -> String {
 fn container_collection(ns: &str) -> String {
     format!("/v1/namespaces/{ns}/containers")
 }
-/// `.../containers/{name}` — GetContainer (GET).
+/// `.../containers/{name}` — GetContainer (GET) e DeleteContainer (DELETE).
 fn container_resource(ns: &str, name: &str) -> String {
     format!("/v1/namespaces/{ns}/containers/{name}")
+}
+/// `.../containers/{name}:{verb}` — Start/Stop/Kill (POST).
+fn container_verb(ns: &str, name: &str, verb: &str) -> String {
+    format!("/v1/namespaces/{ns}/containers/{name}:{verb}")
 }
 
 /// Um cliente do node-api ligado a um socket Unix concreto.
@@ -218,6 +222,28 @@ impl NodeClient {
     pub fn container(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
         self.get_raw(&container_resource(ns, name))
     }
+    /// `StartContainer` — `POST .../{name}:start` (body `*`). Devolve o Container.
+    pub fn container_start(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.post(&container_verb(ns, name, "start"), b"{}")
+    }
+    /// `StopContainer` — `POST .../{name}:stop` (body `*`). Paragem graciosa.
+    pub fn container_stop(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.post(&container_verb(ns, name, "stop"), b"{}")
+    }
+    /// `KillContainer` — `POST .../{name}:kill` (body `*`). SIGKILL imediato.
+    pub fn container_kill(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.post(&container_verb(ns, name, "kill"), b"{}")
+    }
+    /// `DeleteContainer` — `DELETE .../{name}`. Devolve uma Operation.
+    pub fn container_delete(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.delete(&container_resource(ns, name))
+    }
+    /// Reiniciar: o ContainerService não tem RPC `Restart`; compõe-se de
+    /// `StopContainer` seguido de `StartContainer` (como o `delonix restart`).
+    pub fn container_restart(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.container_stop(ns, name)?;
+        self.container_start(ns, name)
+    }
 
     /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
@@ -338,6 +364,18 @@ mod tests {
         assert_eq!(
             container_resource("default", "odoo-16"),
             "/v1/namespaces/default/containers/odoo-16"
+        );
+        assert_eq!(
+            container_verb("default", "odoo-16", "start"),
+            "/v1/namespaces/default/containers/odoo-16:start"
+        );
+        assert_eq!(
+            container_verb("default", "odoo-16", "stop"),
+            "/v1/namespaces/default/containers/odoo-16:stop"
+        );
+        assert_eq!(
+            container_verb("default", "odoo-16", "kill"),
+            "/v1/namespaces/default/containers/odoo-16:kill"
         );
     }
 

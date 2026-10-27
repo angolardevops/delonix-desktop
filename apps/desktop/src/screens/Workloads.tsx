@@ -8,9 +8,10 @@ import { runState, useResource, type RunState } from "../lib/hooks";
 import type { WorkloadRow } from "../lib/types";
 
 type TypeFilter = "all" | "container" | "pod" | "vm";
+type Life = "stop" | "start" | "restart" | "remove";
 
 export function Workloads() {
-  const { client, go, act, openDock, namespace } = useApp();
+  const { client, go, act, toast, openDock, namespace } = useApp();
   const { data, error, refresh } = useResource(["workloads", namespace], () => client.workloads(namespace), 3000);
   const [type, setType] = useState<TypeFilter>("all");
   const [state, setState] = useState<RunState | null>(null);
@@ -27,8 +28,27 @@ export function Workloads() {
   const sel = rows.filter((r) => selected.has(r.name));
 
   const doAct = async (argv: Argv, label: string) => { await act(argv, label); void refresh(); };
-  const bulk = async (build: (w: WorkloadRow) => Argv, verb: string) => {
-    for (const w of sel) await doAct(build(w), `${verb} ${w.name}`);
+
+  // Ação de ciclo de vida por recurso: CONTAINERS pelo contrato node.v1
+  // (decisão B — sem CLI), VMs e pods ainda pela ponte CLI (`act`). A confirmação
+  // de remoção de container é feita no local de chamada (window.confirm); os
+  // caminhos CLI têm a sua própria confirmação por risco em `act`.
+  const CMD: Record<Life, (w: WorkloadRow) => Argv> = { stop: cmd.stop, start: cmd.start, restart: cmd.restart, remove: cmd.remove };
+  const rowAct = async (w: WorkloadRow, kind: Life, label: string) => {
+    if (w.type !== "container") { await doAct(CMD[kind](w), `${label} ${w.name}`); return; }
+    try {
+      if (kind === "stop") await client.containerStop(w.namespace, w.name);
+      else if (kind === "start") await client.containerStart(w.namespace, w.name);
+      else if (kind === "restart") await client.containerRestart(w.namespace, w.name);
+      else await client.containerRemove(w.namespace, w.name);
+      toast(`${label} ${w.name} · feito`, true);
+      void refresh();
+    } catch (e) {
+      toast(`${label} ${w.name} falhou: ${String(e)}`, false);
+    }
+  };
+  const bulk = async (kind: Life, verb: string) => {
+    for (const w of sel) await rowAct(w, kind, verb);
     setSelected(new Set());
   };
 
@@ -102,10 +122,10 @@ export function Workloads() {
                 {filteredAllSelected && hasMoreThanPage && (
                   <button className="btn sm" type="button" onClick={() => setSelected(new Set())}>Limpar seleção</button>
                 )}
-                <button className="btn sm" type="button" onClick={() => void bulk(cmd.stop, "Parar")}>Parar</button>
-                <button className="btn sm" type="button" onClick={() => void bulk(cmd.start, "Iniciar")}>Iniciar</button>
-                <button className="btn sm" type="button" onClick={() => void bulk(cmd.restart, "Reiniciar")}>Reiniciar</button>
-                <button className="btn sm danger" type="button" onClick={() => void bulk(cmd.remove, "Remover")}>Remover</button>
+                <button className="btn sm" type="button" onClick={() => void bulk("stop", "Parar")}>Parar</button>
+                <button className="btn sm" type="button" onClick={() => void bulk("start", "Iniciar")}>Iniciar</button>
+                <button className="btn sm" type="button" onClick={() => void bulk("restart", "Reiniciar")}>Reiniciar</button>
+                <button className="btn sm danger" type="button" onClick={() => { if (!sel.some((w) => w.type === "container") || window.confirm(`Remover ${sel.filter((w) => w.type === "container").length} container(s)?`)) void bulk("remove", "Remover"); }}>Remover</button>
                 <span style={{ marginLeft: "auto" }}><CliHint argv={["stop", ...sel.map((s) => s.name)]} compact /></span>
               </div>
             );
@@ -117,10 +137,10 @@ export function Workloads() {
             <>
               <button className="btn ico" type="button" aria-label={`Logs de ${w.name}`} onClick={() => { go({ name: "workload", id: w.name }); openDock("logs"); }}><Icon name="logs" /></button>
               {st === "running"
-                ? <button className="btn ico" type="button" aria-label={`Parar ${w.name}`} onClick={() => void doAct(cmd.stop(w), `Parar ${w.name}`)}><Icon name="stop" /></button>
-                : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void doAct(cmd.start(w), `Iniciar ${w.name}`)}><Icon name="play" /></button>}
-              <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void doAct(cmd.restart(w), `Reiniciar ${w.name}`)}><Icon name="restart" /></button>
-              <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => void doAct(cmd.remove(w), `Remover ${w.name}`)}><Icon name="trash" /></button>
+                ? <button className="btn ico" type="button" aria-label={`Parar ${w.name}`} onClick={() => void rowAct(w, "stop", "Parar")}><Icon name="stop" /></button>
+                : <button className="btn ico" type="button" aria-label={`Iniciar ${w.name}`} onClick={() => void rowAct(w, "start", "Iniciar")}><Icon name="play" /></button>}
+              <button className="btn ico" type="button" aria-label={`Reiniciar ${w.name}`} onClick={() => void rowAct(w, "restart", "Reiniciar")}><Icon name="restart" /></button>
+              <button className="btn ico" type="button" aria-label={`Remover ${w.name}`} onClick={() => { if (w.type !== "container" || window.confirm(`Remover o container ${w.name}?`)) void rowAct(w, "remove", "Remover"); }}><Icon name="trash" /></button>
             </>
           );
         }}

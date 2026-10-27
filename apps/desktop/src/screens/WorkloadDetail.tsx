@@ -23,17 +23,17 @@ export function WorkloadDetail({ id }: { id: string }) {
   // Timestamps por linha (só containers, e só se o container foi corrido com
   // --log-cri — senão o engine recusa a flag; ver Novo workload).
   const [timestamps, setTimestamps] = useState(false);
-  const [vmErr, setVmErr] = useState<string | null>(null);
+  const [nodeErr, setNodeErr] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
-  // Ciclo de vida de VM pelo socket node.v1 (§5): ao contrário dos containers
-  // (que passam pela ponte CLI via `act`), as ações de VM chamam o
-  // VirtualMachineService. `back` navega de volta após um remover bem-sucedido.
-  const vmAct = (fn: () => Promise<void>, back = false) => {
-    setVmErr(null);
+  // Ciclo de vida pelo contrato node.v1: VMs pelo VirtualMachineService e
+  // containers pelo ContainerService (decisão B — sem CLI). Pods continuam na
+  // ponte CLI via `act`. `back` navega de volta após um remover bem-sucedido.
+  const nodeAct = (fn: () => Promise<void>, back = false) => {
+    setNodeErr(null);
     void fn()
       .then(() => (back ? go({ name: "workloads" }) : void wl.refresh()))
-      .catch((e) => setVmErr(String(e)));
+      .catch((e) => setNodeErr(String(e)));
   };
 
   useEffect(() => {
@@ -80,12 +80,23 @@ export function WorkloadDetail({ id }: { id: string }) {
           {w.type === "vm" ? (
             <>
               {st === "running"
-                ? <button className="btn" type="button" onClick={() => vmAct(() => client.vmStop(w.name))}><Icon name="stop" />Parar</button>
-                : <button className="btn" type="button" onClick={() => vmAct(() => client.vmStart(w.name))}><Icon name="play" />Iniciar</button>}
+                ? <button className="btn" type="button" onClick={() => nodeAct(() => client.vmStop(w.name))}><Icon name="stop" />Parar</button>
+                : <button className="btn" type="button" onClick={() => nodeAct(() => client.vmStart(w.name))}><Icon name="play" />Iniciar</button>}
               <button className="btn danger" type="button"
-                onClick={() => { if (window.confirm(`Remover a VM ${w.name}? O disco é libertado (destruir).`)) vmAct(() => client.vmDelete(w.name), true); }}><Icon name="trash" />Remover</button>
+                onClick={() => { if (window.confirm(`Remover a VM ${w.name}? O disco é libertado (destruir).`)) nodeAct(() => client.vmDelete(w.name), true); }}><Icon name="trash" />Remover</button>
+            </>
+          ) : w.type === "container" ? (
+            // Container pelo ContainerService (node.v1), sem CLI (decisão B).
+            <>
+              {st === "running"
+                ? <button className="btn" type="button" onClick={() => nodeAct(() => client.containerStop(w.namespace, w.name))}><Icon name="stop" />Parar</button>
+                : <button className="btn" type="button" onClick={() => nodeAct(() => client.containerStart(w.namespace, w.name))}><Icon name="play" />Iniciar</button>}
+              <button className="btn" type="button" onClick={() => nodeAct(() => client.containerRestart(w.namespace, w.name))}><Icon name="restart" />Reiniciar</button>
+              <button className="btn danger" type="button"
+                onClick={() => { if (window.confirm(`Remover o container ${w.name}?`)) nodeAct(() => client.containerRemove(w.namespace, w.name), true); }}><Icon name="trash" />Remover</button>
             </>
           ) : (
+            // Pods: ainda pela ponte CLI (fatia futura).
             <>
               {st === "running"
                 ? <button className="btn" type="button" onClick={() => void act(cmd.stop(w), `Parar ${w.name}`)}><Icon name="stop" />Parar</button>
@@ -96,7 +107,7 @@ export function WorkloadDetail({ id }: { id: string }) {
           )}
         </div>
       </header>
-      {vmErr && <div style={{ padding: "0 24px" }}><ErrorNote error={vmErr} /></div>}
+      {nodeErr && <div style={{ padding: "0 24px" }}><ErrorNote error={nodeErr} /></div>}
       <Tabs<T> value={tab} onChange={setTab} items={[
         { id: "logs", label: "Logs" }, { id: "terminal", label: "Terminal" }, { id: "inspect", label: "Inspecionar" }, { id: "stats", label: "Estatísticas" },
         ...(w.type === "vm" ? [{ id: "snapshots" as T, label: "Snapshots" }] : []),
