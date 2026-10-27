@@ -255,6 +255,17 @@ impl NodeClient {
     pub fn container(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
         self.get_raw(&container_resource(ns, name))
     }
+    /// `CreateContainer` — `POST /v1/namespaces/{ns}/containers`. O `body` é o
+    /// CreateContainerRequest (`{name, spec:{…}}`); o namespace vem do caminho.
+    /// Devolve uma Operation (o record nasce `Created`; o Start é à parte).
+    pub fn container_create(
+        &self,
+        ns: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let body = serde_json::to_vec(body).map_err(CoreError::Json)?;
+        self.post(&container_collection(ns), &body)
+    }
     /// `StartContainer` — `POST .../{name}:start` (body `*`). Devolve o Container.
     pub fn container_start(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
         self.post(&container_verb(ns, name, "start"), b"{}")

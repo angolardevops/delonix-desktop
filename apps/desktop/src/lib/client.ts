@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, ContainerCreateInput, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { EngineInfo } from "./engine";
 import type { Argv } from "./cli";
@@ -144,6 +144,10 @@ export interface DelonixClient {
   // Start/Stop/Delete; "reiniciar" = stop+start, o contrato não tem RPC Restart),
   // não por `delonix` (CLI). Lançam se o engine não servir ContainerService
   // (501) — a tela mostra a razão. VMs usam `vm*`; pods continuam na CLI.
+  // Cria E inicia um container pelo contrato node.v1 (CreateContainer+Start),
+  // sem CLI (decisão B). Ports NÃO são servidos (gap do contrato) — se o input
+  // os trouxer, lança o UNIMPLEMENTED do engine. Lança em qualquer falha.
+  containerCreate(input: ContainerCreateInput): Promise<void>;
   containerStart(namespace: string, name: string): Promise<void>;
   containerStop(namespace: string, name: string): Promise<void>;
   containerRestart(namespace: string, name: string): Promise<void>;

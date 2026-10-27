@@ -310,6 +310,22 @@ export interface PodCreateInput {
   shareProcessNamespace?: boolean;
 }
 
+// Entrada do formulário "Novo container" (node.v1 CreateContainer + Start). Os
+// campos-texto são separados por linha/vírgula. `ports` ainda NÃO é servido pelo
+// contrato (precisa do slirp) — se preenchido, o engine recusa com UNIMPLEMENTED.
+export interface ContainerCreateInput {
+  name: string;
+  image: string;
+  namespace?: string;
+  env: string; // "CHAVE=valor"
+  volumes: string; // "nome:/caminho" (ou "/host:/caminho[:ro]")
+  ports: string; // "host:contentor" — gap do contrato
+  memory: string; // "1g" / "512m"
+  cpus: string; // "2" / "0.5"
+  restart: string; // unless-stopped | always | on-failure | no
+  logCri: boolean;
+}
+
 // Uma linha de `cluster ls` (TEXTO — não há `-o json` no 5.1.1). Colunas reais:
 // NAME MODE STATE CONTROL-PLANES WORKERS API PORT UPTIME LAST RESTART CRI SOCKET
 // K8S VERSION. O cliente parseia por NOME de coluna (resiste a reordenação).

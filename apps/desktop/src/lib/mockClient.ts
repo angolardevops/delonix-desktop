@@ -5,7 +5,7 @@ import type { Argv } from "./cli";
 import { show } from "./cli";
 import { buildEngineInfo } from "./engine";
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, ContainerCreateInput, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -802,6 +802,11 @@ export class MockClient implements DelonixClient {
   }
 
   // Ciclo de vida de container no duplo local: muta o array (como as VMs).
+  async containerCreate(input: ContainerCreateInput): Promise<void> {
+    await wait(undefined);
+    workloads = [...workloads, { type: "container", name: input.name, status: "Up 1 second", info: input.image, namespace: input.namespace ?? "default" }];
+  }
+
   async containerStart(_namespace: string, name: string): Promise<void> {
     workloads = workloads.map((w) => (w.name === name ? { ...w, status: "Up 1 second" } : w));
     return wait(undefined);

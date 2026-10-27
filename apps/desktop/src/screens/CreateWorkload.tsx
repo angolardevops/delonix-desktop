@@ -18,12 +18,15 @@ const KINDS: { id: Kind; label: string; desc: string }[] = [
 const GIB = 1024 ** 3;
 
 export function CreateWorkload() {
-  const { client, act, go } = useApp();
+  const { client, go } = useApp();
   const providers = useResource("providers", () => client.providers(), 0).data ?? [];
   const [kind, setKind] = useState<Kind>("container");
   const [image, setImage] = useState("postgres:16");
   const [name, setName] = useState("postgres-staging");
-  const [ports, setPorts] = useState("127.0.0.1:5433:5432");
+  // Ports vazias por omissão: o CreateContainer do node.v1 ainda não publica
+  // portas (precisam do slirp), por isso um valor pré-preenchido faria todo
+  // create falhar com UNIMPLEMENTED.
+  const [ports, setPorts] = useState("");
   const [env, setEnv] = useState("POSTGRES_DB=staging");
   const [volumes, setVolumes] = useState("");
   const [memory, setMemory] = useState("1g");
@@ -66,6 +69,17 @@ export function CreateWorkload() {
       : client.podCreate({ name: podName, containers: podContainers, shareProcessNamespace: podShareProc });
     void run
       .then(() => go({ name: "workloads" }))
+      .catch((e) => setErr(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  // Criar container pelo contrato node.v1 (CreateContainer + Start), sem CLI.
+  const createContainer = () => {
+    setErr(null);
+    setBusy(true);
+    void client
+      .containerCreate({ name, image, env, volumes, ports, memory, cpus, restart, logCri })
+      .then(() => go({ name: "workload", id: name }))
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false));
   };
@@ -203,6 +217,11 @@ export function CreateWorkload() {
                   </label>
                 ))}
               </div>
+              {ports.trim() && (
+                <p className="muted" style={{ margin: 0, fontSize: 12, color: "var(--warn, #b8860b)" }}>
+                  Nota: publicar portas ainda não é servido pelo <span className="mono">node.v1</span> (precisa do slirp do container). Com portas preenchidas, o engine recusa — deixa vazio, ou usa <b>Compose</b>/<b>Manifesto</b> para publicar portas.
+                </p>
+              )}
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: "var(--tx)" }}>
                 <input type="checkbox" checked={logCri} onChange={(e) => setLogCri(e.target.checked)} style={{ marginTop: 2 }} />
                 <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -212,11 +231,11 @@ export function CreateWorkload() {
               </label>
             </div>
           )}
-          {(kind === "vm" || kind === "pod") && err && <ErrorNote error={err} />}
+          {err && <ErrorNote error={err} />}
         </div>
         <aside className="aside" style={{ display: "flex", flexDirection: "column" }}>
           <section className="section">
-            <h2>{kind === "container" ? "Comando ao vivo" : "Pelo socket node.v1"}</h2>
+            <h2>{kind === "container" ? "Equivalente na CLI" : "Pelo socket node.v1"}</h2>
             {kind === "vm" ? (
               <p className="muted" style={{ fontSize: 12 }}>
                 A criação de VM passa pelo contrato de socket <span className="mono">delonix.node.v1</span> (<span className="mono">CreateVirtualMachine</span>), não pela CLI. Requer <span className="mono">delonix serve node-api</span> a correr.
@@ -226,7 +245,12 @@ export function CreateWorkload() {
                 O pod é criado pelo contrato <span className="mono">delonix.node.v1</span> — <span className="mono">{podMode === "manifest" ? "ApplyStack" : "CreatePod"}</span>, não pela CLI. Requer <span className="mono">delonix serve node-api</span> a correr.
               </p>
             ) : (
-              <pre className="code">{show(argv)}</pre>
+              <>
+                <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+                  Criado pelo contrato <span className="mono">delonix.node.v1</span> (<span className="mono">CreateContainer</span> + <span className="mono">StartContainer</span>), não pela CLI. Abaixo, o comando equivalente:
+                </p>
+                <pre className="code">{show(argv)}</pre>
+              </>
             )}
           </section>
           <div style={{ marginTop: "auto", display: "flex", gap: 8, padding: 16, borderTop: "1px solid var(--line)" }}>
@@ -239,8 +263,8 @@ export function CreateWorkload() {
                 disabled={busy || (podMode === "manifest" ? !podManifest.trim() : !podName.trim() || podContainers.some((c) => !c.image.trim()))}
                 onClick={createPod}>{busy ? "A criar…" : "Criar pod"}</button>
             ) : (
-              <button className="btn pri" type="button" style={{ marginLeft: "auto" }}
-                onClick={() => void act(argv, `Criar ${name}`).then((ok) => ok && go({ name: "workload", id: name }))}>Criar e iniciar</button>
+              <button className="btn pri" type="button" style={{ marginLeft: "auto" }} disabled={busy || !name.trim() || !image.trim()}
+                onClick={createContainer}>{busy ? "A criar…" : "Criar e iniciar"}</button>
             )}
           </div>
         </aside>

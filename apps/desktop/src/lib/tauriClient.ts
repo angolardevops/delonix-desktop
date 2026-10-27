@@ -8,7 +8,7 @@ import { fmtUnix } from "./format";
 import { crossRefUsedBy, nodeImageToRow } from "./images";
 import { parseSecretInspect } from "./secrets";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, ContainerCreateInput, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -89,6 +89,30 @@ const parseBytes = (s: string): number | null => {
   const m = /(-?[\d.]+)\s*([KMGT]?i?B)\b/i.exec(s);
   if (!m) return null;
   return Number(m[1]) * (BYTE_UNIT[m[2].toUpperCase().replace("IB", "B")] ?? 1);
+};
+
+// Memória do formulário ("1g"/"512m"/"2gi"/"1073741824") → bytes (1024-base).
+// 0/vazio/inválido → 0 (o campo é omitido do spec).
+const MEM_UNIT: Record<string, number> = { "": 1, b: 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4 };
+const memToBytes = (s: string): number => {
+  const m = /^\s*([\d.]+)\s*([kmgt]?)i?b?\s*$/i.exec(s.trim());
+  if (!m) return 0;
+  return Math.round(Number(m[1]) * (MEM_UNIT[m[2].toLowerCase()] ?? 1));
+};
+// CPUs do formulário ("2"/"0.5") → millis (2000/500). 0/inválido → 0 (omitido).
+const cpusToMillis = (s: string): number => {
+  const n = Number(s.trim());
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : 0;
+};
+// Reinício do formulário → o nome da enum RestartMode (proto3 JSON). "no"/vazio
+// → null (sem política, o campo é omitido).
+const restartMode = (s: string): string | null => {
+  switch (s.trim().toLowerCase()) {
+    case "on-failure": return "RESTART_MODE_ON_FAILURE";
+    case "always": return "RESTART_MODE_ALWAYS";
+    case "unless-stopped": return "RESTART_MODE_UNLESS_STOPPED";
+    default: return null; // no / none / vazio
+  }
 };
 
 // Normaliza uma entrada de `problems[]` (string crua ou objeto com mensagem).
@@ -989,6 +1013,66 @@ export class TauriClient implements DelonixClient {
   // (501 DX-6001) ou o container não existir — a aba trata o erro.
   containerInspect(namespace: string, name: string): Promise<unknown> {
     return invoke<unknown>("node_container", { namespace, name });
+  }
+
+  // CreateContainer + StartContainer pelo contrato (decisão B). Constrói o
+  // ContainerSpec do formulário: env (map), mounts (volumes), resources
+  // (memória/cpus), restart (enum), log_format. As PORTS vão no spec como o
+  // utilizador as deu — o engine ainda NÃO as serve (precisam do slirp) e
+  // recusa com UNIMPLEMENTED, que lançamos tal como qualquer falha.
+  async containerCreate(input: ContainerCreateInput): Promise<void> {
+    const ns = input.namespace ?? DEFAULT_NS;
+    const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+    const spec: Obj = { image: input.image.trim() };
+
+    const env = Object.fromEntries(split(input.env).map((kv) => {
+      const i = kv.indexOf("=");
+      return i < 0 ? [kv, ""] : [kv.slice(0, i), kv.slice(i + 1)];
+    }));
+    if (Object.keys(env).length) spec.env = env;
+
+    // volumes "fonte:/alvo[:ro]" → Mount{volume|host_path, target, read_only}.
+    const mounts = split(input.volumes).map((v) => {
+      const p = v.split(":");
+      const ro = p.length >= 3 && p[p.length - 1] === "ro";
+      const target = p[1] ?? "";
+      const src = p[0] ?? "";
+      const m: Obj = { target, read_only: ro };
+      if (src.startsWith("/")) m.host_path = src; else m.volume = src;
+      return m;
+    }).filter((m) => m.target);
+    if (mounts.length) spec.mounts = mounts;
+
+    // ports "host:contentor[/udp]" → PortMapping (gap do contrato, mas enviadas).
+    const ports = split(input.ports).map((p) => {
+      const [hostPart, rest] = p.includes(":") ? [p.slice(0, p.lastIndexOf(":")), p.slice(p.lastIndexOf(":") + 1)] : ["", p];
+      const [cport, proto] = rest.split("/");
+      const hp = hostPart.split(":");
+      const pm: Obj = { container_port: Number(cport) || 0 };
+      if (hp.length === 2) { pm.host_ip = hp[0]; pm.host_port = Number(hp[1]) || 0; }
+      else if (hp[0]) pm.host_port = Number(hp[0]) || 0;
+      if (proto === "udp") pm.protocol = "PROTOCOL_UDP";
+      return pm;
+    }).filter((pm) => pm.container_port);
+    if (ports.length) spec.ports = ports;
+
+    const resources: Obj = {};
+    const mem = memToBytes(input.memory);
+    if (mem) resources.memory_limit_bytes = String(mem);
+    const millis = cpusToMillis(input.cpus);
+    if (millis) resources.cpu_limit_millis = millis;
+    if (Object.keys(resources).length) spec.resources = resources;
+
+    const mode = restartMode(input.restart);
+    if (mode) spec.restart = { mode };
+    if (input.logCri) spec.log_format = "cri";
+
+    const body = { name: input.name.trim(), spec };
+    const op = (await invoke<Obj>("node_container_create", { namespace: ns, body })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
+    // O record nasce `Created`; o Start corre-o (re-exec fork-safe no engine).
+    await invoke("node_container_start", { namespace: ns, name: input.name.trim() });
   }
 
   async containerStart(namespace: string, name: string): Promise<void> {

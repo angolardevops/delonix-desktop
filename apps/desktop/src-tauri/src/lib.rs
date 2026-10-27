@@ -164,6 +164,7 @@ pub fn run() {
             node::node_vm_snapshot_restore,
             node::node_containers,
             node::node_container,
+            node::node_container_create,
             node::node_container_start,
             node::node_container_stop,
             node::node_container_restart,

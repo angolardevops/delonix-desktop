@@ -119,6 +119,17 @@ pub async fn node_container(
 // Ações de ciclo de vida de container pelo contrato (decisão B: sem CLI). A UI
 // só precisa de sucesso/erro, por isso descartamos o corpo (Container/Operation).
 
+/// `CreateContainer` — `POST .../containers`. `body` é o CreateContainerRequest
+/// (name + spec) construído no frontend. Devolve a Operation (p/ inspecionar erro).
+#[tauri::command]
+pub async fn node_container_create(
+    namespace: Option<String>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.container_create(&ns, &body)).await
+}
+
 /// `StartContainer` — `POST .../{name}:start`.
 #[tauri::command]
 pub async fn node_container_start(namespace: Option<String>, name: String) -> Result<(), String> {
