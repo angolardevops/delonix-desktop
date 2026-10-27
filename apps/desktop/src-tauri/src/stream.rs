@@ -211,6 +211,149 @@ pub fn node_logs_stop(tasks: State<'_, NodeLogs>, id: String) {
     }
 }
 
+// ─────────────── Exec de container pelo contrato node.v1 (gRPC bidi) ───────────────
+//
+// Decisão B: o modo `container-exec` da aba Terminal (shell NOVO dentro do
+// container) deixa de ser `delonix container exec -it` (PTY+CLI, exec.rs) e passa
+// pelo stream BIDIRECIONAL `ContainerService.Exec` (gRPC). stdout/stderr do
+// servidor viram o MESMO evento `dlx-exec {id,data}` que o PTY, e o fim o
+// `dlx-exec-end {id}` — por isso o componente Terminal não muda. stdin e resize
+// vão como frames pelo `tx`. Attach/pod-exec/vm-console/host continuam no PTY.
+
+/// Uma sessão de Exec gRPC viva: o `tx` para empurrar stdin/resize e a task que
+/// lê as respostas (abortável no stop).
+pub struct NodeExecHandle {
+    tx: tokio::sync::mpsc::Sender<crate::grpc::pb::ExecRequest>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
+#[derive(Default)]
+pub struct NodeExecs(pub Mutex<HashMap<String, NodeExecHandle>>);
+
+#[derive(Clone, Serialize)]
+struct ExecOut {
+    id: String,
+    data: String,
+}
+
+#[tauri::command]
+pub async fn node_exec_start(
+    app: AppHandle,
+    execs: State<'_, NodeExecs>,
+    id: String,
+    name: String,
+    namespace: String,
+) -> Result<(), String> {
+    use crate::grpc::pb::exec_response;
+    // Shell novo (command vazio = o servidor escolhe bash→sh), com TTY. Tamanho
+    // inicial 24x80; o frontend redimensiona a seguir pela geometria real.
+    let sess = crate::grpc::exec_open(&name, &namespace, Vec::new(), true, 24, 80).await?;
+    let mut responses = sess.responses;
+
+    let stream_id = id.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        loop {
+            match responses.message().await {
+                Ok(Some(resp)) => match resp.frame {
+                    // Com TTY, stdout traz tudo; stderr fica para o caso sem TTY.
+                    Some(exec_response::Frame::Stdout(b))
+                    | Some(exec_response::Frame::Stderr(b)) => {
+                        let data = String::from_utf8_lossy(&b).into_owned();
+                        let _ = app.emit(
+                            "dlx-exec",
+                            ExecOut {
+                                id: stream_id.clone(),
+                                data,
+                            },
+                        );
+                    }
+                    Some(exec_response::Frame::ExitCode(_)) | None => {}
+                },
+                Ok(None) => break, // fim do stream
+                Err(status) => {
+                    let _ = app.emit(
+                        "dlx-exec",
+                        ExecOut {
+                            id: stream_id.clone(),
+                            data: format!("\r\n[erro de exec: {}]\r\n", status.message()),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+        let _ = app.emit(
+            "dlx-exec-end",
+            ExecOut {
+                id: stream_id,
+                data: String::new(),
+            },
+        );
+    });
+
+    if let Ok(mut map) = execs.0.lock() {
+        if let Some(old) = map.insert(id, NodeExecHandle { tx: sess.tx, task }) {
+            old.task.abort();
+        }
+    }
+    Ok(())
+}
+
+/// Clona o `tx` de uma sessão sem segurar o lock através do await.
+fn exec_tx(
+    execs: &State<'_, NodeExecs>,
+    id: &str,
+) -> Option<tokio::sync::mpsc::Sender<crate::grpc::pb::ExecRequest>> {
+    execs
+        .0
+        .lock()
+        .ok()
+        .and_then(|m| m.get(id).map(|h| h.tx.clone()))
+}
+
+#[tauri::command]
+pub async fn node_exec_write(
+    execs: State<'_, NodeExecs>,
+    id: String,
+    data: String,
+) -> Result<(), String> {
+    use crate::grpc::pb::{exec_request, ExecRequest};
+    let tx = exec_tx(&execs, &id).ok_or("sessão de exec inexistente")?;
+    tx.send(ExecRequest {
+        frame: Some(exec_request::Frame::Stdin(data.into_bytes())),
+    })
+    .await
+    .map_err(|_| "a sessão de exec já fechou".to_string())
+}
+
+#[tauri::command]
+pub async fn node_exec_resize(
+    execs: State<'_, NodeExecs>,
+    id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<(), String> {
+    use crate::grpc::pb::{exec_request, ExecRequest, TerminalSize};
+    let tx = exec_tx(&execs, &id).ok_or("sessão de exec inexistente")?;
+    tx.send(ExecRequest {
+        frame: Some(exec_request::Frame::Resize(TerminalSize { rows, cols })),
+    })
+    .await
+    .map_err(|_| "a sessão de exec já fechou".to_string())
+}
+
+#[tauri::command]
+pub fn node_exec_stop(execs: State<'_, NodeExecs>, id: String) {
+    if let Ok(mut map) = execs.0.lock() {
+        if let Some(h) = map.remove(&id) {
+            // Largar o tx fecha o stream de pedidos (o servidor termina o exec);
+            // abortar a task pára a leitura das respostas.
+            h.task.abort();
+            drop(h.tx);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

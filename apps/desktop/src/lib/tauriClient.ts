@@ -681,6 +681,22 @@ export class TauriClient implements DelonixClient {
         unEnd();
       }
     });
+    // `container-exec` (shell novo no container) passa pelo stream bidi gRPC
+    // `ContainerService.Exec` (node.v1, decisão B) — não pelo PTY+CLI. Os eventos
+    // são os mesmos (dlx-exec/dlx-exec-end), por isso o resto é idêntico. Attach,
+    // pod-exec, vm-console e a consola do host continuam no PTY (exec.rs).
+    if (mode === "container-exec") {
+      await invoke("node_exec_start", { id, name, namespace: "default" });
+      return {
+        write: (data: string) => void invoke("node_exec_write", { id, data }),
+        resize: (cols: number, rows: number) => void invoke("node_exec_resize", { id, cols, rows }),
+        stop: () => {
+          unData();
+          unEnd();
+          void invoke("node_exec_stop", { id });
+        },
+      };
+    }
     await invoke("dlx_exec_start", { id, name, mode });
     return {
       write: (data: string) => void invoke("dlx_exec_write", { id, data }),

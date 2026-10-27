@@ -58,6 +58,39 @@ async fn main() -> Result<(), String> {
         s.network_tx_bytes
     );
 
-    println!("\n✅ streams node.v1 da GUI (gRPC Logs + Stats) validados ao vivo");
+    // 3. Exec BIDIRECIONAL (== a aba Terminal, modo container-exec): envia um
+    //    comando não-interativo, lê o stdout e o exit_code pelo mesmo stream.
+    use delonix_desktop_lib::grpc::pb::exec_response;
+    println!("→ gRPC Exec (bidi) — comando `sh -c 'echo EXEC_OK; exit 7'`:");
+    let sess = grpc::exec_open(
+        &name,
+        ns,
+        vec!["sh".into(), "-c".into(), "echo EXEC_OK; exit 7".into()],
+        false,
+        0,
+        0,
+    )
+    .await?;
+    let mut responses = sess.responses;
+    let mut out = String::new();
+    let mut exit: Option<i32> = None;
+    while let Some(resp) = responses.message().await.map_err(|e| e.to_string())? {
+        match resp.frame {
+            Some(exec_response::Frame::Stdout(b)) => out.push_str(&String::from_utf8_lossy(&b)),
+            Some(exec_response::Frame::Stderr(b)) => {
+                eprint!("[stderr] {}", String::from_utf8_lossy(&b))
+            }
+            Some(exec_response::Frame::ExitCode(c)) => exit = Some(c),
+            None => {}
+        }
+    }
+    // mantém o tx vivo até aqui (fechá-lo cedo encerraria o stream de pedidos).
+    drop(sess.tx);
+    println!("   stdout={:?}  exit={:?}", out.trim(), exit);
+    if !out.contains("EXEC_OK") || exit != Some(7) {
+        return Err(format!("Exec inesperado: stdout={out:?} exit={exit:?}"));
+    }
+
+    println!("\n✅ streams node.v1 da GUI (gRPC Logs + Stats + Exec bidi) validados ao vivo");
     Ok(())
 }

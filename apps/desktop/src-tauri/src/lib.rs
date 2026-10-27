@@ -125,6 +125,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(stream::Streams::default())
         .manage(stream::NodeLogs::default())
+        .manage(stream::NodeExecs::default())
         .manage(exec::Execs::default())
         .invoke_handler(tauri::generate_handler![
             dlx_json,
@@ -140,6 +141,10 @@ pub fn run() {
             stream::dlx_stream_stop,
             stream::node_logs_start,
             stream::node_logs_stop,
+            stream::node_exec_start,
+            stream::node_exec_write,
+            stream::node_exec_resize,
+            stream::node_exec_stop,
             exec::dlx_exec_start,
             exec::dlx_exec_write,
             exec::dlx_exec_resize,

@@ -49,6 +49,8 @@ tonic = "0.12"
 prost = "0.13"
 tower = { version = "0.5", features = ["util"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
+# Stream de pedidos do Exec bidirecional: um mpsc::Receiver → Stream para o tonic.
+tokio-stream = "0.1"
 
 # Integração nativa com o SO (eixo A) — plugins OFICIAIS do Tauri 2.x, não
 # reinvenções. Notificações do SO em eventos críticos, diálogo de ficheiros

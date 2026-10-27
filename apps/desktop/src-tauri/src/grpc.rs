@@ -93,3 +93,63 @@ pub async fn stats_once(name: &str, namespace: &str) -> Result<pb::ContainerStat
         .map_err(|e| format!("Stats gRPC: {}", e.message()))?;
     Ok(resp.into_inner())
 }
+
+/// Uma sessão de `ContainerService.Exec` (bidirecional) aberta: o `tx` envia
+/// frames do cliente (stdin, resize) e `responses` traz os frames do servidor
+/// (stdout/stderr/exit). O primeiro frame (ExecStart) já foi enviado por
+/// [`exec_open`]; quem chama guarda o `tx` para escrever/redimensionar e lê o
+/// `responses` até ao fim (exit_code / stream fechado).
+pub struct ExecSession {
+    pub tx: tokio::sync::mpsc::Sender<pb::ExecRequest>,
+    pub responses: tonic::Streaming<pb::ExecResponse>,
+}
+
+/// Abre o stream bidirecional de Exec e envia o frame inicial `ExecStart`
+/// (command vazio = shell; tty opcional) + um resize inicial quando há TTY.
+/// `command` vazio deixa o servidor escolher o shell (bash→sh).
+pub async fn exec_open(
+    name: &str,
+    namespace: &str,
+    command: Vec<String>,
+    tty: bool,
+    rows: u32,
+    cols: u32,
+) -> Result<ExecSession, String> {
+    use tokio_stream::wrappers::ReceiverStream;
+
+    let mut client = container_client().await?;
+    let (tx, rx) = tokio::sync::mpsc::channel::<pb::ExecRequest>(64);
+
+    // Frame 1: ExecStart (bufferizado no canal; o tonic lê-o ao ligar).
+    let start = pb::ExecRequest {
+        frame: Some(pb::exec_request::Frame::Start(pb::ExecStart {
+            container: name.to_string(),
+            namespace: namespace.to_string(),
+            command,
+            env: Default::default(),
+            workdir: String::new(),
+            user: String::new(),
+            tty,
+        })),
+    };
+    tx.send(start).await.map_err(|e| e.to_string())?;
+    if tty && (rows > 0 || cols > 0) {
+        let _ = tx
+            .send(pb::ExecRequest {
+                frame: Some(pb::exec_request::Frame::Resize(pb::TerminalSize {
+                    rows,
+                    cols,
+                })),
+            })
+            .await;
+    }
+
+    let resp = client
+        .exec(ReceiverStream::new(rx))
+        .await
+        .map_err(|e| format!("Exec gRPC: {}", e.message()))?;
+    Ok(ExecSession {
+        tx,
+        responses: resp.into_inner(),
+    })
+}
