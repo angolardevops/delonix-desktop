@@ -24,6 +24,38 @@ service ContainerService {
   rpc Stats(StatsRequest) returns (ContainerStats);
 }
 
+// Subconjunto do `NodeService` — só o stream de eventos que a GUI consome.
+// (A raiz, info, health, capacity e providers vão pela porta HTTP/JSON.)
+service NodeService {
+  // Server-streaming: um Event por acontecimento do nó (container/vm/network…).
+  rpc WatchEvents(WatchEventsRequest) returns (stream Event);
+}
+
+// Timestamp LOCAL wire-compatível com `google.protobuf.Timestamp` (mesmos
+// campos/números: seconds/nanos) — evita importar `google/protobuf` e mantém o
+// `.proto` auto-contido. O wire format de proto3 não carrega o nome do tipo das
+// mensagens, por isso descodifica os MESMOS bytes do Timestamp do servidor.
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message WatchEventsRequest {
+  Timestamp since = 1; // ausente = só os novos
+  repeated string kinds = 2; // "container", "vm", "network", … (vazio = todos)
+  string namespace = 3;
+}
+
+message Event {
+  Timestamp time = 1;
+  string kind = 2;
+  string action = 3; // "start", "die", "oom", "create", "delete", …
+  string target = 4; // "Container/web"
+  string namespace = 5;
+  map<string, string> attributes = 6;
+  string trace_id = 7;
+}
+
 // ----------------------------------------------------------------- Logs
 
 message LogsRequest {

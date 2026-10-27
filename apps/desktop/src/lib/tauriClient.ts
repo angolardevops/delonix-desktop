@@ -892,13 +892,16 @@ export class TauriClient implements DelonixClient {
     };
   }
 
-  events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {
-    return this.stream("engine-events", cmd.events(), (line) => {
+  // Eventos pelo server-stream gRPC `NodeService.WatchEvents` (node.v1), não por
+  // `delonix system events -f` (CLI) — decisão B. O backend mapeia cada Event do
+  // contrato para a MESMA linha JSON ({ts, kind, action, name, detail}) e emite-a
+  // no evento `dlx-stream`, por isso o parser aqui é o mesmo do JSONL do CLI.
+  async events(onEvent: (e: EngineEvent) => void, onEnd?: () => void) {
+    const id = "engine-events";
+    const un = await listen<{ id: string; line: string }>("dlx-stream", (e) => {
+      if (e.payload.id !== id) return;
       try {
-        const o = JSON.parse(line) as Obj;
-        // Contrato real 5.1.1 (JSONL): {ts:epoch_s, kind, action, id, name, detail?}.
-        // `ts` é NÚMERO (epoch) — formata-se com fmtUnix para a coluna "Hora";
-        // o epoch cru fica em `ts` para a correlação ao segundo não se perder.
+        const o = JSON.parse(e.payload.line) as Obj;
         const ts = num(o, "ts", "time", "timestamp") ?? 0;
         onEvent({
           ts,
@@ -911,6 +914,17 @@ export class TauriClient implements DelonixClient {
       } catch {
         /* linha não-JSON: ignorar */
       }
-    }, onEnd ? () => onEnd() : undefined);
+    });
+    const unEnd = await listen<string>("dlx-stream-end", (e) => {
+      if (e.payload === id) onEnd?.();
+    });
+    // namespace vazio = todos: o engine ainda não carimba namespace nos eventos,
+    // por isso filtrar por "default" seria recusado (filtra-se por kind, não ns).
+    await invoke("node_events_start", { id, namespace: "", kinds: [] });
+    return () => {
+      un();
+      unEnd();
+      void invoke("node_events_stop", { id });
+    };
   }
 }

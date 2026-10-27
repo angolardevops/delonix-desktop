@@ -354,6 +354,89 @@ pub fn node_exec_stop(execs: State<'_, NodeExecs>, id: String) {
     }
 }
 
+// ─────────────── Eventos do nó pelo contrato node.v1 (gRPC) ───────────────
+//
+// Decisão B: o fluxo de eventos deixa de ser `delonix system events -f -o json`
+// (CLI) e vem do server-stream `NodeService.WatchEvents` (gRPC). Cada `Event` é
+// mapeado para a forma que a UI já consome ({ts, kind, action, name, detail}) e
+// emitido como uma LINHA JSON no MESMO evento `dlx-stream` — o events() do
+// frontend parseia-a igual ao JSONL do CLI.
+
+/// Task do stream de eventos por id (abortável no stop/substituição).
+#[derive(Default)]
+pub struct NodeEvents(pub Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>);
+
+/// Um `Event` do contrato → a linha JSON que o `events()` do frontend parseia.
+/// `name` é o `target` sem o prefixo de tipo ("Container/web" → "web"); `detail`
+/// vem dos atributos (message/reason) quando presente.
+fn event_to_line(ev: &crate::grpc::pb::Event) -> String {
+    let ts = ev.time.as_ref().map(|t| t.seconds).unwrap_or(0);
+    let name = ev.target.rsplit('/').next().unwrap_or(&ev.target);
+    let detail = ev
+        .attributes
+        .get("message")
+        .or_else(|| ev.attributes.get("reason"))
+        .or_else(|| ev.attributes.get("detail"))
+        .cloned()
+        .unwrap_or_default();
+    serde_json::json!({
+        "ts": ts,
+        "kind": ev.kind,
+        "action": ev.action,
+        "name": name,
+        "detail": detail,
+    })
+    .to_string()
+}
+
+#[tauri::command]
+pub async fn node_events_start(
+    app: AppHandle,
+    tasks: State<'_, NodeEvents>,
+    id: String,
+    namespace: String,
+    kinds: Vec<String>,
+) -> Result<(), String> {
+    let mut stream = crate::grpc::events_stream(&namespace, kinds).await?;
+
+    let stream_id = id.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        loop {
+            match stream.message().await {
+                Ok(Some(ev)) => {
+                    let line = event_to_line(&ev);
+                    let _ = app.emit(
+                        "dlx-stream",
+                        Line {
+                            id: stream_id.clone(),
+                            line,
+                        },
+                    );
+                }
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+        let _ = app.emit("dlx-stream-end", stream_id);
+    });
+
+    if let Ok(mut map) = tasks.0.lock() {
+        if let Some(old) = map.insert(id, handle) {
+            old.abort();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn node_events_stop(tasks: State<'_, NodeEvents>, id: String) {
+    if let Ok(mut map) = tasks.0.lock() {
+        if let Some(h) = map.remove(&id) {
+            h.abort();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

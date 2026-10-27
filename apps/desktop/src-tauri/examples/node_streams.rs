@@ -91,6 +91,39 @@ async fn main() -> Result<(), String> {
         return Err(format!("Exec inesperado: stdout={out:?} exit={exit:?}"));
     }
 
-    println!("\n✅ streams node.v1 da GUI (gRPC Logs + Stats + Exec bidi) validados ao vivo");
+    // 4. WatchEvents (== a tela Eventos): abre o stream e gera um evento
+    //    (stop+start do container pelo NodeClient do core) para o observar.
+    use delonix_desktop_core::NodeClient;
+    use std::time::Duration;
+    println!("→ gRPC WatchEvents — a abrir o stream e a gerar um evento:");
+    // namespace vazio = todos (o engine ainda não carimba namespace nos eventos).
+    let mut ev = grpc::events_stream("", Vec::new()).await?;
+    let n = name.clone();
+    tokio::task::spawn_blocking(move || {
+        let c = NodeClient::from_env();
+        let _ = c.container_stop("default", &n);
+        std::thread::sleep(Duration::from_millis(400));
+        let _ = c.container_start("default", &n);
+    });
+    let mut seen = 0;
+    while seen < 1 {
+        match tokio::time::timeout(Duration::from_secs(10), ev.message()).await {
+            Ok(Ok(Some(e))) => {
+                println!(
+                    "   event kind={} action={} target={}",
+                    e.kind, e.action, e.target
+                );
+                seen += 1;
+            }
+            _ => break,
+        }
+    }
+    if seen == 0 {
+        return Err("WatchEvents não emitiu nenhum evento".into());
+    }
+
+    println!(
+        "\n✅ streams node.v1 da GUI (Logs + Stats + Exec bidi + WatchEvents) validados ao vivo"
+    );
     Ok(())
 }

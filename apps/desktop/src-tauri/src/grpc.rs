@@ -94,6 +94,27 @@ pub async fn stats_once(name: &str, namespace: &str) -> Result<pb::ContainerStat
     Ok(resp.into_inner())
 }
 
+/// `NodeService.WatchEvents` (server-stream): um `Event` por acontecimento do
+/// nó. `kinds` vazio = todos; `namespace` filtra. Devolve o `Streaming` — quem
+/// chama consome e mapeia cada evento para a UI.
+pub async fn events_stream(
+    namespace: &str,
+    kinds: Vec<String>,
+) -> Result<tonic::Streaming<pb::Event>, String> {
+    let channel = grpc_channel().await?;
+    let mut client = pb::node_service_client::NodeServiceClient::new(channel);
+    let req = pb::WatchEventsRequest {
+        since: None,
+        kinds,
+        namespace: namespace.to_string(),
+    };
+    let resp = client
+        .watch_events(req)
+        .await
+        .map_err(|e| format!("WatchEvents gRPC: {}", e.message()))?;
+    Ok(resp.into_inner())
+}
+
 /// Uma sessão de `ContainerService.Exec` (bidirecional) aberta: o `tx` envia
 /// frames do cliente (stdin, resize) e `responses` traz os frames do servidor
 /// (stdout/stderr/exit). O primeiro frame (ExecStart) já foi enviado por
