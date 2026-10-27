@@ -182,6 +182,7 @@ pub fn run() {
             node::node_image_pull,
             node::node_image_delete,
             node::node_pods,
+            node::node_pod_create,
             node::node_pod_delete,
             node::node_stack_plan,
             node::node_stack_apply,

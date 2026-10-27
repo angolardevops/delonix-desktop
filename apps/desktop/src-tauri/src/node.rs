@@ -314,6 +314,17 @@ pub async fn node_pods(namespace: Option<String>) -> Result<serde_json::Value, S
     on_node(move |c| c.pods(&ns)).await
 }
 
+/// `CreatePod` — `POST /v1/namespaces/{ns}/pods`. `body` é o CreatePodRequest
+/// (name + spec) construído no frontend; o namespace vem à parte.
+#[tauri::command]
+pub async fn node_pod_create(
+    namespace: Option<String>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.pod_create(&ns, &body)).await
+}
+
 /// `DeletePod` — `DELETE /v1/namespaces/{ns}/pods/{name}`. `name` é o id
 /// `pod-<nome>` do ListPods; `force` remove um pod a correr.
 #[tauri::command]

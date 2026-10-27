@@ -291,6 +291,25 @@ export interface StackPlanRow {
   planDigest: string; // digest do plano (para `apply --plan-digest`)
 }
 
+// Entrada de um container de um pod no formulário de criação (node.v1 CreatePod).
+// O caminho `CreatePod` só carrega a forma simples — para mounts/resources/… usa
+// o manifesto (ApplyStack). `command` é a linha a correr (vira `entrypoint` no
+// contrato, i.e. `command:` do manifesto k8s).
+export interface PodContainerInput {
+  name: string;
+  image: string;
+  command: string; // separada por espaços; vazio = entrypoint da imagem
+  env: string; // "CHAVE=valor" por linha/vírgula
+}
+
+// Entrada do formulário "Novo pod" (node.v1 CreatePod).
+export interface PodCreateInput {
+  name: string;
+  namespace?: string;
+  containers: PodContainerInput[];
+  shareProcessNamespace?: boolean;
+}
+
 // Uma linha de `cluster ls` (TEXTO — não há `-o json` no 5.1.1). Colunas reais:
 // NAME MODE STATE CONTROL-PLANES WORKERS API PORT UPTIME LAST RESTART CRI SOCKET
 // K8S VERSION. O cliente parseia por NOME de coluna (resiste a reordenação).

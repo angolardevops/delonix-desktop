@@ -5,7 +5,7 @@ import type { Argv } from "./cli";
 import { show } from "./cli";
 import { buildEngineInfo } from "./engine";
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, RiskLevel, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 const GB = 1024 ** 3;
@@ -394,7 +394,12 @@ export class MockClient implements DelonixClient {
   stackPlan = (_manifest?: string) => wait(mockPlan());
   stackApply = (_manifest?: string) => wait(undefined).then(() => { stackApplied = true; });
   stackDestroy = (_manifest?: string) => wait(undefined).then(() => { stackApplied = false; });
-  podDelete = (_name: string, _namespace?: string, _force?: boolean) => wait(undefined).then(() => undefined);
+  podCreate = (input: PodCreateInput) => wait(undefined).then(() => {
+    workloads = [...workloads, { type: "pod", name: `pod-${input.name}`, status: "Ready", info: `${input.containers.length} container(s)`, namespace: input.namespace ?? "default" }];
+  });
+  podDelete = (name: string, _namespace?: string, _force?: boolean) => wait(undefined).then(() => {
+    workloads = workloads.filter((w) => !(w.type === "pod" && w.name === name));
+  });
   clusters = (_all?: boolean) => wait(mockClusters);
 
   // Recursos DENTRO de um cluster (kubectl READ), simulados.

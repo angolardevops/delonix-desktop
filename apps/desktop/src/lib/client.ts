@@ -1,5 +1,5 @@
 import type {
-  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CliResult, ClusterRow, ComposeService, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 import type { EngineInfo } from "./engine";
 import type { Argv } from "./cli";
@@ -69,6 +69,10 @@ export interface DelonixClient {
   // JÁ TERMINAL (síncrona, sem progresso ao vivo) — lançam em caso de falha.
   stackApply(manifest?: string): Promise<void>;
   stackDestroy(manifest?: string): Promise<void>;
+  // Cria um pod simples pelo contrato node.v1 (CreatePod). Só a forma simples
+  // (imagem/comando/env por container); para mounts/resources/… usa ApplyStack.
+  // Operation terminal — lança em caso de falha.
+  podCreate(input: PodCreateInput): Promise<void>;
   // Remove um pod pelo contrato node.v1 (DeletePod). `name` é o id `pod-<nome>`
   // que a lista expõe; `force` remove um pod a correr. Lança em caso de falha.
   podDelete(name: string, namespace?: string, force?: boolean): Promise<void>;

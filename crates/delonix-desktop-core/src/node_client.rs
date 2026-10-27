@@ -373,6 +373,13 @@ impl NodeClient {
     pub fn pods(&self, ns: &str) -> Result<serde_json::Value> {
         self.get_raw(&pod_collection(ns))
     }
+    /// `CreatePod` — `POST /v1/namespaces/{ns}/pods`. O `body` é o
+    /// CreatePodRequest em JSON (`{name, spec:{containers:[…]}, …}`); o namespace
+    /// vem do caminho. Devolve a Operation já terminal.
+    pub fn pod_create(&self, ns: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
+        let body = serde_json::to_vec(body).map_err(CoreError::Json)?;
+        self.post(&pod_collection(ns), &body)
+    }
     /// `DeletePod` — `DELETE /v1/namespaces/{ns}/pods/{name}[?force=true]`.
     /// O `name` é o id `pod-<nome>` do ListPods; `force` para um pod a correr.
     /// Devolve a Operation já terminal (o engine corre a remoção síncrona).

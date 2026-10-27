@@ -8,7 +8,7 @@ import { fmtUnix } from "./format";
 import { crossRefUsedBy, nodeImageToRow } from "./images";
 import { parseSecretInspect } from "./secrets";
 import type {
-  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
+  BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, PodCreateInput, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
 } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -484,6 +484,34 @@ export class TauriClient implements DelonixClient {
   private async nodePods(namespace?: string): Promise<WorkloadRow[]> {
     const resp = (await invoke<Obj>("node_pods", { namespace: namespace ?? DEFAULT_NS })) ?? {};
     return asArray(pick(resp, "pods")).map(nodePodToRow);
+  }
+
+  // CreatePod pelo contrato (POST .../pods). Constrói o CreatePodRequest a
+  // partir do formulário: cada container vira `{name, spec:{image, entrypoint,
+  // env}}` (o comando do form é o `entrypoint`/`command:` do manifesto k8s — o
+  // "corre exatamente isto"). Operation terminal; lança se falhar.
+  async podCreate(input: PodCreateInput): Promise<void> {
+    const split = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+    const containers = input.containers.map((c) => {
+      const spec: Obj = { image: c.image.trim() };
+      const cmd = c.command.trim().split(/\s+/).filter(Boolean);
+      if (cmd.length) spec.entrypoint = cmd;
+      const env = Object.fromEntries(
+        split(c.env).map((kv) => {
+          const i = kv.indexOf("=");
+          return i < 0 ? [kv, ""] : [kv.slice(0, i), kv.slice(i + 1)];
+        }),
+      );
+      if (Object.keys(env).length) spec.env = env;
+      return { name: c.name.trim(), spec };
+    });
+    const body = {
+      name: input.name.trim(),
+      spec: { containers, shareProcessNamespace: input.shareProcessNamespace ?? false },
+    };
+    const op = (await invoke<Obj>("node_pod_create", { namespace: input.namespace ?? DEFAULT_NS, body })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
   }
 
   // DeletePod pelo contrato (DELETE .../pods/{name}). O engine corre a remoção
