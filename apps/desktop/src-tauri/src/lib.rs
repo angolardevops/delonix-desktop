@@ -1,5 +1,6 @@
 mod cli;
 mod exec;
+pub mod grpc;
 mod node;
 mod stream;
 
@@ -123,6 +124,7 @@ pub fn run() {
         // passa por aqui (ver `dlx_save_text`).
         .plugin(tauri_plugin_fs::init())
         .manage(stream::Streams::default())
+        .manage(stream::NodeLogs::default())
         .manage(exec::Execs::default())
         .invoke_handler(tauri::generate_handler![
             dlx_json,
@@ -136,6 +138,8 @@ pub fn run() {
             dlx_write_text,
             stream::dlx_stream_start,
             stream::dlx_stream_stop,
+            stream::node_logs_start,
+            stream::node_logs_stop,
             exec::dlx_exec_start,
             exec::dlx_exec_write,
             exec::dlx_exec_resize,

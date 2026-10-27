@@ -1,0 +1,100 @@
+// Subconjunto CLIENTE do contrato `delonix.node.v1` (ContainerService) — só os
+// STREAMS que o desktop consome por gRPC: Logs, Exec e Stats. É wire-compatível
+// com o servidor (mesmo package, service, método e números de campo); as
+// anotações `google.api.http` e os campos que o cliente não usa (os de tipo
+// `google.protobuf.Duration`: `since` em Logs, `timeout` em ExecStart) são
+// deliberadamente omitidos para que este `.proto` compile sozinho, sem precisar
+// de vendorizar a árvore inteira do runtime nem `google/api`/`google/protobuf`.
+//
+// Fonte autoritativa: delonix-runtime proto/delonix/node/v1/compute.proto.
+// As leituras (ListContainers/GetContainer) e o lifecycle (Start/Stop/Delete)
+// vão pela porta HTTP/JSON do mesmo servidor (ver node.rs / NodeClient do core),
+// por isso NÃO precisam de estar aqui.
+
+syntax = "proto3";
+
+package delonix.node.v1;
+
+service ContainerService {
+  // Server-streaming: um LogChunk por fragmento de stdout/stderr.
+  rpc Logs(LogsRequest) returns (stream LogChunk);
+  // Bidirecional: frames de stdin/resize do cliente; stdout/stderr/exit do servidor.
+  rpc Exec(stream ExecRequest) returns (stream ExecResponse);
+  // Unário por gRPC: uma amostra de métricas do cgroup vivo do container.
+  rpc Stats(StatsRequest) returns (ContainerStats);
+}
+
+// ----------------------------------------------------------------- Logs
+
+message LogsRequest {
+  string container = 1;
+  string namespace = 2;
+  bool follow = 3;
+  int64 tail_lines = 4; // 0 = tudo
+  // campo 5 (`since`, google.protobuf.Duration) omitido: o cliente não o envia.
+  bool timestamps = 6;
+}
+
+message LogChunk {
+  LogStream stream = 1;
+  bytes data = 2;
+  int64 timestamp_unix_nanos = 3; // 0 quando o formato do log não o traz
+}
+
+enum LogStream {
+  LOG_STREAM_UNSPECIFIED = 0;
+  LOG_STREAM_STDOUT = 1;
+  LOG_STREAM_STDERR = 2;
+}
+
+// ----------------------------------------------------------------- Exec
+
+message ExecRequest {
+  oneof frame {
+    ExecStart start = 1; // primeiro frame, exatamente uma vez
+    bytes stdin = 2;
+    TerminalSize resize = 5;
+  }
+}
+
+message ExecResponse {
+  oneof frame {
+    bytes stdout = 3;
+    bytes stderr = 4;
+    int32 exit_code = 6; // último frame
+  }
+}
+
+message ExecStart {
+  string container = 1;
+  string namespace = 2;
+  repeated string command = 3; // vazio = shell (bash, com fallback para sh)
+  map<string, string> env = 4;
+  string workdir = 5;
+  string user = 6;
+  bool tty = 7;
+  // campo 8 (`timeout`, google.protobuf.Duration) omitido: o cliente não o envia.
+}
+
+message TerminalSize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+// ----------------------------------------------------------------- Stats
+
+message StatsRequest {
+  string name = 1;
+  string namespace = 2;
+}
+
+message ContainerStats {
+  int64 cpu_usage_nanos = 1;
+  int64 memory_working_set_bytes = 2;
+  int64 memory_limit_bytes = 3;
+  int64 pids = 4;
+  int64 network_rx_bytes = 5;
+  int64 network_tx_bytes = 6;
+  int64 writable_layer_bytes = 7;
+  repeated string unmeasured = 8;
+}

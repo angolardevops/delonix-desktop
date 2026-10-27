@@ -65,10 +65,16 @@ function LogsPanel() {
   useEffect(() => {
     if (!name) return;
     setLines([]);
+    // Logs do container pelo stream gRPC node.v1 (decisão B), não `logs -f` (CLI).
+    // O namespace vem da row do container selecionado (fallback: seletor global).
+    const ns = containers.find((c) => c.name === name)?.namespace || namespace || "default";
     let stop: (() => void) | undefined;
-    void client.stream(`dock-logs`, cmd.logsFollow(name), (l) => setLines((p) => [...p.slice(-999), l])).then((s) => (stop = s));
+    void client.containerLogs(`dock-logs`, name, ns, (l) => setLines((p) => [...p.slice(-999), l])).then((s) => (stop = s));
     return () => stop?.();
-  }, [client, name]);
+    // containers fora das deps de propósito: o poll de 10s não deve reiniciar o
+    // stream; o namespace de um container é estável para o mesmo nome.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, name, namespace]);
 
   useEffect(() => end.current?.scrollIntoView({ block: "end" }), [lines]);
 

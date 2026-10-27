@@ -37,19 +37,22 @@ export function WorkloadDetail({ id }: { id: string }) {
   };
 
   useEffect(() => {
-    // Logs ao vivo para containers (`container logs -f`) e pods (`pod logs -f`,
-    // 1.º membro). VMs usam a consola série (`vm console`), fora deste fluxo.
+    // Logs ao vivo para containers e pods. VMs usam a consola série (`vm console`),
+    // fora deste fluxo.
     if (tab !== "logs" || !w || (w.type !== "container" && w.type !== "pod")) return;
     setLines([]);
-    // Container com toggle de timestamps (`container logs -f [--timestamps]`);
-    // pod sem timestamps (`pod logs -f`, 1.º membro).
-    const argv = w.type === "pod"
-      ? cmd.podLogsFollow(id)
-      : cmd.containerLogs(id, { follow: true, timestamps });
+    const onLine = (l: string) => setLines((p) => [...p.slice(-1999), l]);
     let stop: (() => void) | undefined;
-    void client.stream(`detail-${id}`, argv, (l) => setLines((p) => [...p.slice(-1999), l])).then((s) => (stop = s));
+    if (w.type === "container") {
+      // Container: stream gRPC de `ContainerService.Logs` (node.v1), não
+      // `container logs -f` (CLI) — decisão B. Toggle de timestamps preservado.
+      void client.containerLogs(`detail-${id}`, id, w.namespace, onLine, timestamps).then((s) => (stop = s));
+    } else {
+      // Pod: ainda `pod logs -f` (CLI, 1.º membro) enquanto essa fatia não migra.
+      void client.stream(`detail-${id}`, cmd.podLogsFollow(id), onLine).then((s) => (stop = s));
+    }
     return () => stop?.();
-  }, [client, id, tab, w?.type, timestamps]);
+  }, [client, id, tab, w?.type, w?.namespace, timestamps]);
 
   useEffect(() => {
     if (follow) end.current?.scrollIntoView({ block: "end" });

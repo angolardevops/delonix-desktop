@@ -77,6 +77,10 @@ export interface DelonixClient {
   // acaba) com o CÓDIGO DE SAÍDA real (0 = sucesso; null se indeterminado) — os
   // fluxos infinitos (`logs -f`) nunca o chamam.
   stream(id: string, argv: Argv, onLine: (line: string) => void, onEnd?: (code: number | null) => void): Promise<() => void>;
+  // Logs de um CONTAINER pelo server-stream gRPC de `ContainerService.Logs`
+  // (node.v1), não por `delonix container logs -f` (CLI) — decisão B. Mesma forma
+  // de `stream` (devolve o cancelador); pods continuam em `stream` (`pod logs -f`).
+  containerLogs(id: string, name: string, namespace: string, onLine: (line: string) => void, timestamps?: boolean): Promise<() => void>;
   // `onEnd` (opcional) dispara quando o processo de eventos termina (o engine
   // caiu / o socket fechou) — permite ao consumidor religar com backoff
   // (lib/reconnectingStream.ts). Os fluxos infinitos saudáveis nunca o chamam.

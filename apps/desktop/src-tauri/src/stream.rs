@@ -137,6 +137,80 @@ pub fn dlx_stream_stop(streams: State<'_, Streams>, id: String) {
     }
 }
 
+// ─────────────── Logs de container pelo contrato node.v1 (gRPC) ───────────────
+//
+// Decisão B: os logs de CONTAINER deixam de passar por `delonix container logs -f`
+// (CLI, acima) e vêm do server-stream `ContainerService.Logs` (gRPC, crate::grpc).
+// Cada `LogChunk` é fragmentado por linha e emitido no MESMO evento `dlx-stream`
+// que os fluxos do CLI — por isso o frontend consome-o igual (ver containerLogs).
+// Pods continuam na via CLI (`pod logs -f`) enquanto essa fatia não migra.
+
+/// Tasks de stream de logs por id (abortáveis no stop/substituição).
+#[derive(Default)]
+pub struct NodeLogs(pub Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>);
+
+#[tauri::command]
+pub async fn node_logs_start(
+    app: AppHandle,
+    tasks: State<'_, NodeLogs>,
+    id: String,
+    name: String,
+    namespace: String,
+    follow: bool,
+    tail_lines: i64,
+    timestamps: bool,
+) -> Result<(), String> {
+    let mut stream =
+        crate::grpc::logs_stream(&name, &namespace, follow, tail_lines, timestamps).await?;
+
+    let stream_id = id.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            match stream.message().await {
+                Ok(Some(chunk)) => {
+                    buf.extend_from_slice(&chunk.data);
+                    // Emitir cada linha completa; guardar o resto parcial no buffer.
+                    while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+                        let line = String::from_utf8_lossy(&buf[..nl]).into_owned();
+                        buf.drain(..=nl);
+                        let _ = app.emit("dlx-stream", Line { id: stream_id.clone(), line });
+                    }
+                }
+                Ok(None) => break, // fim do stream
+                Err(status) => {
+                    let _ = app.emit(
+                        "dlx-stream",
+                        Line { id: stream_id.clone(), line: format!("[erro de stream: {}]", status.message()) },
+                    );
+                    break;
+                }
+            }
+        }
+        if !buf.is_empty() {
+            let line = String::from_utf8_lossy(&buf).into_owned();
+            let _ = app.emit("dlx-stream", Line { id: stream_id.clone(), line });
+        }
+        let _ = app.emit("dlx-stream-end", stream_id);
+    });
+
+    if let Ok(mut map) = tasks.0.lock() {
+        if let Some(old) = map.insert(id, handle) {
+            old.abort();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn node_logs_stop(tasks: State<'_, NodeLogs>, id: String) {
+    if let Ok(mut map) = tasks.0.lock() {
+        if let Some(h) = map.remove(&id) {
+            h.abort();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

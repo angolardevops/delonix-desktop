@@ -646,6 +646,13 @@ export class MockClient implements DelonixClient {
     return () => clearInterval(t);
   }
 
+  // Duplo local: o mesmo fluxo falso de logs (não há node-api gRPC no browser).
+  async containerLogs(_id: string, _name: string, _namespace: string, onLine: (line: string) => void, _timestamps = false) {
+    let i = 0;
+    const t = setInterval(() => onLine(`${new Date().toISOString().replace("T", " ").slice(0, 23)}  ${LOG[i++ % LOG.length]}`), 900);
+    return () => clearInterval(t);
+  }
+
   async exec(_id: string, name: string, mode: ExecMode, onData: (data: string) => void, _onEnd: () => void): Promise<ExecSession> {
     // Duplo local: cada modo tem a sua semântica simulada (sem engine).
     // - attach/vm-console: OUTPUT-ONLY (não há eco de stdin; o attach do engine

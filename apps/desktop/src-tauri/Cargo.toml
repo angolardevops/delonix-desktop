@@ -28,15 +28,27 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Gera o cliente gRPC do subconjunto de `delonix.node.v1` (ContainerService:
+# Logs/Exec/Stats) — ver build.rs e proto/. Precisa de `protoc` no PATH.
+tonic-build = "0.12"
 
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["process", "io-util", "macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["process", "io-util", "net", "macros", "rt-multi-thread", "time", "sync"] }
 which = "6"
 portable-pty = "0.9"
 delonix-desktop-core = { path = "../../../crates/delonix-desktop-core" }
+
+# gRPC (tonic) do contrato node.v1 para os STREAMS de container — Logs, Exec e
+# Stats. As leituras unárias e o lifecycle vão pela porta HTTP/JSON (NodeClient
+# do core); só o streaming precisa de gRPC. `tower`/`hyper-util` dão o conector
+# ao socket Unix local (o URI é um placeholder; liga-se sempre ao socket).
+tonic = "0.12"
+prost = "0.13"
+tower = { version = "0.5", features = ["util"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 # Integração nativa com o SO (eixo A) — plugins OFICIAIS do Tauri 2.x, não
 # reinvenções. Notificações do SO em eventos críticos, diálogo de ficheiros

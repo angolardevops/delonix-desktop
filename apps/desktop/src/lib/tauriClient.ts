@@ -655,6 +655,21 @@ export class TauriClient implements DelonixClient {
     };
   }
 
+  // Logs do container pelo server-stream gRPC de `ContainerService.Logs`. O
+  // backend emite cada linha no MESMO evento `dlx-stream` que os fluxos do CLI,
+  // por isso a forma e o cancelamento são idênticos a `stream` — só a origem muda
+  // (node.v1 em vez de `delonix container logs -f`). `tailLines` → `tail_lines`.
+  async containerLogs(id: string, name: string, namespace: string, onLine: (line: string) => void, timestamps = false) {
+    const un = await listen<{ id: string; line: string }>("dlx-stream", (e) => {
+      if (e.payload.id === id) onLine(e.payload.line);
+    });
+    await invoke("node_logs_start", { id, name, namespace, follow: true, tailLines: 200, timestamps });
+    return () => {
+      un();
+      void invoke("node_logs_stop", { id });
+    };
+  }
+
   async exec(id: string, name: string, mode: ExecMode, onData: (data: string) => void, onEnd: () => void): Promise<ExecSession> {
     const unData = await listen<{ id: string; data: string }>("dlx-exec", (e) => {
       if (e.payload.id === id) onData(e.payload.data);
