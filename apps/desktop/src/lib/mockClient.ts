@@ -334,6 +334,16 @@ export class MockClient implements DelonixClient {
   // forma que o seletor global usa para DESCOBRIR as namespaces existentes.
   workloads = (namespace?: string) => wait(namespace ? workloads.filter((w) => w.namespace === namespace) : workloads);
   images = () => wait(images);
+  // Pull/Delete de imagem no duplo local (mutam o array, como o engine faria).
+  async imagePull(reference: string, _platform = ""): Promise<void> {
+    if (!images.some((i) => i.ref === reference))
+      images = [{ ref: reference, tags: [reference], id: Math.random().toString(16).slice(2, 14), size: "12,0 MiB", created: "—", orphan: true, usedBy: [] }, ...images];
+    return wait(undefined);
+  }
+  async imageRemove(reference: string): Promise<void> {
+    images = images.filter((i) => i.ref !== reference && i.id !== reference);
+    return wait(undefined);
+  }
   // Os volumes do duplo local não têm namespace própria; o argumento é aceite
   // por paridade de assinatura (o engine real filtra por `volume ls -n`).
   volumes = (_namespace?: string) => wait(volumes);

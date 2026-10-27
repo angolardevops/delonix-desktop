@@ -26,6 +26,11 @@ export interface DelonixClient {
   // namespaces — usado também na DESCOBERTA de namespaces do seletor global.
   workloads(namespace?: string): Promise<WorkloadRow[]>;
   images(): Promise<ImageRow[]>;
+  // Imagens pelo contrato node.v1 (ListImages/Pull/Delete) — não CLI (decisão B).
+  // `imagePull` corre a pull síncrona (sem progresso ao vivo no contrato) e lança
+  // se falhar; `imageRemove` remove/untag. Lançam se o engine não servir (501).
+  imagePull(reference: string, platform?: string): Promise<void>;
+  imageRemove(reference: string): Promise<void>;
   // Volumes e redes pelo contrato node.v1 (REST) — não CLI (decisão B). O
   // tamanho do volume não é medível na lista (rootless) e os membros/usedBy
   // reconstroem-se dos containers. `networkDiagnose` fica na CLI (sem serviço).

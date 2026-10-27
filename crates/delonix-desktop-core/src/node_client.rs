@@ -355,6 +355,30 @@ impl NodeClient {
         self.delete(&volume_resource(ns, name))
     }
 
+    // --- ImageService (`delonix.node.v1`) -----------------------------------
+    //
+    // Imagens são NODE-WIDE (não-namespaced): `/v1/images`, `/v1/images:get`,
+    // `/v1/images:pull`, `/v1/images:delete`. A lista não traz `created` nem
+    // `orphan` (o contrato não os tem) — a UI deriva o uso dos containers.
+
+    /// `ListImages` — `GET /v1/images`.
+    pub fn images(&self) -> Result<serde_json::Value> {
+        self.get_raw("/v1/images")
+    }
+    /// `PullImage` — `POST /v1/images:pull` (body `{reference, platform}`).
+    /// Síncrona: devolve a Operation já terminal (o pull corre até ao fim).
+    pub fn image_pull(&self, reference: &str, platform: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "reference": reference, "platform": platform });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post("/v1/images:pull", &body)
+    }
+    /// `DeleteImage` — `POST /v1/images:delete` (body `{reference}`).
+    pub fn image_delete(&self, reference: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "reference": reference });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post("/v1/images:delete", &body)
+    }
+
     /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
         self.send(method, path, None)

@@ -177,7 +177,10 @@ pub fn run() {
             node::node_network_disconnect,
             node::node_volumes,
             node::node_volume_create,
-            node::node_volume_delete
+            node::node_volume_delete,
+            node::node_images,
+            node::node_image_pull,
+            node::node_image_delete
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Delonix Desktop");

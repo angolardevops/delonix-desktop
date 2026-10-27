@@ -274,3 +274,30 @@ pub async fn node_volume_delete(namespace: Option<String>, name: String) -> Resu
     let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
     on_node(move |c| c.volume_delete(&ns, &name).map(|_| ())).await
 }
+
+// --- ImageService (`delonix.node.v1`, node-wide) ----------------------------
+//
+// Imagens não são namespaced. Pull/Delete devolvem uma Operation (já terminal,
+// pois o engine corre a pull síncrona) — a UI inspeciona o estado/erro.
+
+/// `ListImages` — `GET /v1/images`.
+#[tauri::command]
+pub async fn node_images() -> Result<serde_json::Value, String> {
+    on_node(|c| c.images()).await
+}
+
+/// `PullImage` — `POST /v1/images:pull`. `platform` vazio = host.
+#[tauri::command]
+pub async fn node_image_pull(
+    reference: String,
+    platform: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let platform = platform.unwrap_or_default();
+    on_node(move |c| c.image_pull(&reference, &platform)).await
+}
+
+/// `DeleteImage` — `POST /v1/images:delete`.
+#[tauri::command]
+pub async fn node_image_delete(reference: String) -> Result<serde_json::Value, String> {
+    on_node(move |c| c.image_delete(&reference)).await
+}

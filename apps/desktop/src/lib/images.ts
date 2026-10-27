@@ -56,6 +56,26 @@ export const toImageRow = (raw: unknown, nowMs: number = Date.now()): ImageRow =
 export const parseImages = (raw: unknown, nowMs: number = Date.now()): ImageRow[] =>
   (Array.isArray(raw) ? raw : []).map((r) => toImageRow(r, nowMs));
 
+// Um `Image` do contrato node.v1 (reference/digest/size_bytes; UMA entrada por
+// tag) → ImageRow. O contrato não traz `created` nem `orphan`: `created` fica
+// "—" e `orphan` deriva-se do cruzamento com os workloads (ver crossRefUsedBy;
+// a tela faz orphan = usedBy vazio).
+export const nodeImageToRow = (raw: unknown): ImageRow => {
+  const o = (raw ?? {}) as Obj;
+  const reference = str(o, "reference");
+  const short = reference ? shortTag(reference) : "";
+  const id = str(o, "digest").replace(/^sha256:/, "").slice(0, 12);
+  return {
+    ref: short || "<none>:<none>",
+    tags: short ? [short] : [],
+    id,
+    size: humanBytes(numOf(o, "size_bytes")),
+    created: "—",
+    orphan: false,
+    usedBy: [],
+  };
+};
+
 // Cruza as imagens com os workloads para preencher `usedBy` (quais workloads
 // correm cada imagem). O `info` de um container é a sua imagem; compara-se com
 // a ref, as tags curtas e o id (short). Best-effort — o eixo "em uso/sem uso"

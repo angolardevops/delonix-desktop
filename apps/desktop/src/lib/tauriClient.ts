@@ -5,7 +5,7 @@ import { cmd, kubectl, type Argv } from "./cli";
 import { buildEngineInfo, type EngineInfo } from "./engine";
 import { parseDoctor } from "./doctor";
 import { fmtUnix } from "./format";
-import { crossRefUsedBy, parseImages } from "./images";
+import { crossRefUsedBy, nodeImageToRow } from "./images";
 import { parseSecretInspect } from "./secrets";
 import type {
   BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
@@ -26,6 +26,18 @@ const list = (o: Obj, ...keys: string[]) => {
   return Array.isArray(v) ? v.map(String) : [];
 };
 const asArray = (v: unknown): Obj[] => (Array.isArray(v) ? (v as Obj[]) : []);
+// Razão de falha de uma Operation terminal (null = sucesso): o `error` RFC 9457
+// quando presente, senão um `state` que indique falha.
+const operationError = (op: Obj): string | null => {
+  const e = pick(op, "error");
+  if (e && typeof e === "object") {
+    const msg = str(e as Obj, "message", "detail", "title");
+    if (msg) return msg;
+  }
+  const state = str(op, "state");
+  if (/fail|error/i.test(state)) return str(op, "result") || `operação ${state}`;
+  return null;
+};
 // Número numérico-real, ou null (mantém "não medido" distinto de 0).
 const num = (o: Obj, ...keys: string[]): number | null => {
   const v = pick(o, ...keys);
@@ -441,14 +453,33 @@ export class TauriClient implements DelonixClient {
     return [...containers, ...nonContainer];
   }
 
-  // `image ls -o json` no 5.1.1 devolve {repo_tags[],id,created_unix,size_bytes,
-  // orphan} — ver lib/images.ts (parsing puro). `usedBy` vem do cruzamento com
-  // os workloads (quais correm cada imagem); o eixo "sem uso" usa `orphan`. Se
-  // os workloads não derem, as imagens ficam na mesma com `orphan` fiável.
+  // Imagens pelo contrato node.v1 (ListImages, REST) — sem CLI (decisão B). O
+  // contrato não traz `created` (fica "—") nem `orphan`: o `usedBy` e o eixo
+  // "sem uso" derivam-se do cruzamento com os workloads (uma imagem que nenhum
+  // workload corre é órfã).
   async images(): Promise<ImageRow[]> {
-    const imgs = parseImages(await json<unknown>(cmd.images()));
-    const workloads = await this.workloads().catch(() => [] as WorkloadRow[]);
-    return crossRefUsedBy(imgs, workloads);
+    const [resp, workloads] = await Promise.all([
+      invoke<Obj>("node_images"),
+      this.workloads().catch(() => [] as WorkloadRow[]),
+    ]);
+    const rows = asArray(pick(resp ?? {}, "images")).map(nodeImageToRow);
+    return crossRefUsedBy(rows, workloads).map((r) => ({ ...r, orphan: r.usedBy.length === 0 }));
+  }
+
+  // Pull/Delete de imagem pelo contrato (POST /v1/images:pull|:delete). O engine
+  // corre a pull síncrona e devolve uma Operation já terminal; se falhou,
+  // lançamos a razão. (O progresso ao vivo do pull não é levado pelo contrato —
+  // a tela mostra um spinner até terminar.)
+  async imagePull(reference: string, platform = ""): Promise<void> {
+    const op = (await invoke<Obj>("node_image_pull", { reference, platform })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
+  }
+
+  async imageRemove(reference: string): Promise<void> {
+    const op = (await invoke<Obj>("node_image_delete", { reference })) ?? {};
+    const err = operationError(op);
+    if (err) throw new Error(err);
   }
 
   // Volumes pelo contrato node.v1 (ListVolumes, REST) — sem CLI (decisão B). A
