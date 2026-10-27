@@ -9,8 +9,16 @@ import { useResource } from "../lib/hooks";
 import type { VolumeRow } from "../lib/types";
 
 export function Volumes() {
-  const { client, act, go, namespace } = useApp();
+  const { client, toast, go, namespace } = useApp();
   const { data, error, refresh } = useResource(["volumes", namespace], () => client.volumes(namespace), 15000);
+  // Ação de volume pelo contrato node.v1 (decisão B — sem CLI), com feedback por
+  // toast e refresh. Devolve ok para o criar fechar o drawer só em sucesso.
+  const vact = async (fn: () => Promise<void>, label: string): Promise<boolean> => {
+    let ok = true;
+    try { await fn(); toast(`${label} · feito`, true); } catch (e) { ok = false; toast(`${label} falhou: ${String(e)}`, false); }
+    void refresh();
+    return ok;
+  };
   const providers = useResource("providers", () => client.providers(), 60000).data ?? [];
   const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -29,7 +37,7 @@ export function Volumes() {
   return (
     <>
       <PageHead title="Volumes" subtitle={`${rows.length} volumes · ${orphans.length} órfãos`}>
-        <button className="btn danger" type="button" disabled={!orphans.length} onClick={async () => { for (const v of orphans) await act(cmd.volumeRm(v.name), `Remover volume ${v.name}`); void refresh(); }}>Remover {orphans.length} órfãos</button>
+        <button className="btn danger" type="button" disabled={!orphans.length} onClick={async () => { if (window.confirm(`Remover ${orphans.length} volume(s) órfão(s)?`)) for (const v of orphans) await vact(() => client.volumeRemove(v.name, namespace), `Remover volume ${v.name}`); }}>Remover {orphans.length} órfãos</button>
         <button className="btn pri" type="button" onClick={() => setCreateOpen(true)}><Icon name="plus" size={13} /> Criar volume</button>
       </PageHead>
       {snapshot && snapshot.state !== "supported" && (
@@ -48,13 +56,13 @@ export function Volumes() {
         searchText={(v) => `${v.name} ${v.driver} ${v.usedBy.join(" ")}`}
         empty="Sem volumes"
         actions={(v) => (
-          <button className="btn ico danger" type="button" aria-label={`Remover ${v.name}`} onClick={() => void act(cmd.volumeRm(v.name), `Remover volume ${v.name}`).then(() => refresh())}><Icon name="trash" /></button>
+          <button className="btn ico danger" type="button" aria-label={`Remover ${v.name}`} onClick={() => { if (window.confirm(`Remover o volume ${v.name}?`)) void vact(() => client.volumeRemove(v.name, namespace), `Remover volume ${v.name}`); }}><Icon name="trash" /></button>
         )}
       />
       <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Criar volume">
         <section className="section">
           <input className="input mono" placeholder="nome" value={name} onChange={(e) => setName(e.target.value)} aria-label="Nome do volume" />
-          <button className="btn pri" type="button" disabled={!name} onClick={() => void act(cmd.volumeCreate(name), `Criar volume ${name}`).then((ok) => { if (ok) { setName(""); setCreateOpen(false); } refresh(); })}>Criar</button>
+          <button className="btn pri" type="button" disabled={!name} onClick={() => void vact(() => client.volumeCreate(name, namespace), `Criar volume ${name}`).then((ok) => { if (ok) { setName(""); setCreateOpen(false); } })}>Criar</button>
           {name && <CliHint argv={cmd.volumeCreate(name)} compact />}
         </section>
       </Drawer>

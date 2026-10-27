@@ -6,7 +6,6 @@ import { buildEngineInfo, type EngineInfo } from "./engine";
 import { parseDoctor } from "./doctor";
 import { fmtUnix } from "./format";
 import { crossRefUsedBy, parseImages } from "./images";
-import { parseDescribeMembers } from "./network";
 import { parseSecretInspect } from "./secrets";
 import type {
   BackupRow, CapabilityLabel, CapabilityRow, CliResult, ClusterRow, ComposeService, DashRow, DashSummary, DoctorItem, EngineEvent, ImageRow, K8sNode, K8sPod, NetDiagnoseFinding, NetworkRow, ProviderReport, ResourceAdvice, ResourceBottleneck, ResourceSeverity, RiskLevel, SecretReveal, SecretRow, StackPlanRow, SystemMetrics, SystemResources, VmCreateInput, VmDetail, VmSnapshot, VolumeRow, WorkloadRow,
@@ -193,6 +192,62 @@ const nodeContainerToRow = (o: Obj): WorkloadRow => {
   };
 };
 
+// Um Network do contrato node.v1 → NetworkRow (sem membros; esses derivam-se dos
+// containers). driver/bridge/gateway vêm de spec.extensions.by_provider.linux;
+// subnet de spec.ipv4_cidr; o driver cai para a topologia quando o provider não
+// o expõe.
+const nodeNetworkToRow = (o: Obj): NetworkRow => {
+  const meta = (pick(o, "meta") ?? {}) as Obj;
+  const spec = (pick(o, "spec") ?? {}) as Obj;
+  const ext = (pick(spec, "extensions") ?? {}) as Obj;
+  const byProv = (pick(ext, "by_provider") ?? {}) as Obj;
+  const linux = (pick(byProv, "linux") ?? {}) as Obj;
+  const topo = str(spec, "topology");
+  return {
+    name: str(meta, "name"),
+    driver: str(linux, "driver") || (topo === "NETWORK_TOPOLOGY_OVERLAY" ? "overlay" : "bridge"),
+    subnet: str(spec, "ipv4_cidr"),
+    bridge: str(linux, "bridge"),
+    gateway: str(linux, "gateway"),
+    members: [],
+  };
+};
+
+// Membros de cada rede, reconstruídos dos containers: um container ligado a uma
+// rede tem `spec.networks[].{network, ipv4_address}` (IP vazio → o 1.º
+// status.ip_addresses). O contrato não lista membros do lado da rede.
+const networkMembers = (containers: Obj[]): Map<string, { name: string; ip: string }[]> => {
+  const m = new Map<string, { name: string; ip: string }[]>();
+  for (const c of containers) {
+    const name = str((pick(c, "meta") ?? {}) as Obj, "name");
+    const spec = (pick(c, "spec") ?? {}) as Obj;
+    const status = (pick(c, "status") ?? {}) as Obj;
+    for (const att of asArray(pick(spec, "networks"))) {
+      const net = str(att, "network");
+      if (!net) continue;
+      const ip = str(att, "ipv4_address") || list(status, "ip_addresses")[0] || "";
+      (m.get(net) ?? m.set(net, []).get(net)!).push({ name, ip });
+    }
+  }
+  return m;
+};
+
+// Quem monta cada volume, reconstruído dos containers (`spec.mounts[].volume`).
+// O contrato não lista os utilizadores do lado do volume.
+const volumeUsers = (containers: Obj[]): Map<string, string[]> => {
+  const m = new Map<string, string[]>();
+  for (const c of containers) {
+    const name = str((pick(c, "meta") ?? {}) as Obj, "name");
+    const spec = (pick(c, "spec") ?? {}) as Obj;
+    for (const mnt of asArray(pick(spec, "mounts"))) {
+      const vol = str(mnt, "volume");
+      if (!vol) continue;
+      (m.get(vol) ?? m.set(vol, []).get(vol)!).push(name);
+    }
+  }
+  return m;
+};
+
 // --- Normalização do `-o json` do kubectl (items[]) ------------------------
 // Um nó: nome, condição Ready, agendável (!unschedulable), papéis (das labels
 // node-role.kubernetes.io/*) e versão do kubelet.
@@ -368,9 +423,13 @@ export class TauriClient implements DelonixClient {
   // lista de containers fica vazia; o detalhe (Inspecionar/Logs) mostra o erro.
   // VMs e pods continuam a vir da CLI (`workload ls`) enquanto essas fatias não
   // migram — por isso ficam disponíveis mesmo com o node-api em baixo.
-  private async nodeContainers(namespace?: string): Promise<WorkloadRow[]> {
+  private async nodeContainersRaw(namespace?: string): Promise<Obj[]> {
     const resp = (await invoke<Obj>("node_containers", { namespace: namespace ?? DEFAULT_NS })) ?? {};
-    return asArray(pick(resp, "containers")).map(nodeContainerToRow);
+    return asArray(pick(resp, "containers"));
+  }
+
+  private async nodeContainers(namespace?: string): Promise<WorkloadRow[]> {
+    return (await this.nodeContainersRaw(namespace)).map(nodeContainerToRow);
   }
 
   async workloads(namespace?: string): Promise<WorkloadRow[]> {
@@ -392,49 +451,75 @@ export class TauriClient implements DelonixClient {
     return crossRefUsedBy(imgs, workloads);
   }
 
+  // Volumes pelo contrato node.v1 (ListVolumes, REST) — sem CLI (decisão B). A
+  // lista do contrato NÃO mede o tamanho (rootless: os diretórios pertencem a
+  // outro uid — o CLI `volume ls` também devolve vazio aqui), por isso `size` sai
+  // como "—"; o `usedBy` reconstrói-se dos containers (`spec.mounts[].volume`).
   async volumes(namespace?: string): Promise<VolumeRow[]> {
-    const rows = asArray(await json<unknown>(cmd.volumes(namespace)));
-    return rows.map((o) => ({
-      name: str(o, "name"),
-      driver: str(o, "driver") || "local",
-      size: str(o, "size_human", "size"),
-      usedBy: list(o, "used_by", "mounted_by", "containers"),
-    }));
+    const ns = namespace ?? DEFAULT_NS;
+    const [resp, containers] = await Promise.all([
+      invoke<Obj>("node_volumes", { namespace: ns }),
+      this.nodeContainersRaw(ns).catch(() => [] as Obj[]),
+    ]);
+    const users = volumeUsers(containers);
+    return asArray(pick(resp ?? {}, "volumes")).map((o) => {
+      const name = str((pick(o, "meta") ?? {}) as Obj, "name");
+      return { name, driver: "local", size: "—", usedBy: users.get(name) ?? [] };
+    });
   }
 
-  // `network ls -o json` traz name/driver/bridge/subnet/`used_by` (NOMES dos
-  // containers ligados, sem IP). Os membros ficam com `ip: ""` na lista; o IP e
-  // o gateway só se obtêm no detalhe (networkDetail → `network describe`).
-  async networks(): Promise<NetworkRow[]> {
-    const rows = asArray(await json<unknown>(cmd.networks()));
-    return rows.map((o) => ({
-      name: str(o, "name"),
-      driver: str(o, "driver", "kind"),
-      subnet: str(o, "subnet", "cidr"),
-      bridge: str(o, "bridge"),
-      gateway: str(o, "gateway"),
-      members: list(o, "used_by", "members", "containers").map((name) => ({ name, ip: "" })),
-    }));
+  // Redes pelo contrato node.v1 (ListNetworks, REST) — sem CLI. Os MEMBROS (com
+  // IP) não vêm do lado da rede; reconstroem-se dos containers ligados.
+  async networks(namespace?: string): Promise<NetworkRow[]> {
+    const ns = namespace ?? DEFAULT_NS;
+    const [resp, containers] = await Promise.all([
+      invoke<Obj>("node_networks", { namespace: ns }),
+      this.nodeContainersRaw(ns).catch(() => [] as Obj[]),
+    ]);
+    const members = networkMembers(containers);
+    return asArray(pick(resp ?? {}, "networks")).map((o) => {
+      const row = nodeNetworkToRow(o);
+      row.members = members.get(row.name) ?? [];
+      return row;
+    });
   }
 
-  // Detalhe de UMA rede: `inspect -o json` dá gateway/bridge de forma estável;
-  // `describe` é a ÚNICA forma que lista os membros COM o IP por rede (bloco
-  // "Containers:" com linhas `nome (shortid) ip`). Juntam-se aqui. Se o describe
-  // falhar, devolve na mesma a rede com membros sem IP (a topologia degrada bem).
+  // Detalhe de UMA rede pelo contrato (GetNetwork) + membros com IP derivados dos
+  // containers. `networkDiagnose` fica na CLI (não tem serviço node.v1).
   async networkDetail(name: string): Promise<NetworkRow> {
-    const arr = asArray(await json<unknown>(cmd.networkInspect(name)));
-    const o = arr[0] ?? {};
-    const base: NetworkRow = {
-      name: str(o, "name") || name,
-      driver: str(o, "driver", "kind"),
-      subnet: str(o, "subnet", "cidr"),
-      bridge: str(o, "bridge"),
-      gateway: str(o, "gateway"),
-      members: [],
-    };
-    const r = await invoke<CliResult>("dlx_run", { args: cmd.networkDescribe([name]), confirm: false }).catch(() => null);
-    if (r && r.ok) base.members = parseDescribeMembers(r.stdout);
-    return base;
+    const ns = DEFAULT_NS;
+    const [o, containers] = await Promise.all([
+      invoke<Obj>("node_network", { namespace: ns, name }),
+      this.nodeContainersRaw(ns).catch(() => [] as Obj[]),
+    ]);
+    const row = nodeNetworkToRow(o ?? {});
+    if (!row.name) row.name = name;
+    row.members = networkMembers(containers).get(name) ?? [];
+    return row;
+  }
+
+  async networkCreate(name: string, driver: string, subnet: string, namespace?: string): Promise<void> {
+    await invoke("node_network_create", { namespace: namespace ?? DEFAULT_NS, name, driver, subnet });
+  }
+
+  async networkRemove(name: string, namespace?: string): Promise<void> {
+    await invoke("node_network_delete", { namespace: namespace ?? DEFAULT_NS, name });
+  }
+
+  async networkConnect(network: string, container: string, namespace?: string): Promise<void> {
+    await invoke("node_network_connect", { namespace: namespace ?? DEFAULT_NS, network, container });
+  }
+
+  async networkDisconnect(network: string, container: string, namespace?: string): Promise<void> {
+    await invoke("node_network_disconnect", { namespace: namespace ?? DEFAULT_NS, network, container });
+  }
+
+  async volumeCreate(name: string, namespace?: string): Promise<void> {
+    await invoke("node_volume_create", { namespace: namespace ?? DEFAULT_NS, name });
+  }
+
+  async volumeRemove(name: string, namespace?: string): Promise<void> {
+    await invoke("node_volume_delete", { namespace: namespace ?? DEFAULT_NS, name });
   }
 
   // `network diagnose -o json` → [{check,status,detail,fix?}]. READ (corre sem

@@ -182,3 +182,95 @@ pub async fn node_container_stats(
         unmeasured: s.unmeasured,
     })
 }
+
+// --- NetworkService / VolumeService (`delonix.node.v1`) ---------------------
+//
+// Leituras e mutações de rede/volume pelo contrato (decisão B: sem CLI). As
+// leituras devolvem o JSON cru; a UI normaliza e reconstrói membros/usedBy
+// cruzando com os containers. O `network diagnose` NÃO tem serviço node.v1 —
+// fica na ponte CLI.
+
+/// `ListNetworks` — `GET /v1/namespaces/{ns}/networks`.
+#[tauri::command]
+pub async fn node_networks(namespace: Option<String>) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.networks(&ns)).await
+}
+
+/// `GetNetwork` — `GET /v1/namespaces/{ns}/networks/{name}`.
+#[tauri::command]
+pub async fn node_network(
+    namespace: Option<String>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.network(&ns, &name)).await
+}
+
+/// `CreateNetwork` — `POST .../networks`. `driver` → topologia do contrato
+/// (bridge/overlay); `subnet` vazio = alocado.
+#[tauri::command]
+pub async fn node_network_create(
+    namespace: Option<String>,
+    name: String,
+    driver: Option<String>,
+    subnet: Option<String>,
+) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    let topology = match driver.as_deref() {
+        Some("overlay") => "NETWORK_TOPOLOGY_OVERLAY",
+        _ => "NETWORK_TOPOLOGY_BRIDGE",
+    };
+    let subnet = subnet.unwrap_or_default();
+    on_node(move |c| c.network_create(&ns, &name, topology, &subnet).map(|_| ())).await
+}
+
+/// `DeleteNetwork` — `DELETE .../networks/{name}`.
+#[tauri::command]
+pub async fn node_network_delete(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.network_delete(&ns, &name).map(|_| ())).await
+}
+
+/// `ConnectContainer` — `POST .../networks/{network}:connect`.
+#[tauri::command]
+pub async fn node_network_connect(
+    namespace: Option<String>,
+    network: String,
+    container: String,
+) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.network_connect(&ns, &network, &container).map(|_| ())).await
+}
+
+/// `DisconnectContainer` — `POST .../networks/{network}:disconnect`.
+#[tauri::command]
+pub async fn node_network_disconnect(
+    namespace: Option<String>,
+    network: String,
+    container: String,
+) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.network_disconnect(&ns, &network, &container).map(|_| ())).await
+}
+
+/// `ListVolumes` — `GET /v1/namespaces/{ns}/volumes`.
+#[tauri::command]
+pub async fn node_volumes(namespace: Option<String>) -> Result<serde_json::Value, String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.volumes(&ns)).await
+}
+
+/// `CreateVolume` — `POST .../volumes` (source local por omissão).
+#[tauri::command]
+pub async fn node_volume_create(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.volume_create(&ns, &name).map(|_| ())).await
+}
+
+/// `DeleteVolume` — `DELETE .../volumes/{name}`.
+#[tauri::command]
+pub async fn node_volume_delete(namespace: Option<String>, name: String) -> Result<(), String> {
+    let ns = namespace.unwrap_or_else(|| DEFAULT_NS.into());
+    on_node(move |c| c.volume_delete(&ns, &name).map(|_| ())).await
+}

@@ -75,6 +75,30 @@ fn container_verb(ns: &str, name: &str, verb: &str) -> String {
     format!("/v1/namespaces/{ns}/containers/{name}:{verb}")
 }
 
+// Rotas de `NetworkService` e `VolumeService` (`delonix.node.v1`). Mesmo
+// transporte HTTP/JSON das VMs/containers.
+
+/// `.../networks` — ListNetworks (GET) e CreateNetwork (POST).
+fn network_collection(ns: &str) -> String {
+    format!("/v1/namespaces/{ns}/networks")
+}
+/// `.../networks/{name}` — GetNetwork (GET) e DeleteNetwork (DELETE).
+fn network_resource(ns: &str, name: &str) -> String {
+    format!("/v1/namespaces/{ns}/networks/{name}")
+}
+/// `.../networks/{network}:{verb}` — ConnectContainer/DisconnectContainer (POST).
+fn network_verb(ns: &str, network: &str, verb: &str) -> String {
+    format!("/v1/namespaces/{ns}/networks/{network}:{verb}")
+}
+/// `.../volumes` — ListVolumes (GET) e CreateVolume (POST).
+fn volume_collection(ns: &str) -> String {
+    format!("/v1/namespaces/{ns}/volumes")
+}
+/// `.../volumes/{name}` — GetVolume (GET) e DeleteVolume (DELETE).
+fn volume_resource(ns: &str, name: &str) -> String {
+    format!("/v1/namespaces/{ns}/volumes/{name}")
+}
+
 /// Um cliente do node-api ligado a um socket Unix concreto.
 #[derive(Debug, Clone)]
 pub struct NodeClient {
@@ -245,6 +269,92 @@ impl NodeClient {
         self.container_start(ns, name)
     }
 
+    // --- NetworkService (`delonix.node.v1`) ---------------------------------
+    //
+    // Leituras cruas (meta/spec/conditions). A UI normaliza; os MEMBROS de uma
+    // rede (containers ligados, com IP) NÃO vêm aqui — reconstroem-se cruzando
+    // com os containers (`spec.networks[].ipv4_address`), no frontend.
+
+    /// `ListNetworks` — `GET /v1/namespaces/{ns}/networks`.
+    pub fn networks(&self, ns: &str) -> Result<serde_json::Value> {
+        self.get_raw(&network_collection(ns))
+    }
+    /// `GetNetwork` — `GET /v1/namespaces/{ns}/networks/{name}`.
+    pub fn network(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.get_raw(&network_resource(ns, name))
+    }
+    /// `CreateNetwork` — `POST .../networks` (body `{name, spec}`). `topology` é o
+    /// nome do enum proto3 JSON (ex. `NETWORK_TOPOLOGY_BRIDGE`); `ipv4_cidr` vazio
+    /// = alocado pelo provider.
+    pub fn network_create(
+        &self,
+        ns: &str,
+        name: &str,
+        topology: &str,
+        ipv4_cidr: &str,
+    ) -> Result<serde_json::Value> {
+        let mut spec = serde_json::json!({ "topology": topology });
+        if !ipv4_cidr.is_empty() {
+            spec["ipv4_cidr"] = serde_json::json!(ipv4_cidr);
+        }
+        let body = serde_json::json!({ "name": name, "spec": spec });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&network_collection(ns), &body)
+    }
+    /// `DeleteNetwork` — `DELETE .../networks/{name}`.
+    pub fn network_delete(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.delete(&network_resource(ns, name))
+    }
+    /// `ConnectContainer` — `POST .../networks/{network}:connect` (body `*`).
+    pub fn network_connect(
+        &self,
+        ns: &str,
+        network: &str,
+        container: &str,
+    ) -> Result<serde_json::Value> {
+        let body =
+            serde_json::json!({ "network": network, "container": container, "namespace": ns });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&network_verb(ns, network, "connect"), &body)
+    }
+    /// `DisconnectContainer` — `POST .../networks/{network}:disconnect` (body `*`).
+    pub fn network_disconnect(
+        &self,
+        ns: &str,
+        network: &str,
+        container: &str,
+    ) -> Result<serde_json::Value> {
+        let body =
+            serde_json::json!({ "network": network, "container": container, "namespace": ns });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&network_verb(ns, network, "disconnect"), &body)
+    }
+
+    // --- VolumeService (`delonix.node.v1`) ----------------------------------
+    //
+    // A LISTA não mede o tamanho (rootless: os diretórios pertencem a outro uid;
+    // ver condition UsageMeasured) nem lista quem monta cada volume — o `usedBy`
+    // reconstrói-se cruzando com os containers (`spec.mounts[].volume`).
+
+    /// `ListVolumes` — `GET /v1/namespaces/{ns}/volumes`.
+    pub fn volumes(&self, ns: &str) -> Result<serde_json::Value> {
+        self.get_raw(&volume_collection(ns))
+    }
+    /// `GetVolume` — `GET /v1/namespaces/{ns}/volumes/{name}`.
+    pub fn volume(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.get_raw(&volume_resource(ns, name))
+    }
+    /// `CreateVolume` — `POST .../volumes` (body `{name}`; o source local é o default).
+    pub fn volume_create(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "name": name });
+        let body = serde_json::to_vec(&body).map_err(CoreError::Json)?;
+        self.post(&volume_collection(ns), &body)
+    }
+    /// `DeleteVolume` — `DELETE .../volumes/{name}`.
+    pub fn volume_delete(&self, ns: &str, name: &str) -> Result<serde_json::Value> {
+        self.delete(&volume_resource(ns, name))
+    }
+
     /// GET/DELETE sem corpo de pedido (compat com os leitores existentes).
     fn request(&self, method: &str, path: &str) -> Result<Vec<u8>> {
         self.send(method, path, None)
@@ -376,6 +486,31 @@ mod tests {
         assert_eq!(
             container_verb("default", "odoo-16", "kill"),
             "/v1/namespaces/default/containers/odoo-16:kill"
+        );
+    }
+
+    #[test]
+    fn network_and_volume_routes_match_the_contract_templates() {
+        // Fonte: `google.api.http` de NetworkService/VolumeService em infra.proto.
+        assert_eq!(
+            network_collection("default"),
+            "/v1/namespaces/default/networks"
+        );
+        assert_eq!(
+            network_resource("default", "edge"),
+            "/v1/namespaces/default/networks/edge"
+        );
+        assert_eq!(
+            network_verb("default", "edge", "connect"),
+            "/v1/namespaces/default/networks/edge:connect"
+        );
+        assert_eq!(
+            volume_collection("default"),
+            "/v1/namespaces/default/volumes"
+        );
+        assert_eq!(
+            volume_resource("default", "pgdata"),
+            "/v1/namespaces/default/volumes/pgdata"
         );
     }
 

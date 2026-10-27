@@ -26,15 +26,25 @@ export interface DelonixClient {
   // namespaces — usado também na DESCOBERTA de namespaces do seletor global.
   workloads(namespace?: string): Promise<WorkloadRow[]>;
   images(): Promise<ImageRow[]>;
+  // Volumes e redes pelo contrato node.v1 (REST) — não CLI (decisão B). O
+  // tamanho do volume não é medível na lista (rootless) e os membros/usedBy
+  // reconstroem-se dos containers. `networkDiagnose` fica na CLI (sem serviço).
   volumes(namespace?: string): Promise<VolumeRow[]>;
-  networks(): Promise<NetworkRow[]>;
-  // Detalhe de UMA rede (§8.6): `network inspect -o json` (gateway/bridge) +
-  // `network describe` (membros COM IP — a única fonte por membro). Usado pela
-  // vista de topologia, que precisa dos IPs e do gateway.
+  networks(namespace?: string): Promise<NetworkRow[]>;
+  // Detalhe de UMA rede (§8.6): GetNetwork + membros COM IP derivados dos
+  // containers ligados. Usado pela vista de topologia.
   networkDetail(name: string): Promise<NetworkRow>;
   // Estado VIVO do nó de rede (`network diagnose -o json`): control plane,
-  // redes realizadas e registo de endereços. READ.
+  // redes realizadas e registo de endereços. READ. (Sem serviço node.v1 → CLI.)
   networkDiagnose(): Promise<NetDiagnoseFinding[]>;
+  // Mutações de rede/volume pelo contrato node.v1 (Create/Delete; Connect liga um
+  // container a uma rede). Lançam se o engine não servir o serviço (501).
+  networkCreate(name: string, driver: string, subnet: string, namespace?: string): Promise<void>;
+  networkRemove(name: string, namespace?: string): Promise<void>;
+  networkConnect(network: string, container: string, namespace?: string): Promise<void>;
+  networkDisconnect(network: string, container: string, namespace?: string): Promise<void>;
+  volumeCreate(name: string, namespace?: string): Promise<void>;
+  volumeRemove(name: string, namespace?: string): Promise<void>;
   // Segredos (§E): a LISTA traz só metadados (nome/chaves/versão), nunca valores.
   secrets(): Promise<SecretRow[]>;
   // Detalhe de UM segredo (`secret inspect`): o mapa chave→valor. Com

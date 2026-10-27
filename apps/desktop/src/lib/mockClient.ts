@@ -150,7 +150,7 @@ let images: ImageRow[] = [
   { ref: "rust:1.82", tags: ["rust:1.82"], id: "e2b9a1c4d7f6", size: "1,5 GiB", created: "há 6 sem", orphan: true, usedBy: [] },
 ];
 
-const volumes: VolumeRow[] = [
+let volumes: VolumeRow[] = [
   { name: "pgdata", driver: "local", size: "412 MB", usedBy: ["postgres-dev"] },
   { name: "odoo-filestore", driver: "local", size: "890 MB", usedBy: ["odoo-16"] },
   { name: "minio-data", driver: "local", size: "604 MB", usedBy: ["minio"] },
@@ -337,8 +337,35 @@ export class MockClient implements DelonixClient {
   // Os volumes do duplo local não têm namespace própria; o argumento é aceite
   // por paridade de assinatura (o engine real filtra por `volume ls -n`).
   volumes = (_namespace?: string) => wait(volumes);
-  networks = () => wait(networks);
+  networks = (_namespace?: string) => wait(networks);
   networkDetail = (name: string) => wait(networks.find((n) => n.name === name) ?? { name, driver: "bridge", subnet: "", bridge: "", gateway: "", members: [] });
+
+  // Mutações de rede/volume no duplo local (mutam os arrays, como o engine faria).
+  async networkCreate(name: string, driver: string, subnet: string, _namespace?: string): Promise<void> {
+    if (!networks.some((n) => n.name === name))
+      networks = [...networks, { name, driver: driver || "bridge", subnet, bridge: `dlxn${name.slice(0, 8)}`, gateway: subnet.replace(/\.0(\.0)?\/\d+$/, ".0.1"), members: [] }];
+    return wait(undefined);
+  }
+  async networkRemove(name: string, _namespace?: string): Promise<void> {
+    networks = networks.filter((n) => n.name !== name);
+    return wait(undefined);
+  }
+  async networkConnect(network: string, container: string, _namespace?: string): Promise<void> {
+    networks = networks.map((n) => (n.name === network && !n.members.some((m) => m.name === container) ? { ...n, members: [...n.members, { name: container, ip: "" }] } : n));
+    return wait(undefined);
+  }
+  async networkDisconnect(network: string, container: string, _namespace?: string): Promise<void> {
+    networks = networks.map((n) => (n.name === network ? { ...n, members: n.members.filter((m) => m.name !== container) } : n));
+    return wait(undefined);
+  }
+  async volumeCreate(name: string, _namespace?: string): Promise<void> {
+    if (!volumes.some((v) => v.name === name)) volumes = [...volumes, { name, driver: "local", size: "—", usedBy: [] }];
+    return wait(undefined);
+  }
+  async volumeRemove(name: string, _namespace?: string): Promise<void> {
+    volumes = volumes.filter((v) => v.name !== name);
+    return wait(undefined);
+  }
   networkDiagnose = () => wait(mockDiagnose());
   secrets = () => wait(secrets);
   // O duplo local NUNCA tem valores reais. Com `reveal`, devolve um placeholder

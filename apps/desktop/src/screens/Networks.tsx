@@ -86,8 +86,15 @@ function aggSeries(members: { name: string }[], seriesByName: Map<string, NetSer
 }
 
 export function Networks() {
-  const { client, act, go, namespace } = useApp();
-  const { data, error, refresh } = useResource("networks", () => client.networks(), 15000);
+  const { client, toast, go, namespace } = useApp();
+  const { data, error, refresh } = useResource(["networks", namespace], () => client.networks(namespace), 15000);
+  // Ação de rede pelo contrato node.v1 (decisão B — sem CLI), com toast + refresh.
+  const nact = async (fn: () => Promise<void>, label: string): Promise<boolean> => {
+    let ok = true;
+    try { await fn(); toast(`${label} · feito`, true); } catch (e) { ok = false; toast(`${label} falhou: ${String(e)}`, false); }
+    void refresh();
+    return ok;
+  };
   const workloads = useResource(["workloads", namespace], () => client.workloads(namespace), 10000).data ?? [];
   const { rateByName, seriesByName } = useNetBand();
   const rows = data ?? [];
@@ -114,9 +121,8 @@ export function Networks() {
   const createArgv = cmd.networkCreate({ name, driver, subnet });
   const runCreate = async () => {
     if (!name) return;
-    const ok = await act(createArgv, `Criar rede ${name}`);
+    const ok = await nact(() => client.networkCreate(name, driver, subnet, namespace), `Criar rede ${name}`);
     if (ok) { setName(""); setSubnet(""); setDriver("bridge"); setCreateOpen(false); }
-    void refresh();
   };
 
   // Containers EM EXECUÇÃO que ainda não estão na rede alvo (connect exige um
@@ -131,9 +137,8 @@ export function Networks() {
 
   const runConnect = async () => {
     if (!connectNet || !connectWl) return;
-    const ok = await act(cmd.networkConnect(connectNet, connectWl), `Ligar ${connectWl} a ${connectNet}`);
+    const ok = await nact(() => client.networkConnect(connectNet, connectWl, namespace), `Ligar ${connectWl} a ${connectNet}`);
     if (ok) { setConnectWl(""); setConnectNet(null); }
-    void refresh();
   };
 
   const columns: Column<NetworkRow>[] = [
@@ -191,7 +196,7 @@ export function Networks() {
               <>
                 <button className="btn sm" type="button" onClick={() => setTopoName(n.name)} title="Topologia"><Icon name="networks" size={12} /> Topologia</button>
                 <button className="btn sm" type="button" onClick={() => { setConnectNet(n.name); setConnectWl(""); }} title="Ligar workload"><Icon name="plus" size={12} /> Ligar</button>
-                <button className="btn ico danger" type="button" aria-label={`Remover ${n.name}`} onClick={() => void act(cmd.networkRm(n.name), `Remover rede ${n.name}`).then(() => refresh())}><Icon name="trash" /></button>
+                <button className="btn ico danger" type="button" aria-label={`Remover ${n.name}`} onClick={() => { if (window.confirm(`Remover a rede ${n.name}?`)) void nact(() => client.networkRemove(n.name, namespace), `Remover rede ${n.name}`); }}><Icon name="trash" /></button>
               </>
             )}
           />
@@ -238,7 +243,7 @@ export function Networks() {
           typeOf={typeOf}
           onClose={() => setTopoName(null)}
           onConnect={() => { setConnectNet(topoName); setConnectWl(""); }}
-          onDisconnect={(member) => void act(cmd.networkDisconnect(topoName, member), `Desligar ${member} de ${topoName}`).then(() => refresh())}
+          onDisconnect={(member) => void nact(() => client.networkDisconnect(topoName, member, namespace), `Desligar ${member} de ${topoName}`)}
         />,
         document.body,
       )}
