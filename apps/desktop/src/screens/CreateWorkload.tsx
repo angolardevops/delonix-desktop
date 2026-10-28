@@ -29,6 +29,7 @@ export function CreateWorkload() {
   const [ports, setPorts] = useState("");
   const [env, setEnv] = useState("POSTGRES_DB=staging");
   const [volumes, setVolumes] = useState("");
+  const [network, setNetwork] = useState("");
   const [memory, setMemory] = useState("1g");
   const [cpus, setCpus] = useState("2");
   const [restart, setRestart] = useState("unless-stopped");
@@ -78,7 +79,7 @@ export function CreateWorkload() {
     setErr(null);
     setBusy(true);
     void client
-      .containerCreate({ name, image, env, volumes, ports, memory, cpus, restart, logCri })
+      .containerCreate({ name, image, env, volumes, ports, network, memory, cpus, restart, logCri })
       .then(() => go({ name: "workload", id: name }))
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false));
@@ -209,6 +210,7 @@ export function CreateWorkload() {
                 {[
                   ["Imagem", image, setImage], ["Nome", name, setName], ["Portas (host:contentor)", ports, setPorts],
                   ["Variáveis (CHAVE=valor)", env, setEnv], ["Volumes (nome:/caminho)", volumes, setVolumes],
+                  ["Rede (vazio = host)", network, setNetwork],
                   ["Memória", memory, setMemory], ["CPUs", cpus, setCpus], ["Reinício", restart, setRestart],
                 ].map(([label, value, set]) => (
                   <label key={label as string} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>

@@ -1055,6 +1055,11 @@ export class TauriClient implements DelonixClient {
     }).filter((pm) => pm.container_port);
     if (ports.length) spec.ports = ports;
 
+    // Rede custom (uma só): vazio/"host" = netns do host (default). O engine
+    // attacha-a no start; o container alcança os outros da rede por nome/alias.
+    const net = input.network.trim();
+    if (net && net !== "host" && net !== "none") spec.networks = [{ network: net }];
+
     const resources: Obj = {};
     const mem = memToBytes(input.memory);
     if (mem) resources.memory_limit_bytes = String(mem);
