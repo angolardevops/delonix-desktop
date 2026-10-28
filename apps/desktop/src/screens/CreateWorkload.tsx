@@ -210,7 +210,7 @@ export function CreateWorkload() {
                 {[
                   ["Imagem", image, setImage], ["Nome", name, setName], ["Portas (host:contentor)", ports, setPorts],
                   ["Variáveis (CHAVE=valor)", env, setEnv], ["Volumes (nome:/caminho)", volumes, setVolumes],
-                  ["Rede (vazio = host)", network, setNetwork],
+                  ["Redes (vazio = host; várias = multi-homed)", network, setNetwork],
                   ["Memória", memory, setMemory], ["CPUs", cpus, setCpus], ["Reinício", restart, setRestart],
                 ].map(([label, value, set]) => (
                   <label key={label as string} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--mut)" }}>

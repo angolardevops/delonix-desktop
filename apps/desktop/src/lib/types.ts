@@ -320,7 +320,7 @@ export interface ContainerCreateInput {
   env: string; // "CHAVE=valor"
   volumes: string; // "nome:/caminho" (ou "/host:/caminho[:ro]")
   ports: string; // "host:contentor"
-  network: string; // rede custom (vazio = host); uma só por create
+  network: string; // redes custom (vazio = host); várias = multi-homed (eth1, eth2…)
   memory: string; // "1g" / "512m"
   cpus: string; // "2" / "0.5"
   restart: string; // unless-stopped | always | on-failure | no

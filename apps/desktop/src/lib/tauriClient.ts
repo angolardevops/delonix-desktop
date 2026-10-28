@@ -1055,10 +1055,11 @@ export class TauriClient implements DelonixClient {
     }).filter((pm) => pm.container_port);
     if (ports.length) spec.ports = ports;
 
-    // Rede custom (uma só): vazio/"host" = netns do host (default). O engine
-    // attacha-a no start; o container alcança os outros da rede por nome/alias.
-    const net = input.network.trim();
-    if (net && net !== "host" && net !== "none") spec.networks = [{ network: net }];
+    // Redes custom (uma ou várias): vazio/"host" = netns do host (default). A 1ª
+    // é a primária; as restantes multi-homeiam o container (eth1, eth2…). O
+    // engine attacha-as no start; alcança os outros de cada rede por nome/alias.
+    const nets = split(input.network).filter((n) => n !== "host" && n !== "none");
+    if (nets.length) spec.networks = nets.map((network) => ({ network }));
 
     const resources: Obj = {};
     const mem = memToBytes(input.memory);
